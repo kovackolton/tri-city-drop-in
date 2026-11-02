@@ -6,6 +6,8 @@ import { googleEmbedUrl, googleDirectionsUrl } from '../src/location-media';
 import { LocationMapComponent } from '../src/app/location-map/location-map.component';
 import { DomSanitizer } from '@angular/platform-browser';
 import { avatarInitial, avatarPalette, contactEmailLink, contactPhoneLink } from '../src/avatar';
+import { SignupComponent } from '../src/app/signup/signup.component';
+import { Game } from '../src/models';
 import { MyGamesComponent } from '../src/app/my-games/my-games.component';
 import { AuthService } from '../src/auth.service';
 import { RegistrationsStore, Seat } from '../src/registrations.store';
@@ -59,4 +61,20 @@ test('the map component never bypasses Angular security for an unapproved URL an
   component.embedUrl = 'https://www.google.com/maps/embed?pb=fixture'; component.ngOnChanges();
   assert.equal(trusted.length, 1); assert.ok(component.safeUrl);
   component.embedUrl = ''; component.ngOnChanges(); assert.equal(component.safeUrl, null);
+});
+
+
+test('guest signup cannot submit without acknowledgment and resets it when another guest is added', async () => {
+  const calls: unknown[][] = [];
+  const store = { join: async (...args: unknown[]) => { calls.push(args); return true; } };
+  const injector = Injector.create({ providers: [{ provide: RegistrationsStore, useValue: store }] });
+  const component = runInInjectionContext(injector, () => new SignupComponent());
+  component.game = { id: 'game', priceCents: 1000, maxGuestsPerUser: 3, capacity: 6 } as Game;
+  component.guests = [' Guest ']; await component.join();
+  assert.equal(calls.length, 0); assert.match(component.acknowledgmentError(), /Accept guest payment/);
+  component.guestPaymentAcknowledged = true; component.add();
+  assert.equal(component.guestPaymentAcknowledged, false);
+  component.remove(1); component.guestPaymentAcknowledged = true; await component.join();
+  assert.deepEqual(calls[0], ['game', ['Guest'], 1000, true]);
+  assert.deepEqual(component.guests, []); assert.equal(component.guestPaymentAcknowledged, false);
 });

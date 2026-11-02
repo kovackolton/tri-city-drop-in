@@ -7,8 +7,10 @@ import { Database } from './database';
 import { integer, object, text, uuid } from './validation';
 
 export function signupInput(value: unknown) {
-  const b = object(value, ['guests', 'expectedPriceCents']);
+  const b = object(value, ['guests', 'expectedPriceCents', 'guestPaymentAcknowledged']);
   if (!Array.isArray(b.guests) || b.guests.length > 20) throw new BadRequestException('Provide up to 20 guest names.');
+  if (b.guests.length && b.guestPaymentAcknowledged !== true) throw new BadRequestException('Acknowledge responsibility for guest payments before booking guests.');
+  if (b.guestPaymentAcknowledged !== undefined && typeof b.guestPaymentAcknowledged !== 'boolean') throw new BadRequestException('Guest payment acknowledgment must be a boolean.');
   return { guests: b.guests.map(name => text(name, 'Guest name', 80)), price: integer(b.expectedPriceCents, 'Expected price', 0, 2147483647) };
 }
 
@@ -46,6 +48,7 @@ export class SignupsService {
       const bookingId = randomUUID(), queuedAt = new Date();
       await tx.signup.createMany({ data: [null, ...guests].map((guestName, guestNumber) => ({
         eventId, userId, bookingId, guestNumber, guestName, status, quotedPriceCents: price, queuedAt,
+        guestPaymentAcknowledgedAt: guests.length ? queuedAt : null, guestPaymentTermsVersion: guests.length ? 'guest-payment-v1' : null,
         confirmedAt: status === 'CONFIRMED' ? queuedAt : null
       })) });
       const seats = await tx.signup.findMany({ where: { bookingId }, orderBy: { guestNumber: 'asc' } });
@@ -118,13 +121,13 @@ export class SignupsService {
       select: { id: true, guestNumber: true, guestName: true, status: true, user: { select: appearanceSelect } },
       orderBy: [{ queuedAt: 'asc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }]
     });
-    return seats.map(s => ({ id: s.id, name: s.guestNumber === 0 ? s.user.displayName : s.guestName, isGuest: s.guestNumber > 0, status: s.status, avatarUrl: s.guestNumber === 0 ? appearance(s.user).avatarUrl : null, avatarColor: s.user.avatarColor, guestOf: s.guestNumber > 0 ? s.user.displayName : null }));
+    return seats.map(s => ({ id: s.id, name: s.guestNumber === 0 ? appearance(s.user).displayName : s.guestName, isGuest: s.guestNumber > 0, status: s.status, avatarUrl: s.guestNumber === 0 ? appearance(s.user).avatarUrl : null, avatarColor: s.user.avatarColor, guestOf: s.guestNumber > 0 ? appearance(s.user).displayName : null }));
   }
   async roster(userId: string, eventId: string, administrator = false) {
     uuid(eventId);
     if (!await this.db.event.findFirst({ where: { id: eventId, ...(administrator ? {} : { organizerId: userId }) } })) throw new NotFoundException('Event not found.');
-    const seats = await this.db.signup.findMany({ where: { eventId }, select: { attendance: true, lateCancellation: true, strikes: { select: { id: true, reason: true, revokedAt: true, expiresAt: true } }, id: true, bookingId: true, guestNumber: true, guestName: true, status: true, queuedAt: true, event: { select: { startsAt: true, endsAt: true, status: true } }, user: { select: { ...appearanceSelect, email: true, contactEmail: true, phone: true } }, payment: { select: { amountCents: true, status: true, playerPaid: true, playerReviewedAt: true, organizerPaid: true, organizerReviewedAt: true } } }, orderBy: [{ queuedAt: 'asc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
-    return seats.map(seat => ({ ...seat, user: { ...appearance(seat.user), contactEmail: seat.user.contactEmail ?? seat.user.email, phone: seat.user.phone } }));
+    const seats = await this.db.signup.findMany({ where: { eventId }, select: { guestPaymentAcknowledgedAt: true, guestPaymentTermsVersion: true, attendance: true, lateCancellation: true, strikes: { select: { id: true, reason: true, revokedAt: true, expiresAt: true } }, id: true, bookingId: true, guestNumber: true, guestName: true, status: true, queuedAt: true, event: { select: { startsAt: true, endsAt: true, status: true } }, user: { select: { ...appearanceSelect, skillLevel: true, email: true, contactEmail: true, phone: true } }, payment: { select: { amountCents: true, status: true, playerPaid: true, playerReviewedAt: true, organizerPaid: true, organizerReviewedAt: true } } }, orderBy: [{ queuedAt: 'asc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
+    return seats.map(seat => ({ ...seat, user: { ...appearance(seat.user), accountName: seat.user.displayName, nickname: seat.user.nickname, skillLevel: seat.user.skillLevel, contactEmail: seat.user.contactEmail ?? seat.user.email, phone: seat.user.phone } }));
   }
 }
 

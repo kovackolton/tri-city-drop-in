@@ -55,6 +55,10 @@ model User {
   firebaseUid String   @unique
   email       String   @unique
   displayName String
+  nickname    String?
+  skillLevel  Int?
+  accountNameSetAt DateTime? @db.Timestamptz(3)
+  profileCompletedAt DateTime? @db.Timestamptz(3)
   avatarUrl   String?
   contactEmail String?
   phone       String?
@@ -70,6 +74,8 @@ model User {
   notifications Notification[]
   auditLogs   AuditLog[]
   paymentReviews PaymentObligation[] @relation("PaymentReviewer")
+  organizerRequests OrganizerRequest[] @relation("OrganizerRequester")
+  reviewedOrganizerRequests OrganizerRequest[] @relation("OrganizerRequestReviewer")
 }
 
 model Location {
@@ -121,6 +127,8 @@ model Signup {
   bookingId   String @db.Uuid
   quotedPriceCents Int @default(0)
   lateCancellation Boolean @default(false)
+  guestPaymentAcknowledgedAt DateTime? @db.Timestamptz(3)
+  guestPaymentTermsVersion String?
   status      SignupStatus
   attendance  Attendance @default(UNMARKED)
   queuedAt    DateTime @default(now()) @db.Timestamptz(3)
@@ -197,4 +205,18 @@ model AuditLog {
   details   Json
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   @@index([eventId, createdAt])
+}
+
+
+model OrganizerRequest {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user User @relation("OrganizerRequester", fields: [userId], references: [id], onDelete: Restrict)
+  status String @default("PENDING")
+  requestedAt DateTime @default(now()) @db.Timestamptz(3)
+  reviewedAt DateTime? @db.Timestamptz(3)
+  reviewedById String? @db.Uuid
+  reviewedBy User? @relation("OrganizerRequestReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+  @@index([status, requestedAt])
+  @@index([userId, requestedAt])
 }

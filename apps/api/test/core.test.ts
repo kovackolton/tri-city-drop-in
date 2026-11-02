@@ -37,7 +37,7 @@ test('payment reviews require an explicit boolean and cannot inject the other re
 });
 
 test('signup input accepts named guests, rejects ownership injection and invalid prices/names', () => {
-  assert.deepEqual(signupInput({ guests: [' Guest '], expectedPriceCents: 0 }), { guests: ['Guest'], price: 0 });
+  assert.deepEqual(signupInput({ guests: [' Guest '], expectedPriceCents: 0, guestPaymentAcknowledged: true }), { guests: ['Guest'], price: 0 });
   for (const value of [
     { guests: [''], expectedPriceCents: 100 },
     { guests: [], expectedPriceCents: -1 },
@@ -179,4 +179,16 @@ test('optional location media preserves omitted fields and can be explicitly cle
   const base = { name: 'Test pitch', address: '123 Test St', timezone: 'America/Toronto' };
   assert.equal('photoUrl' in locationInput(base), false);
   assert.deepEqual(locationInput({ ...base, photoUrl: '', photoCredit: '', mapEmbedUrl: '' }), { ...base, photoUrl: null, photoCredit: null, mapEmbedUrl: null });
+});
+
+
+test('profile names are immutable, nicknames and self-rated skills are validated', () => {
+  assert.deepEqual(profileInput({ nickname: '  Striker ', skillLevel: 4 }), { nickname: 'Striker', skillLevel: 4 });
+  assert.deepEqual(profileInput({ nickname: '', skillLevel: null }), { nickname: null, skillLevel: null });
+  for (const value of [{ displayName: 'Changed' }, { role: 'ORGANIZER' }, { skillLevel: 0 }, { skillLevel: 6 }, { skillLevel: 2.5 }, { skillLevel: '3' }, { nickname: 'x'.repeat(81) }]) assert.throws(() => profileInput(value));
+});
+test('guest bookings require explicit payment responsibility even for free and waitlisted parties', () => {
+  for (const guestPaymentAcknowledged of [undefined, false, 'true', 1]) assert.throws(() => signupInput({ guests: ['Guest'], expectedPriceCents: 0, guestPaymentAcknowledged }));
+  assert.equal(signupInput({ guests: ['Guest'], expectedPriceCents: 0, guestPaymentAcknowledged: true }).guests.length, 1);
+  assert.equal(signupInput({ guests: [], expectedPriceCents: 1000 }).guests.length, 0);
 });

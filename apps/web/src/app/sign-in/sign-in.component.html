@@ -10,6 +10,7 @@
   }
   <form #credentials="ngForm" (ngSubmit)="submit(credentials)" class="space-y-4">
     <fieldset [disabled]="auth.busy()" class="space-y-4">
+      @if (mode === 'register') { <label for="signup-account-name">Account name<input id="signup-account-name" name="accountName" autocomplete="name" [(ngModel)]="accountName" required maxlength="80"></label><p class="text-xs text-stone-500">Organizers and administrators can see this name. It cannot be edited after profile setup; you can choose a nickname.</p> }
       <label for="signin-email">Email<input id="signin-email" name="email" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" [(ngModel)]="email" required email></label>
       @if (mode !== 'reset') {
         <label for="signin-password">Password<input id="signin-password" name="password" type="password" [attr.autocomplete]="mode === 'register' ? 'new-password' : 'current-password'" [(ngModel)]="password" required [minlength]="mode === 'register' ? 12 : 1" [attr.aria-describedby]="mode === 'register' ? 'password-help' : null"></label>
@@ -18,7 +19,7 @@
           <label for="confirm-password">Confirm password<input id="confirm-password" name="confirmation" type="password" autocomplete="new-password" [(ngModel)]="confirmation" required></label>
         }
       }
-      @if (credentials.invalid && credentials.submitted) { <p role="alert" class="text-sm text-red-700">Enter a valid email{{ mode === 'reset' ? '.' : mode === 'register' ? ', a password of at least 12 characters, and its confirmation.' : ' and password.' }}</p> }
+      @if (credentials.invalid && credentials.submitted) { <p role="alert" class="text-sm text-red-700">{{ mode === 'register' ? 'Enter your account name, a valid email, a password of at least 12 characters, and its confirmation.' : mode === 'reset' ? 'Enter a valid email.' : 'Enter a valid email and password.' }}</p> }
       <button type="submit" class="primary w-full" [disabled]="auth.busy()">{{ auth.busy() ? 'Please wait...' : mode === 'register' ? 'Create account' : mode === 'reset' ? 'Send reset link' : 'Sign in with email' }}</button>
     </fieldset>
   </form>

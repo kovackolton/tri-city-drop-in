@@ -20,7 +20,7 @@ function setup() {
     connectAuthEmulator: () => {}, signInWithEmailAndPassword: invoke('signin'),
     createUserWithEmailAndPassword: async (...args: unknown[]) => { calls.push({ name: 'create', args }); auth.currentUser = user; listener(user); return { user }; },
     sendEmailVerification: invoke('verify'), sendPasswordResetEmail: invoke('reset'),
-    reload: invoke('reload'), validatePassword: async () => ({ isValid: true })
+    updateProfile: invoke('update-profile'), reload: invoke('reload'), validatePassword: async () => ({ isValid: true })
   };
   const http = { patch: (url: string, value: unknown) => { calls.push({ name: 'patch', args: [url, value] }); return of({ id: 'profile', ...value as object }); }, get: (url: string) => { calls.push({ name: 'api', args: [url] }); return of({ id: 'profile', role: 'PLAYER' }); } };
   const injector = Injector.create({ providers: [AuthService, { provide: CONFIG, useValue: { firebase: { apiKey: 'local', authDomain: 'local', projectId: 'local', appId: 'local' } } }, { provide: FIREBASE_AUTH_SDK, useValue: sdk }, { provide: HttpClient, useValue: http }] });
@@ -37,17 +37,17 @@ test('email sign-in sends the unchanged password only to Firebase and trims emai
 });
 test('registration sends verification and does not create an unverified API profile', async () => {
   const { service, calls } = setup();
-  await service.register('player@example.invalid', 'a long private passphrase');
+  await service.register('player@example.invalid', 'a long private passphrase', 'Account Name');
   assert.equal(service.needsVerification(), true); assert.equal(service.profile(), null);
-  assert.deepEqual(calls.map(c => c.name), ['create', 'verify']);
+  assert.deepEqual(calls.map(c => c.name), ['create', 'update-profile', 'token', 'verify']);
   assert.match(service.notice(), /Account created/);
 });
 test('registration rejects short passwords and Firebase policy failures before account creation', async () => {
   const { service, sdk, calls } = setup();
-  await service.register('player@example.invalid', 'short');
+  await service.register('player@example.invalid', 'short', 'Account Name');
   assert.match(service.error(), /12 characters/); assert.equal(calls.length, 0);
   sdk.validatePassword = async () => ({ isValid: false, passwordPolicy: { customStrengthOptions: { minPasswordLength: 16, containsNumericCharacter: true } } } as any);
-  await service.register('player@example.invalid', 'a long private passphrase');
+  await service.register('player@example.invalid', 'a long private passphrase', 'Account Name');
   assert.match(service.error(), /16 characters.*a number/); assert.equal(calls.length, 0);
 });
 test('verification reloads the account and forces a fresh token before requesting the profile', async () => {
@@ -66,7 +66,7 @@ test('unverified existing sessions do not request app profiles and can resend em
 test('verification email failure leaves a recoverable signed-in account', async () => {
   const { service, sdk } = setup();
   sdk.sendEmailVerification = async () => { throw { code: 'auth/network-request-failed' }; };
-  await service.register('player@example.invalid', 'a long private passphrase');
+  await service.register('player@example.invalid', 'a long private passphrase', 'Account Name');
   assert.equal(service.needsVerification(), true); assert.match(service.error(), /Account created, but/); assert.equal(service.busy(), false);
 });
 test('password reset gives the same response for existing and nonexistent accounts', async () => {
@@ -118,7 +118,7 @@ test('registration rejects mismatched confirmation and clears secrets on mode ch
 
 test('profile editing sends only profile fields and ignores a late response after account changes', async () => {
   const { service, calls, http, emit } = setup();
-  const profile = { displayName: 'Player', contactEmail: 'contact@example.invalid', phone: '+1 555 123 4567', avatarColor: 'rose', useGooglePhoto: false };
+  const profile = { nickname: 'Player nickname', skillLevel: 3, contactEmail: 'contact@example.invalid', phone: '+1 555 123 4567', avatarColor: 'rose', useGooglePhoto: false };
   await service.saveProfile(profile);
   assert.deepEqual(calls[0], { name: 'patch', args: ['/api/me', profile] });
   assert.equal(service.profile()?.phone, profile.phone);
@@ -126,4 +126,15 @@ test('profile editing sends only profile fields and ignores a late response afte
   const pending = service.saveProfile(profile); emit(null);
   response.next({ id: 'old-profile', ...profile }); response.complete(); await pending;
   assert.equal(service.profile(), null);
+});
+
+
+test('registration requires an account name and remains recoverable if Firebase name setup fails', async () => {
+  const { service, sdk, calls } = setup();
+  await service.register('player@example.invalid', 'a long private passphrase', '');
+  assert.match(service.error(), /account name/); assert.equal(calls.length, 0);
+  sdk.updateProfile = async () => { throw new Error('Local simulated failure'); };
+  await service.register('player@example.invalid', 'a long private passphrase', 'Account Name');
+  assert.deepEqual(calls.map(call => call.name), ['create', 'verify']);
+  assert.equal(service.needsVerification(), true); assert.match(service.notice(), /Account created/);
 });

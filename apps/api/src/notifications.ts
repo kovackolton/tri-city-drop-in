@@ -4,6 +4,10 @@ import { Database } from './database';
 import { uuid } from './validation';
 
 const descriptions: Record<string, string> = {
+  ORGANIZER_REQUEST: 'A player requested organizer access. Review their pending request on the Users page.',
+  ORGANIZER_REQUEST_GRANTED: 'An administrator granted organizer access. Refresh your profile to open the organizer workspace.',
+  ORGANIZER_REQUEST_CLEARED: 'An administrator cleared your organizer request. You can submit a new request from My profile.',
+  STRIKE_ISSUED: 'An organizer recorded a reviewed strike on your account. View My games for the affected player or guest seat.',
   WAITLIST_PROMOTED: 'Your whole party now has confirmed places.',
   BOOKING_REMOVED: 'The organizer removed your booking.',
   EVENT_CHANGED: 'Event details changed. Review the latest details in My games.',
@@ -16,6 +20,18 @@ export class NotificationsService {
   // In-app reminders are generated on inbox refresh. No worker or external delivery provider is needed.
   async inbox(userId: string) {
     const now = new Date();
+    // Also cover administrators appointed after a request was submitted.
+    const viewer = await this.db.user.findUnique({ where: { id: userId }, select: { role: true } });
+    if (viewer?.role === 'ADMINISTRATOR') {
+      const pending = await this.db.organizerRequest.findMany({ where: { status: 'PENDING' }, select: { id: true, userId: true } });
+      for (const candidate of pending) await this.db.$transaction(async tx => {
+        await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${candidate.userId}::uuid FOR UPDATE`;
+        const request = await tx.organizerRequest.findUnique({ where: { id: candidate.id }, include: { user: { select: { displayName: true } } } });
+        if (request?.status !== 'PENDING') return;
+        const dedupeKey = `organizer-request:${request.id}:${userId}`;
+        await tx.notification.upsert({ where: { dedupeKey }, update: {}, create: { userId, kind: 'ORGANIZER_REQUEST', dedupeKey, payload: { requestId: request.id, requesterId: request.userId, title: `${request.user.displayName} requested organizer access` } } });
+      });
+    }
     const bookings = await this.db.signup.findMany({ where: { userId, guestNumber: 0, status: 'CONFIRMED', event: { deletedAt: null, status: 'PUBLISHED', startsAt: { gt: now, lte: new Date(now.getTime() + 86400000) } } }, select: { eventId: true, bookingId: true } });
     for (const booking of bookings) await this.db.$transaction(async tx => {
       await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${booking.eventId}::uuid FOR UPDATE`;

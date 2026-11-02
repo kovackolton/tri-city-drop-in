@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { Database } from './database';
 import { AdministratorGuard, FirebaseGuard, OrganizerGuard, TokenVerifier } from './auth';
+import { OrganizerRequestsService, OrganizerRequestsController, AdminUsersController } from './organizer-requests';
 import { NotificationsController, NotificationsService } from './notifications';
 import { EventManagementController, EventManagementService } from './event-management';
 import { EventsController } from './events';
@@ -14,7 +15,7 @@ import { OrganizerController, OrganizerService } from './organizer';
 import { LocationsController, LocationsService } from './locations';
 import { AdministrationController, AdministrationService } from './administration';
 
-@Module({ controllers: [NotificationsController, EventManagementController, EventsController, ProfilesController, SignupsController, PaymentsController, OrganizerController, LocationsController, AdministrationController], providers: [NotificationsService, EventManagementService, Database, AdministratorGuard, FirebaseGuard, OrganizerGuard, TokenVerifier, SignupsService, PaymentsService, OrganizerService, LocationsService, AdministrationService] })
+@Module({ controllers: [OrganizerRequestsController, AdminUsersController, NotificationsController, EventManagementController, EventsController, ProfilesController, SignupsController, PaymentsController, OrganizerController, LocationsController, AdministrationController], providers: [OrganizerRequestsService, NotificationsService, EventManagementService, Database, AdministratorGuard, FirebaseGuard, OrganizerGuard, TokenVerifier, SignupsService, PaymentsService, OrganizerService, LocationsService, AdministrationService] })
 export class AppModule {}
 
 async function bootstrap() {

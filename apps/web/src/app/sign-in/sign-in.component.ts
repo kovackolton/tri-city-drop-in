@@ -12,6 +12,7 @@ export class SignInComponent implements OnDestroy {
   readonly auth = inject(AuthService);
   mode: 'signin' | 'register' | 'reset' = 'signin';
   email = '';
+  accountName = '';
   password = '';
   confirmation = '';
   setMode(mode: 'signin' | 'register' | 'reset') {
@@ -26,7 +27,7 @@ export class SignInComponent implements OnDestroy {
     const password = this.password;
     this.clearPasswords();
     if (this.mode === 'reset') await this.auth.resetPassword(this.email);
-    else if (this.mode === 'register') await this.auth.register(this.email, password);
+    else if (this.mode === 'register') await this.auth.register(this.email, password, this.accountName);
     else await this.auth.loginEmail(this.email, password);
   }
   async google() { this.clearPasswords(); await this.auth.login(); }

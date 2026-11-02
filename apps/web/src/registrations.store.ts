@@ -10,7 +10,7 @@ export interface Seat {
   id: string; eventId: string; bookingId: string; guestNumber: number; guestName: string | null;
   status: 'CONFIRMED' | 'WAITLISTED' | 'CANCELLED'; quotedPriceCents: number; lateCancellation: boolean;
   payment: PaymentReview | null;
-  attendance: string;
+  attendance: string; guestPaymentAcknowledgedAt?: string | null; guestPaymentTermsVersion?: string | null;
   strikes: { id: string; reason: string; createdAt: string; revokedAt: string | null; expiresAt: string | null }[];
   event: { title: string; description?: string | null; capacity?: number; startsAt: string; endsAt: string; status: string; cancellationCutoffHours: number; location: Location; organizer: { displayName: string; avatarUrl?: string | null; avatarColor?: string } };
 }
@@ -44,7 +44,7 @@ export const RegistrationsStore = signalStore(
     return {
       load,
       reset() { revision++; patchState(store, { seats: [], loading: false, busy: false, error: '', notice: '' }); },
-      join(eventId: string, guests: string[], expectedPriceCents: number) { return mutate(`/api/events/${eventId}/signups`, { guests, expectedPriceCents }, 'Booking saved. Check your confirmed or waitlisted status below.'); },
+      join(eventId: string, guests: string[], expectedPriceCents: number, guestPaymentAcknowledged = false) { return mutate(`/api/events/${eventId}/signups`, { guests, expectedPriceCents, guestPaymentAcknowledged }, 'Booking saved. Check your confirmed or waitlisted status below.'); },
       cancel(eventId: string, bookingId: string) { return mutate(`/api/events/${eventId}/signups/${bookingId}/cancel`, {}, 'Your whole party has been cancelled.'); }
     };
   })
