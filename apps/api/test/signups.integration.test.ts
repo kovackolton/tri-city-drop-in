@@ -10,6 +10,8 @@ import { SignupsService } from '../src/signups';
 import { PaymentsService } from '../src/payments';
 import { OrganizerService } from '../src/organizer';
 import { LocationsService } from '../src/locations';
+import { EventManagementService } from '../src/event-management';
+import { NotificationsService } from '../src/notifications';
 import { AdministrationService } from '../src/administration';
 
 test('signup transactions against isolated PostgreSQL schema', { timeout: 120000 }, async t => {
@@ -25,6 +27,8 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
   const organizer = new OrganizerService(db);
   const locations = new LocationsService(db);
   const administration = new AdministrationService(db, service);
+  const management = new EventManagementService(db);
+  const notifications = new NotificationsService(db);
   try {
     // All tables and fixtures live in this new schema, never the application's public tables.
     execFileSync(process.execPath, [resolve('../../node_modules/prisma/build/index.js'), 'migrate', 'deploy'], {
@@ -34,6 +38,85 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
     const location = await db.location.create({ data: { name: 'Test pitch', address: 'Test only', timezone: 'America/New_York' } });
     const event = (capacity: number, priceCents = 1000) => db.event.create({ data: { title: 'Test game', organizerId: users[0].id, locationId: location.id, capacity, priceCents, maxGuestsPerUser: Math.min(3, capacity - 1), status: 'PUBLISHED', startsAt: new Date(Date.now() + 86400000), endsAt: new Date(Date.now() + 90000000) } });
     const join = (user: number, eventId: string, guests: string[] = [], expectedPriceCents = 1000) => service.join(users[user].id, eventId, { guests, expectedPriceCents });
+
+    await t.test('cancellation is owner-only, idempotent, retains parties and voids charges', async () => {
+      const e = await event(2);
+      await join(1, e.id, ['Guest']); await join(2, e.id);
+      await assert.rejects(management.transition(users[3].id, e.id, 'cancel'), /Event not found/);
+      await management.transition(users[0].id, e.id, 'cancel');
+      await management.transition(users[0].id, e.id, 'cancel');
+      assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).status, 'CANCELLED');
+      assert.equal(await db.signup.count({ where: { eventId: e.id, status: 'CANCELLED', lateCancellation: false } }), 3);
+      assert.equal(await db.paymentObligation.count({ where: { signup: { eventId: e.id }, status: 'VOID' } }), 2);
+      assert.equal(await db.notification.count({ where: { kind: 'EVENT_CANCELLED', payload: { path: ['eventId'], equals: e.id } } }), 2);
+      assert.equal(await db.auditLog.count({ where: { eventId: e.id, action: 'EVENT_CANCELLED' } }), 1);
+      await assert.rejects(join(3, e.id), /future published/);
+    });
+    await t.test('completion enforces end time and administrator access and retains financial review', async () => {
+      const e = await event(2); await join(1, e.id);
+      await assert.rejects(management.transition(users[0].id, e.id, 'complete'), /have ended/);
+      await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000) } });
+      await assert.rejects(management.transition(users[0].id, e.id, 'cancel'), /Only future/);
+      await assert.rejects(management.transition(users[2].id, e.id, 'complete'), /Event not found/);
+      await management.transition(users[2].id, e.id, 'complete', true);
+      await management.transition(users[0].id, e.id, 'complete');
+      assert.equal(await db.signup.count({ where: { eventId: e.id, status: 'CONFIRMED' } }), 1);
+      assert.equal(await db.paymentObligation.count({ where: { signup: { eventId: e.id }, status: 'UNPAID' } }), 1);
+    });
+    await t.test('cancel and concurrent join serialize without leaving active bookings', async () => {
+      const e = await event(3);
+      await Promise.allSettled([join(1, e.id), management.transition(users[0].id, e.id, 'cancel')]);
+      assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).status, 'CANCELLED');
+      assert.equal(await db.signup.count({ where: { eventId: e.id, status: { in: ['CONFIRMED', 'WAITLISTED'] } } }), 0);
+    });
+    await t.test('inbox reminders are private, deduplicated concurrently, and scoped to confirmed future bookings', async () => {
+      const e = await event(1); await join(21, e.id); await join(22, e.id);
+      await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() + 3600000), endsAt: new Date(Date.now() + 7200000) } });
+      const [a, b] = await Promise.all([notifications.inbox(users[21].id), notifications.inbox(users[21].id)]);
+      assert.equal(a.items.length, 1); assert.equal(b.unread, 1); assert.equal(a.items[0].kind, 'EVENT_REMINDER');
+      assert.equal(a.items[0].title, e.title);
+      assert.equal((await notifications.inbox(users[22].id)).items.length, 0);
+      await assert.rejects(notifications.read(users[22].id, a.items[0].id), /Notification not found/);
+      await notifications.read(users[21].id, a.items[0].id);
+      await notifications.read(users[21].id, a.items[0].id);
+      assert.equal((await notifications.inbox(users[21].id)).unread, 0);
+      await management.transition(users[0].id, e.id, 'cancel');
+      const inbox = await notifications.inbox(users[21].id);
+      assert.equal(inbox.unread, 1); assert.equal(inbox.items.length, 2);
+      await notifications.read(users[21].id);
+      assert.equal((await notifications.inbox(users[21].id)).unread, 0);
+      assert.equal((await notifications.inbox(users[22].id)).unread, 1);
+    });
+    await t.test('future and failed outbox records stay hidden; read-all does not consume scheduled notices', async () => {
+      const userId = users[23].id;
+      const scheduled = await db.notification.create({ data: { userId, kind: 'EVENT_CHANGED', dedupeKey: randomUUID(), payload: {}, availableAt: new Date(Date.now() + 3600000) } });
+      await db.notification.create({ data: { userId, kind: 'EVENT_CHANGED', dedupeKey: randomUUID(), payload: {}, status: 'FAILED' } });
+      assert.equal((await notifications.inbox(userId)).items.length, 0);
+      await assert.rejects(notifications.read(userId, scheduled.id), /Notification not found/);
+      await notifications.read(userId);
+      assert.equal((await db.notification.findUniqueOrThrow({ where: { id: scheduled.id } })).readAt, null);
+    });
+
+    await t.test('reminders respect the 24-hour window and rescheduling creates only one new reminder', async () => {
+      const e = await event(1); await join(20, e.id);
+      await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() + 172800000), endsAt: new Date(Date.now() + 176400000) } });
+      assert.equal((await notifications.inbox(users[20].id)).items.length, 0);
+      const startsAt = new Date(Date.now() + 7200000), endsAt = new Date(Date.now() + 10800000);
+      await administration.edit(users[0].id, e.id, { startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString() });
+      await notifications.inbox(users[20].id);
+      await administration.edit(users[0].id, e.id, { startsAt: new Date(Date.now() + 3600000).toISOString(), endsAt: endsAt.toISOString() });
+      await notifications.inbox(users[20].id); await notifications.inbox(users[20].id);
+      assert.equal(await db.notification.count({ where: { userId: users[20].id, kind: 'EVENT_REMINDER' } }), 2);
+      await management.transition(users[0].id, e.id, 'cancel');
+      await assert.rejects(administration.edit(users[0].id, e.id, { title: 'Reopened?' }), /cannot be edited/);
+      assert.equal(await db.signup.count({ where: { eventId: e.id, status: 'CONFIRMED' } }), 0);
+    });
+    await t.test('no-op event edits do not send notices or duplicate the audit trail', async () => {
+      const e = await event(2); await join(19, e.id);
+      await administration.edit(users[0].id, e.id, { title: e.title });
+      assert.equal(await db.notification.count({ where: { userId: users[19].id } }), 0);
+      assert.equal(await db.auditLog.count({ where: { eventId: e.id } }), 0);
+    });
 
     await t.test('simultaneous players cannot oversubscribe the last seats', async () => {
       const e = await event(4);

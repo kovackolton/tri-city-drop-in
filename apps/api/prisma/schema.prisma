@@ -174,8 +174,10 @@ model Notification {
   attempts  Int @default(0)
   availableAt DateTime @default(now()) @db.Timestamptz(3)
   sentAt    DateTime? @db.Timestamptz(3)
+  readAt    DateTime? @db.Timestamptz(3)
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   @@index([status, availableAt])
+  @@index([userId, createdAt, id])
 }
 
 model AuditLog {

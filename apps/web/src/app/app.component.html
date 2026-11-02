@@ -3,7 +3,7 @@
       <a href="/" class="text-xl font-black tracking-tight">TRI-CITY <span class="text-lime-300">&#8599;</span><span class="block text-xs tracking-[.25em] font-normal mt-1">DROP-IN SOCCER</span></a>
       <nav aria-label="Main navigation" class="mt-8 space-y-2">
         <button class="block w-full text-left rounded-xl p-3" [class.bg-emerald-800]="page() === 'games'" [attr.aria-current]="page() === 'games' ? 'page' : null" (click)="navigate('games')">Upcoming games</button>
-        @if (auth.profile()) { <button class="block w-full text-left rounded-xl p-3" [class.bg-emerald-800]="page() === 'mygames'" (click)="navigate('mygames')">My games</button><button class="block w-full text-left rounded-xl p-3" [class.bg-emerald-800]="page() === 'profile'" (click)="navigate('profile')">My profile</button> }
+        @if (auth.profile()) { <button class="block w-full text-left rounded-xl p-3" [class.bg-emerald-800]="page() === 'notifications'" (click)="navigate('notifications')">Notifications ({{ notifications.unread() }})</button><button class="block w-full text-left rounded-xl p-3" [class.bg-emerald-800]="page() === 'mygames'" (click)="navigate('mygames')">My games</button><button class="block w-full text-left rounded-xl p-3" [class.bg-emerald-800]="page() === 'profile'" (click)="navigate('profile')">My profile</button> }
         @if ((auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <button class="block w-full text-left rounded-xl p-3" [class.bg-emerald-800]="page() === 'organizer'" (click)="navigate('organizer')">Organizer workspace</button> }
       </nav>
       <!-- <p class="mt-10 text-sm text-emerald-100/70">Good games. New faces.<br>Everyone belongs on the pitch.</p> -->
@@ -13,21 +13,42 @@
         <span class="text-sm text-stone-500">The Beautiful Game</span>
         <div class="flex gap-3 items-center">
           @if (!auth.ready()) { <span role="status">Checking your session...</span> }
-          @else if (auth.firebaseUser()) { <span class="text-sm">{{ auth.profile()?.displayName || 'Signed in' }}</span><button class="secondary" (click)="logout()">Sign out</button> }
-          @else { <button class="primary" [disabled]="!auth.configured" (click)="showLogin.set(!showLogin())" [attr.aria-expanded]="showLogin()">Sign in</button> }
+          @else if (auth.firebaseUser()) { <span class="text-sm">{{ auth.profile()?.displayName || 'Signed in' }}</span>@if (auth.needsVerification()) { <button class="primary" (click)="navigate('signin')">Verify email</button> }<button class="secondary" [disabled]="auth.busy()" (click)="logout()">Sign out</button> }
+          @else { <button class="primary" [disabled]="!auth.configured" (click)="navigate('signin')" [attr.aria-current]="page() === 'signin' ? 'page' : null">Sign in</button> }
         </div>
       </header>
       <main class="max-w-6xl mx-auto p-6 md:p-10">
         @if (!auth.configured) { <p class="notice mb-6">Sign-in is not configured yet. You can browse games while the organizer completes setup.</p> }
-        @if (auth.error()) { <div class="notice error mb-6" role="alert"><p>{{ auth.error() }}</p>@if (auth.firebaseUser()) { <button class="underline mt-2" (click)="auth.refreshProfile()">Retry profile</button> }</div> }
-        @if (showLogin() && !auth.firebaseUser()) {
-          <section aria-labelledby="login-heading" class="panel mb-8 max-w-lg"><h2 id="login-heading" class="text-xl font-bold">Welcome to the pitch</h2><p class="text-sm text-stone-500 mt-2 mb-5">Use your existing account to join the community.</p>
-            <div class="flex flex-wrap gap-3"><button class="primary" [disabled]="auth.busy()" (click)="auth.login('google')">Continue with Google</button><button class="secondary" [disabled]="auth.busy()" (click)="auth.login('facebook')">Continue with Facebook</button></div>
-          </section>
-        }
+        @if (auth.error()) { <div class="notice error mb-6" role="alert"><p>{{ auth.error() }}</p>@if (auth.firebaseUser() && !auth.needsVerification()) { <button class="underline mt-2" (click)="auth.refreshProfile()">Retry profile</button> }</div> }
+        @if (auth.notice()) { <p role="status" class="notice mb-6">{{ auth.notice() }}</p> }
         @if (registrations.error()) { <div role="alert" class="notice error mb-5"><p>{{ registrations.error() }}</p><button class="underline mt-2" (click)="registrations.load()">Refresh bookings</button></div> }
         @if (registrations.notice()) { <p role="status" class="notice mb-5">{{ registrations.notice() }}</p> }
-        @if (page() === 'mygames' && auth.profile()) { <app-my-games /> }
+        @if (page() === 'signin') {
+          <div class="max-w-lg mx-auto py-4 md:py-10">
+            <button class="text-sm underline underline-offset-4 mb-6" (click)="navigate('games')">&larr; Back to upcoming games</button>
+            @if (auth.needsVerification()) {
+              <section class="panel" aria-labelledby="verification-heading">
+                <h1 id="verification-heading" class="text-2xl font-bold">Verify your email</h1>
+                <p class="mt-3">Open the verification link sent to {{ auth.firebaseUser()?.email }} before joining games.</p>
+                <div class="flex flex-wrap gap-3 mt-5"><button class="primary" [disabled]="auth.busy()" (click)="auth.checkVerification()">I've verified my email</button><button class="secondary" [disabled]="auth.busy()" (click)="auth.resendVerification()">Resend verification email</button></div>
+              </section>
+            } @else if (!auth.firebaseUser()) { <app-sign-in /> }
+            @else if (!auth.error()) { <p role="status" class="notice">Finishing sign-in...</p> }
+          </div>
+        }
+        @else if (page() === 'notifications' && auth.profile()) {
+          <section aria-labelledby="notifications-heading">
+            <h1 id="notifications-heading" class="text-3xl font-bold">Notifications</h1>
+            <div class="flex gap-3 mt-5"><button class="secondary" [disabled]="notifications.loading()" (click)="notifications.load()">Refresh</button><button class="secondary" [disabled]="notifications.loading() || !notifications.unread()" (click)="notifications.read()">Mark all as read</button><button class="secondary" (click)="navigate('mygames')">My games</button></div>
+            @if (notifications.error()) { <p role="alert" class="notice error mt-5">{{ notifications.error() }}</p> }
+            @if (notifications.loading()) { <p role="status" class="mt-4">Updating notifications...</p> }
+            @for (item of notifications.items(); track item.id) {
+              <article class="panel mt-4" [class.border-emerald-600]="!item.readAt"><h2 class="font-bold">{{ item.title }} @if (!item.readAt) { <span class="text-sm text-emerald-700"> ? Unread</span> }</h2><p class="mt-2">{{ item.message }}</p><p class="text-xs text-stone-500 mt-2">{{ time(item.createdAt, 'America/New_York') }}</p>@if (!item.readAt) { <button class="secondary mt-3" [disabled]="notifications.loading()" (click)="notifications.read(item.id)">Mark as read</button> }</article>
+            } @empty { @if (!notifications.loading() && !notifications.error()) { <p class="mt-5">No notifications yet.</p> } }
+            <p class="text-sm text-stone-500 mt-5">Showing the latest 100 notifications. Updates refresh every 30 seconds while the app is open.</p>
+          </section>
+        }
+        @else if (page() === 'mygames'  && auth.profile()) { <app-my-games /> }
         @else if (page() === 'organizer' && (auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <app-organizer /> }
         @else if (page() === 'profile' && auth.profile()) {
           <h1 class="text-3xl font-bold">My profile</h1>

@@ -1,4 +1,13 @@
-# Current milestone: Administrator and Locations
+# Current milestone: event management and in-app notifications
+
+Email/password authentication is now implemented alongside Google; Facebook UI/client integration is removed. Registration uses Firebase's password policy plus a 12-character app minimum, with verification resend/check and password reset. Passwords are handled only by Firebase's SDK and are never sent to the application API or persisted by the application. Password-token API access now requires verified email even for existing profiles. Eleven local auth service/form tests and 18 API unit tests pass. See [email/password review](email-password-review.md).
+
+Added owner/administrator event cancellation and completion, persistent private notification inbox/read state, unread badge, and refresh-driven 24-hour reminders. Existing administrator-only edit/delete permissions remain. Cancellation locks the event, cancels active parties, voids charges, writes notices and audits atomically. Completion retains attendance/payment review. Cancelled/completed events cannot be edited; unchanged edits create no notices.
+
+The inbox migration was applied locally. Both production builds, 16 API unit tests and all 26 isolated PostgreSQL scenarios passed without external services. Frontend tests are blocked by missing Vitest/jsdom; the offline dependency restore failed. No browser or live Firebase test is claimed. See [event management review](event-management-review.md) for exact behavior, endpoints and local review steps. No external delivery or deployment was performed.
+
+## Previous milestone: Administrator and Locations
+
 
 Added ADMINISTRATOR above ORGANIZER, inheriting cross-event organizer access plus administrator-only event/location edit/delete controls. Locations now has its own workspace page with a required duplicate precheck, repeated server validation and database uniqueness. The applied migration removed one duplicate Midland Civic Arena record and retained the canonical location with all three linked events. Event deletion archives history; referenced locations cannot be deleted. No accounts were automatically promoted; use the trusted administrator:grant CLI. API compilation, frontend production build, 16 unit tests and 19 isolated PostgreSQL scenarios passed. See [Administrator review](administrator-review.md).
 
@@ -38,4 +47,4 @@ The payment-review migrations add separate nullable paid flags and timestamps, o
 
 ## Next milestone
 
-Event editing/cancellation, manual addition of existing players, dispute resolution/waivers, notification delivery/reminders and Cloud Run/Cloud SQL deployment. Automatic suspensions and strike-expiry thresholds remain unset. Manual strikes require organizer review; conflicting payment reports do not qualify.
+Manual addition of existing players, dispute resolution/waivers, external notification delivery/background scheduling and Cloud Run/Cloud SQL deployment. Automatic suspensions and strike-expiry thresholds remain unset. Manual strikes require organizer review; conflicting payment reports do not qualify.

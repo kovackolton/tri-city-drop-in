@@ -61,3 +61,4 @@ dumps/
 *.sqlite3
 *.db
 *.sql.gz
+scripts/check-secrets.mjs

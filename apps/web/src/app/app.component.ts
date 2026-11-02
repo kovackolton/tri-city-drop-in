@@ -1,4 +1,4 @@
-import { Component, effect, inject, OnInit, signal } from '@angular/core';
+import { Component, effect, inject, OnInit, OnDestroy, signal, untracked } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AuthService, message } from '../auth.service';
@@ -6,21 +6,24 @@ import { OrganizerComponent } from './organizer/organizer.component';
 import { eventTime } from '../models';
 import { RegistrationsStore } from '../registrations.store';
 import { SignupComponent } from './signup/signup.component';
+import { SignInComponent } from './sign-in/sign-in.component';
 import { MyGamesComponent } from './my-games/my-games.component';
 
+import { NotificationsStore } from '../notifications.store';
 import { EventsStore } from '../events.store';
 
 @Component({
-  selector: 'app-root', imports: [CurrencyPipe, FormsModule, OrganizerComponent, SignupComponent, MyGamesComponent],
+  selector: 'app-root', imports: [CurrencyPipe, FormsModule, OrganizerComponent, SignupComponent, MyGamesComponent, SignInComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss'
 })
-export class AppComponent implements OnInit {
+export class AppComponent implements OnInit, OnDestroy {
+  readonly notifications = inject(NotificationsStore);
+  private poll?: ReturnType<typeof setInterval>;
   readonly store = inject(EventsStore);
   readonly auth = inject(AuthService);
   readonly registrations = inject(RegistrationsStore);
-  readonly page = signal<'games' | 'mygames' | 'profile' | 'organizer'>('games');
-  readonly showLogin = signal(false);
+  readonly page = signal<'games' | 'mygames' | 'profile' | 'organizer' | 'notifications' | 'signin'>('games');
   readonly saving = signal(false);
   readonly profileMessage = signal('');
   readonly time = eventTime;
@@ -28,13 +31,20 @@ export class AppComponent implements OnInit {
   constructor() {
     effect(() => {
       const id = this.auth.profile()?.id;
-      this.registrations.reset();
-      if (id) void this.registrations.load();
+      untracked(() => {
+        this.registrations.reset();
+        this.notifications.reset();
+        if (id) {
+          void this.notifications.load(); void this.registrations.load();
+          if (this.page() === 'signin') this.navigate('games');
+        }
+      });
     });
   }
-  ngOnInit() { void this.store.load(); }
-  navigate(page: 'games' | 'mygames' | 'profile' | 'organizer') { this.page.set(page); this.profileMessage.set(''); this.displayName = this.auth.profile()?.displayName ?? ''; if (page === 'games') { void this.store.load(); if (this.auth.profile()) void this.registrations.load(); } if (page === 'mygames') void this.registrations.load(); }
-  async logout() { await this.auth.logout(); this.page.set('games'); this.showLogin.set(false); }
+  ngOnInit() { void this.store.load(); this.poll = setInterval(() => { void this.notifications.load(); }, 30000); }
+  ngOnDestroy() { if (this.poll) clearInterval(this.poll); }
+  navigate(page: 'games' | 'mygames' | 'profile' | 'organizer' | 'notifications' | 'signin') { this.page.set(page); if (page === 'notifications') void this.notifications.load(); this.profileMessage.set(''); this.displayName = this.auth.profile()?.displayName ?? ''; if (page === 'games') { void this.store.load(); if (this.auth.profile()) void this.registrations.load(); } if (page === 'mygames') void this.registrations.load(); }
+  async logout() { await this.auth.logout(); this.page.set('games'); }
   async saveProfile() {
     if (this.saving()) return;
     this.saving.set(true); this.profileMessage.set('');

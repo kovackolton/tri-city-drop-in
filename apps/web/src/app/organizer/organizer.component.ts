@@ -16,6 +16,7 @@ import { LocationsComponent } from '../locations/locations.component';
 export class OrganizerComponent implements OnInit {
   readonly auth = inject(AuthService);
   readonly view = signal<'events' | 'locations'>('events');
+  readonly cancelling = signal('');
   readonly editingId = signal(''); readonly deleting = signal('');
   private original: ManagedEvent | null = null;
   private readonly http = inject(HttpClient);
@@ -67,6 +68,9 @@ export class OrganizerComponent implements OnInit {
     this.event = { title: game.title, description: game.description ?? '', locationId: game.location.id, startsAt: this.localTime(game.startsAt), endsAt: this.localTime(game.endsAt), capacity: game.capacity, price: (game.priceCents / 100).toFixed(2), maxGuestsPerUser: game.maxGuestsPerUser, cancellationCutoffHours: game.cancellationCutoffHours, status: game.status };
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
+  canCancel(game: ManagedEvent) { return ['DRAFT', 'PUBLISHED'].includes(game.status) && new Date(game.startsAt) > new Date(); }
+  canComplete(game: ManagedEvent) { return game.status === 'PUBLISHED' && new Date(game.endsAt) <= new Date(); }
+  async transition(id: string, action: 'cancel' | 'complete') { await this.act(() => firstValueFrom(this.http.post(`/api/organizer/events/${id}/${action}`, {})), action === 'cancel' ? 'Event cancelled; players notified in the app.' : 'Event completed.'); this.cancelling.set(''); }
   async remove(id: string) { await this.act(() => firstValueFrom(this.http.delete('/api/admin/events/' + id)), 'Event deleted; history retained.'); this.deleting.set(''); }
   async publish(id: string) { await this.act(() => firstValueFrom(this.http.post(`/api/events/${id}/publish`, {})), 'Event published.'); }
 }
