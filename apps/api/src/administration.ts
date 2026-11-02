@@ -2,6 +2,7 @@ import { BadRequestException, Body, ConflictException, Controller, Delete, Injec
 import { AdministratorGuard, AuthRequest, FirebaseGuard } from './auth';
 import { Database } from './database';
 import { instant, integer, object, text, uuid } from './validation';
+import { randomUUID } from 'node:crypto';
 import { SignupsService } from './signups';
 @Injectable()
 export class AdministrationService {
@@ -13,6 +14,7 @@ export class AdministrationService {
       await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${id}::uuid FOR UPDATE`;
       const event = await tx.event.findUnique({ where: { id } });
       if (!event || event.deletedAt) throw new NotFoundException('Event not found.');
+      if (['CANCELLED', 'COMPLETED'].includes(event.status)) throw new ConflictException('Cancelled or completed events cannot be edited.');
       const startsAt = b.startsAt === undefined ? event.startsAt : instant(b.startsAt, 'Start');
       const endsAt = b.endsAt === undefined ? event.endsAt : instant(b.endsAt, 'End');
       if (endsAt <= startsAt) throw new BadRequestException('End must follow start.');
@@ -30,14 +32,19 @@ export class AdministrationService {
         priceCents: b.priceCents === undefined ? event.priceCents : integer(b.priceCents, 'Price', 0, 2147483647),
         cancellationCutoffHours: b.cancellationCutoffHours === undefined ? event.cancellationCutoffHours : integer(b.cancellationCutoffHours, 'Cutoff', 0, 8760)
       };
+      if (Object.entries(data).every(([key, value]) => {
+        const previous = event[key as keyof typeof event];
+        return value instanceof Date && previous instanceof Date ? value.getTime() === previous.getTime() : value === previous;
+      })) return event;
+      const revision = randomUUID();
       const updated = await tx.event.update({ where: { id }, data });
       if (updated.status === 'PUBLISHED' && updated.startsAt > new Date() && capacity > event.capacity) await this.signups.promote(tx, updated);
       await tx.paymentObligation.updateMany({ where: { signup: { eventId: id }, status: 'UNPAID' }, data: { dueAt: endsAt } });
       const hosts = await tx.signup.findMany({ where: { eventId: id, guestNumber: 0, status: { in: ['CONFIRMED', 'WAITLISTED'] } }, select: { userId: true } });
-      for (const host of hosts) await tx.notification.create({ data: { userId: host.userId, kind: 'EVENT_CHANGED', dedupeKey: `edit:${id}:${updated.updatedAt.getTime()}:${host.userId}`, payload: { eventId: id } } });
+      for (const host of hosts) await tx.notification.create({ data: { userId: host.userId, kind: 'EVENT_CHANGED', dedupeKey: `edit:${id}:${revision}:${host.userId}`, payload: { eventId: id, title: event.title } } });
       await tx.auditLog.create({ data: { actorId, eventId: id, action: 'ADMIN_EVENT_EDITED', details: { before: JSON.parse(JSON.stringify(event)), after: JSON.parse(JSON.stringify(data)) } } });
       return updated;
-    });
+    }, { maxWait: 10000, timeout: 15000 });
   }
   async remove(actorId: string, id: string) {
     uuid(id);
@@ -50,12 +57,12 @@ export class AdministrationService {
         const hosts = await tx.signup.findMany({ where: { eventId: id, guestNumber: 0, status: { in: ['CONFIRMED', 'WAITLISTED'] } } });
         await tx.signup.updateMany({ where: { eventId: id, status: { in: ['CONFIRMED', 'WAITLISTED'] } }, data: { status: 'CANCELLED', cancelledAt: new Date(), lateCancellation: false } });
         await tx.paymentObligation.updateMany({ where: { signup: { eventId: id }, status: { in: ['UNPAID', 'NOT_REQUIRED'] } }, data: { status: 'VOID' } });
-        for (const host of hosts) await tx.notification.create({ data: { userId: host.userId, kind: 'EVENT_CANCELLED', dedupeKey: `deleted:${id}:${host.userId}`, payload: { eventId: id } } });
+        for (const host of hosts) await tx.notification.create({ data: { userId: host.userId, kind: 'EVENT_CANCELLED', dedupeKey: `deleted:${id}:${host.userId}`, payload: { eventId: id, title: event.title } } });
       }
       await tx.event.update({ where: { id }, data: { deletedAt: new Date(), ...(event.startsAt > new Date() ? { status: 'CANCELLED' as const } : {}) } });
       await tx.auditLog.create({ data: { actorId, eventId: id, action: 'ADMIN_EVENT_DELETED', details: { retainedHistory: true } } });
       return { deleted: true };
-    });
+    }, { maxWait: 10000, timeout: 15000 });
   }
 }
 @Controller('api/admin/events') @UseGuards(FirebaseGuard, AdministratorGuard)

@@ -4,7 +4,7 @@
 
 Angular 21 with Tailwind 4 and NgRx Signal Store; RxJS for HTTP streams. NestJS 11 with Prisma 6 and PostgreSQL 16. Node 22 containers. Versions are a baseline, not a claim to use the newest major releases. The lockfile should be generated and committed after installation is verified.
 
-Firebase Authentication will handle identity providers; the API will verify Firebase ID tokens with Firebase Admin and map their UID to a database user. Provider access tokens and passwords do not belong in PostgreSQL. Google and Facebook require provider configuration and credentials before they can work. Organizer privileges must be granted through a trusted administrative process, never from profile update input. Public event responses expose counts, not attendee personal details.
+Firebase Authentication will handle identity providers; the API will verify Firebase ID tokens with Firebase Admin and map their UID to a database user. Provider access tokens and passwords do not belong in PostgreSQL. Google and email/password are the supported sign-in methods. Firebase manages password credentials, verification emails and reset links; the API accepts only Firebase ID tokens and never receives passwords. Password sessions require a verified email before API access. Organizer privileges must be granted through a trusted administrative process, never from profile update input. Public event responses expose counts, not attendee personal details.
 
 ## Data model
 

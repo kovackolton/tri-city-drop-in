@@ -115,3 +115,20 @@ test('publishing cannot affect another organizer event or a published event', as
   const controller = new EventsController({ $transaction: async (work: (tx: unknown) => unknown) => work(tx) } as unknown as Database);
   await assert.rejects(controller.publish({ user: organizer } as AuthRequest, valid().locationId), /Only your future draft/);
 });
+
+
+test('password sessions must verify email even for an existing profile', async () => {
+  let lookedUp = false;
+  const db = { user: { findUnique: async () => { lookedUp = true; return player; } } } as unknown as Database;
+  const guard = new FirebaseGuard({ verify: async () => ({ uid: player.firebaseUid, email_verified: false, firebase: { sign_in_provider: 'password' } }) } as unknown as TokenVerifier, db);
+  await assert.rejects(guard.canActivate(context({ headers: { authorization: 'Bearer token' } })), ForbiddenException);
+  assert.equal(lookedUp, false);
+});
+
+test('verified password sessions resolve the existing role by UID', async () => {
+  const db = { user: { findUnique: async () => organizer } } as unknown as Database;
+  const guard = new FirebaseGuard({ verify: async () => ({ uid: player.firebaseUid, email_verified: true, firebase: { sign_in_provider: 'password' } }) } as unknown as TokenVerifier, db);
+  const req = { headers: { authorization: 'Bearer token' } } as AuthRequest;
+  assert.equal(await guard.canActivate(context(req)), true);
+  assert.equal(req.user.role, 'ORGANIZER');
+});

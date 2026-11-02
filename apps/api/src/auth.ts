@@ -31,6 +31,7 @@ export class FirebaseGuard implements CanActivate {
     const match = /^Bearer (\S+)$/.exec(req.headers.authorization ?? '');
     if (!match) throw new UnauthorizedException('Sign in to continue.');
     const token = await this.tokens.verify(match[1]);
+    if (token.firebase?.sign_in_provider === 'password' && !token.email_verified) throw new ForbiddenException('Verify your email before continuing.');
     // Never link accounts solely by matching email addresses.
     let user = await this.db.user.findUnique({ where: { firebaseUid: token.uid } });
     if (!user) {

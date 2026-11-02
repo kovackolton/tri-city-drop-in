@@ -8,9 +8,11 @@ No cloud resources have been created automatically. Public event browsing works 
 2. In Project settings → General, register a Web app. Copy its public Firebase configuration into `apps/web/public/config.json` under `firebase`: `apiKey`, `authDomain`, `projectId`, `appId`. These identify the web application and are public; never put service-account private keys in this file.
 3. Open Authentication → Get started → Sign-in method. Enable Google and select a support email.
 4. In Authentication → Settings → Authorized domains, add `localhost` for local development and your production domain when it exists. New projects may not include localhost automatically.
-5. For Facebook, create a Meta developer app, configure Facebook Login, enable Facebook in Firebase, and enter the Meta app ID and app secret in the Firebase console only. Copy Firebase's OAuth redirect URL into the Meta app's allowed redirect URIs. Production access may require Meta review. Google can be tested before Facebook is ready.
+5. Enable Email/Password in Authentication -> Sign-in method (already enabled if you have configured it). Email-link/passwordless authentication is not used here. Google remains available. Disable the Facebook provider in the Firebase console if it was previously enabled; its client UI and SDK integration have been removed. Do not delete existing Firebase users or database profiles.
+6. In Authentication -> Settings -> Password policy, configure a minimum of at least 12 characters and Enforce mode. The registration form also requires 12 characters and validates Firebase's configured policy. Configure server enforcement in Firebase so a direct SDK request cannot bypass the browser rule. Enable email enumeration protection for the project.
+7. Review Authentication -> Templates for email verification and password reset. Firebase's hosted action pages handle those links; no custom action URL or app password endpoint is required. Use HTTPS for the deployed web app.
 
-The application currently exposes Google and Facebook. Other providers and email/password UI are future additions. Profiles require a verified email; a provider account without one cannot create an app profile. Cross-provider email conflicts ask the player to use the original provider rather than merging accounts automatically.
+The application exposes Google and email/password sign-in, account creation, verification-email resend/check, and password reset. A newly created email/password account must verify its email before accessing authenticated app endpoints. Cross-provider email conflicts never merge database accounts automatically; sign in with the original account. Passwords are sent directly to Firebase through its SDK, and Firebase manages their credential storage. No passwords or password hashes are stored in this application's database, browser storage, application logs, or API requests. Firebase session persistence remains managed by its SDK. See [email/password review](email-password-review.md).
 
 ## 2. Configure and authorize the backend
 
@@ -41,7 +43,7 @@ npm run build
 npm run test --workspace @tri-city/api
 ```
 
-Run `npm run dev:api` and `npm run dev:web` in separate terminals. Open http://localhost:4200 and sign in with Google. The first successful API request creates your PLAYER profile.
+Run `npm run dev:api` and `npm run dev:web` in separate terminals. Open http://localhost:4200 and sign in with Google or email/password. For a new email account, open Create account, verify through the emailed link, then click "I've verified my email". The first verified API request creates your PLAYER profile.
 
 The pricing/constraints migration is additive and preserves the existing initial migration. Existing invalid data will cause the new CHECK constraints to fail; correct that data before retrying. Do not reset a database containing data you need.
 
@@ -59,7 +61,7 @@ This requires local database access. There is no public role-assignment endpoint
 
 If the Angular terminal reports `ECONNREFUSED ::1:3000`, the request has not reached Firebase verification. The development proxy uses `127.0.0.1:3000` to match Nest's IPv4 listener. Restart `npm run dev:web` after changing proxy configuration. Opening `/api/me` directly without a bearer token returns 401 by design; test the signed-in application request instead.
 
-- Google sign-in persists on reload; sign-out removes the profile and organizer controls.
+- Google and verified email/password sign-in persist on reload; sign-out removes the profile and organizer controls.
 - Profile display names can be edited. Email and role cannot be changed through that API.
 - A normal PLAYER cannot call organizer endpoints, even by crafting HTTP requests.
 - An organizer can create a location and a draft event; drafts remain private to that organizer.
@@ -76,6 +78,7 @@ For isolated local testing, start the Firebase Authentication emulator with a de
 ## Official references
 
 - https://firebase.google.com/docs/auth/web/google-signin
-- https://firebase.google.com/docs/auth/web/facebook-login
+- https://firebase.google.com/docs/auth/web/password-auth
+- https://firebase.google.com/docs/auth/web/manage-users
 - https://firebase.google.com/docs/auth/admin/verify-id-tokens
 - https://firebase.google.com/docs/admin/setup
