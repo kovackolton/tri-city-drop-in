@@ -1,0 +1,191 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  PLAYER
+  ORGANIZER
+  ADMINISTRATOR
+}
+
+enum Currency {
+  USD
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+  COMPLETED
+}
+
+enum SignupStatus {
+  CONFIRMED
+  WAITLISTED
+  CANCELLED
+}
+
+enum Attendance {
+  UNMARKED
+  PRESENT
+  ABSENT
+  EXCUSED
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID
+  NOT_REQUIRED
+  VOID
+}
+
+model User {
+  id          String   @id @default(uuid()) @db.Uuid
+  firebaseUid String   @unique
+  email       String   @unique
+  displayName String
+  avatarUrl   String?
+  role        Role     @default(PLAYER)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  events      Event[]
+  signups     Signup[]
+  strikes     Strike[] @relation("StrikeSubject")
+  issuedStrikes Strike[] @relation("StrikeIssuer")
+  notifications Notification[]
+  auditLogs   AuditLog[]
+  paymentReviews PaymentObligation[] @relation("PaymentReviewer")
+}
+
+model Location {
+  id        String @id @default(uuid()) @db.Uuid
+  name      String
+  address   String
+  timezone  String @default("America/Toronto")
+  events    Event[]
+}
+
+model Event {
+  id          String @id @default(uuid()) @db.Uuid
+  title       String
+  description String?
+  deletedAt DateTime? @db.Timestamptz(3)
+  organizerId String @db.Uuid
+  organizer   User @relation(fields: [organizerId], references: [id], onDelete: Restrict)
+  locationId  String @db.Uuid
+  location    Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  startsAt    DateTime @db.Timestamptz(3)
+  endsAt      DateTime @db.Timestamptz(3)
+  capacity    Int
+  // Per player/guest seat. Zero means Free; 1250 means USD $12.50.
+  priceCents  Int @default(0)
+  currency    Currency @default(USD)
+  maxGuestsPerUser Int @default(1)
+  cancellationCutoffHours Int @default(12)
+  status      EventStatus @default(DRAFT)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  signups     Signup[]
+  auditLogs   AuditLog[]
+  @@index([status, startsAt])
+  @@index([organizerId, startsAt])
+}
+
+// One row per occupied seat. guestNumber 0 = account holder, 1+ = their guests.
+model Signup {
+  id          String @id @default(uuid()) @db.Uuid
+  eventId     String @db.Uuid
+  event       Event @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  userId      String @db.Uuid
+  user        User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  guestNumber Int @default(0)
+  guestName   String?
+  bookingId   String @db.Uuid
+  quotedPriceCents Int @default(0)
+  lateCancellation Boolean @default(false)
+  status      SignupStatus
+  attendance  Attendance @default(UNMARKED)
+  queuedAt    DateTime @default(now()) @db.Timestamptz(3)
+  confirmedAt DateTime? @db.Timestamptz(3)
+  cancelledAt DateTime? @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  strikes     Strike[]
+  payment     PaymentObligation?
+  @@unique([bookingId, guestNumber])
+  @@index([eventId, status, queuedAt, id])
+  @@index([userId, eventId])
+}
+
+model PaymentObligation {
+  id          String @id @default(uuid()) @db.Uuid
+  signupId    String @unique @db.Uuid
+  signup      Signup @relation(fields: [signupId], references: [id], onDelete: Restrict)
+  amountCents Int
+  currency    Currency @default(USD)
+  status      PaymentStatus
+  dueAt       DateTime @db.Timestamptz(3)
+  playerPaid Boolean?
+  playerReviewedAt DateTime? @db.Timestamptz(3)
+  organizerPaid Boolean?
+  organizerReviewedAt DateTime? @db.Timestamptz(3)
+  organizerReviewedById String? @db.Uuid
+  organizerReviewedBy User? @relation("PaymentReviewer", fields: [organizerReviewedById], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  @@index([status, dueAt])
+}
+
+model Strike {
+  id        String @id @default(uuid()) @db.Uuid
+  userId    String @db.Uuid
+  user      User @relation("StrikeSubject", fields: [userId], references: [id], onDelete: Restrict)
+  signupId  String @db.Uuid
+  signup    Signup @relation(fields: [signupId], references: [id], onDelete: Restrict)
+  reason    String
+  issuedById String? @db.Uuid
+  issuedBy  User? @relation("StrikeIssuer", fields: [issuedById], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  expiresAt DateTime? @db.Timestamptz(3)
+  revokedAt DateTime? @db.Timestamptz(3)
+  @@unique([signupId, reason])
+  @@index([userId, revokedAt, expiresAt])
+}
+
+// Transactional outbox: workers send committed notifications with retry/deduplication.
+model Notification {
+  id        String @id @default(uuid()) @db.Uuid
+  userId    String @db.Uuid
+  user      User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  kind      String
+  payload   Json
+  dedupeKey String @unique
+  status    NotificationStatus @default(PENDING)
+  attempts  Int @default(0)
+  availableAt DateTime @default(now()) @db.Timestamptz(3)
+  sentAt    DateTime? @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  @@index([status, availableAt])
+}
+
+model AuditLog {
+  id        String @id @default(uuid()) @db.Uuid
+  actorId   String @db.Uuid
+  actor     User @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  eventId   String @db.Uuid
+  event     Event @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  action    String
+  details   Json
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  @@index([eventId, createdAt])
+}

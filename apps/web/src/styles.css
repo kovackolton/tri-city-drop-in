@@ -1,0 +1,13 @@
+@import "tailwindcss";
+:root { font-family: system-ui, sans-serif; color: #172c24; background: #f5f6f1; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, a:focus-visible { outline: 3px solid #d97706; outline-offset: 4px; }
+button { cursor: pointer; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+label { display: block; font-size: .875rem; font-weight: 600; }
+input, select, textarea { display: block; width: 100%; margin-top: .375rem; padding: .65rem .8rem; border: 1px solid #cccfc6; border-radius: .6rem; background: white; font-weight: 400; }
+.panel { background: white; border: 1px solid #e4e5dd; border-radius: 1rem; padding: 1.5rem; }
+.primary { background: #143f32; color: white; border-radius: .7rem; padding: .65rem 1.15rem; font-size: .875rem; font-weight: 600; }
+.secondary { background: white; border: 1px solid #cccfc6; border-radius: .7rem; padding: .65rem 1.15rem; font-size: .875rem; }
+.notice { border: 1px solid #bbd7c4; background: #edf8ee; border-radius: .75rem; padding: 1rem; }
+.notice.error { border-color: #edcca8; background: #fff8eb; }

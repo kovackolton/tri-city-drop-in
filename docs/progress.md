@@ -1,0 +1,41 @@
+# Current milestone: Administrator and Locations
+
+Added ADMINISTRATOR above ORGANIZER, inheriting cross-event organizer access plus administrator-only event/location edit/delete controls. Locations now has its own workspace page with a required duplicate precheck, repeated server validation and database uniqueness. The applied migration removed one duplicate Midland Civic Arena record and retained the canonical location with all three linked events. Event deletion archives history; referenced locations cannot be deleted. No accounts were automatically promoted; use the trusted administrator:grant CLI. API compilation, frontend production build, 16 unit tests and 19 isolated PostgreSQL scenarios passed. See [Administrator review](administrator-review.md).
+
+The Prisma client was generated successfully for the new schema before testing. A redundant generation attempt after migration encountered a Windows engine-file lock; the installed client was checked and contains both ADMINISTRATOR and deletedAt. If regenerating on Windows, stop the API process first.
+
+## Previous milestone: organizer attendance and strike review
+
+Current additions: event owners can mark attendance, remove whole parties, explicitly promote a waitlisted party within capacity, issue eligible strikes with notes, revoke strikes and view event history. Cancelled seats are retained in the private roster for late-cancellation review. Players see their own attendance and strike history; shared participant lists remain names/status-only. No schema migration is required. See [organizer checklist](organizer-review.md).
+
+## Frontend
+
+My games now identifies the event organizer and lets confirmed/waitlisted participants view all confirmed players, waitlisted players and guests. A separate participant API exposes only names, guest flags and booking statuses; payment details remain private. Nonparticipants and cancelled bookings cannot access this list. No database migration is required for this addition.
+
+Players can join a game with named guests, cancel a whole party, and view confirmed/waitlisted/cancelled booking history under My games. Prices, payment records and late-cancellation flags are visible. My games and the organizer's private event player list each display separate player/organizer payment-review ticks with paid/unpaid labels. NgRx Signal Store manages bookings, loading/error states and mutation progress; session changes clear prior-account data. Refresh retrieves promotion/review changes; live push is not implemented.
+
+## Backend
+
+Added authenticated signup/history/cancellation endpoints and an owner-only organizer roster endpoint. Event-row locks serialize every booking change, including guest seats and waitlist promotion. Whole-party FIFO prevents smaller parties from bypassing a blocked head party. Retried joins reuse an identical active booking, and cancellation targets a booking UUID so old requests cannot cancel a new rejoin. Promotion notices commit to the outbox with the signup changes.
+
+Existing Firebase identity/profile/organizer authorization remains in place. The IPv4 development proxy fix is retained. No cloud resources were provisioned.
+
+## Database and architecture
+
+Applied the third migration to the local dropin database. It preserves existing signup records, adds booking UUIDs and accepted-price snapshots, replaces the old unique seat index with booking/guest uniqueness, adds a partial unique active-host index, and creates per-seat PaymentObligation records for new confirmations. Cancelled history is never overwritten by rejoining.
+
+Accepted prices are locked at signup/queue entry and honored on promotion. Players pay physically at the event, with no advance payment required to register. Free confirmations have no debt; waitlisted seats have no obligation. Cancellation voids charges. The late flag is stored for future organizer review; this milestone issues no strikes or cancellation fees. Payment is due by event end, then player and organizer independently record paid/unpaid reviews. A tick records review completion, not necessarily payment. Disagreement is highlighted; only the organizer's review sets settlement status. Corrections are audited. See [signup review](signup-review.md) for the complete decisions and manual checklist.
+
+The payment-review migrations add separate nullable paid flags and timestamps, organizer reviewer identity, and PAID settlement status. Free/cancelled seats are exempt. Each side can update only its own review; guest payments are reviewed by the booking account. Review API routes are authorized and take the event lock before changing payment state.
+
+## Verification
+
+- Both production builds passed via npm run build.
+- All 15 backend unit tests passed.
+- All 17 PostgreSQL integration scenarios passed using an isolated signup_test_* schema removed afterward. Coverage includes signup concurrency/FIFO, history, payments/privacy, owner-only roster overrides, attendance timing, eligible manual strikes, revocation and automatic missed-payment revocation after payment corrections.
+- Local migration deployment and Prisma Client generation passed.
+- No automated browser test or email-delivery test is claimed. The signed-in multi-account review checklist is ready for manual review.
+
+## Next milestone
+
+Event editing/cancellation, manual addition of existing players, dispute resolution/waivers, notification delivery/reminders and Cloud Run/Cloud SQL deployment. Automatic suspensions and strike-expiry thresholds remain unset. Manual strikes require organizer review; conflicting payment reports do not qualify.

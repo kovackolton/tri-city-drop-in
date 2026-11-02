@@ -1,0 +1,13 @@
+{
+  "name": "tri-city-drop-in",
+  "private": true,
+  "workspaces": ["apps/api", "apps/web"],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "dev:api": "npm run dev --workspace @tri-city/api",
+    "dev:web": "npm run start --workspace @tri-city/web",
+    "db:generate": "npm run db:generate --workspace @tri-city/api",
+    "db:migrate": "npm run db:migrate --workspace @tri-city/api"
+  },
+  "engines": { "node": ">=22.12.0" }
+}

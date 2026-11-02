@@ -1,0 +1,17 @@
+<div class="border-t border-stone-100 mt-5 pt-4">
+      @if (booking(); as seat) {
+        <p class="font-semibold" [class.text-emerald-700]="seat.status === 'CONFIRMED'">{{ seat.status === 'CONFIRMED' ? 'You are confirmed' : 'Your party is on the waitlist' }} · {{ partySize() }} player(s)</p>
+        @if (seat.status === 'WAITLISTED') { <p class="text-xs text-stone-500 mt-2">Your party stays together. You will move into a spot automatically when the whole party fits. Nothing is due while waiting.</p> }
+        @if (!confirmCancel()) { <button class="secondary mt-3" [disabled]="store.busy() || store.loading()" (click)="confirmCancel.set(true)">Cancel booking</button> }
+        @else { <p class="text-sm mt-3">Cancel your place and all guests? The event has a {{ game.cancellationCutoffHours }}-hour cancellation cutoff. Late cancellations are recorded for organizer review.</p><div class="flex gap-3 mt-3"><button class="primary" [disabled]="store.busy()" (click)="cancel(seat.bookingId)">Yes, cancel party</button><button class="secondary" [disabled]="store.busy()" (click)="confirmCancel.set(false)">Keep booking</button></div> }
+      } @else {
+        <form (ngSubmit)="join()">
+          @for (guest of guests; track $index; let i = $index) { <div class="flex gap-2 items-end mt-3"><label class="flex-1">Guest {{ i + 1 }} name<input [name]="'guest-' + game.id + '-' + i" [(ngModel)]="guests[i]" required maxlength="80"></label><button type="button" class="secondary" (click)="remove(i)" [disabled]="store.busy()">Remove</button></div> }
+          <div class="flex flex-wrap gap-3 mt-3">
+            @if (guests.length < guestLimit()) { <button type="button" class="secondary" (click)="add()" [disabled]="store.busy() || store.loading()">Add guest</button> }
+            <button class="primary" [disabled]="store.busy() || store.loading() || !!store.error()">{{ game.waitlisted > 0 || game.confirmed + guests.length + 1 > game.capacity ? 'Join waitlist' : 'Join game' }}</button>
+          </div>
+          <p class="text-xs text-stone-500 mt-3">{{ guests.length + 1 }} player(s) · {{ game.priceCents === 0 ? 'Free' : (((guests.length + 1) * game.priceCents / 100 | currency:'USD':'code') + ' total if confirmed') }}. Parties stay together; a party ahead may be waiting for more space. Your place is final only after the server confirms it.</p>
+        </form>
+      }
+    </div>
