@@ -1,1 +1,18 @@
-// Component-specific styles. Shared Tailwind utilities remain in src/styles.css.
+.eyebrow { font-size: .65rem; letter-spacing: .15em; font-weight: 700; color: #31745b; }
+.game-card { overflow: hidden; border: 1px solid #e1e6dd; border-radius: 1.25rem; background: #fff; box-shadow: 0 4px 20px rgb(20 63 50 / 4%); }
+.game-header { display: flex; align-items: center; gap: 1.25rem; background: #143f32; color: white; padding: 1.5rem; }
+.date-tile { width: 64px; flex-shrink: 0; border: 1px solid rgb(255 255 255 / 20%); border-radius: .85rem; text-align: center; padding: .6rem .4rem; background: rgb(255 255 255 / 8%); }
+.date-tile span { display: block; font-size: .65rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: #c5e5ce; }
+.date-tile strong { display: block; font-size: 1.8rem; line-height: 1.2; margin-top: .2rem; }
+.booking-badge { display: inline-block; padding: .2rem .65rem; border-radius: 2rem; font-size: .7rem; font-weight: 600; text-transform: capitalize; color: #143f32; background: #d9f99d; }
+.booking-badge.waiting { background: #fef3c7; color: #92400e; }
+.booking-badge.cancelled { background: #e2e8f0; color: #334155; }
+.game-body { padding: 1.5rem; }
+.game-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; }
+.game-facts dt { font-size: .65rem; text-transform: uppercase; letter-spacing: .08em; color: #71776e; margin-bottom: .35rem; }
+.game-facts dd { font-size: .875rem; font-weight: 500; overflow-wrap: anywhere; }
+.organizer-strip { display: flex; align-items: center; gap: .75rem; margin-top: 1.25rem; padding: 1rem; border-radius: .85rem; background: #f6f8f3; }
+.party-seat { padding: 1rem; border: 1px solid #e7ebe3; border-radius: .85rem; }
+@media (max-width: 480px) { .game-header { gap: .85rem; padding: 1.1rem; } .game-body { padding: 1.1rem; } .game-facts { grid-template-columns: 1fr; gap: .9rem; } }
+
+@media (max-width: 480px) { .game-header { flex-wrap: wrap; } .game-header > .min-w-0 { flex-basis: calc(100% - 90px); } .game-header app-location-thumbnail { margin-left: auto; } }

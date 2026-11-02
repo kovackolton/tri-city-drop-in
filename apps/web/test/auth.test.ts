@@ -22,7 +22,7 @@ function setup() {
     sendEmailVerification: invoke('verify'), sendPasswordResetEmail: invoke('reset'),
     reload: invoke('reload'), validatePassword: async () => ({ isValid: true })
   };
-  const http = { get: (url: string) => { calls.push({ name: 'api', args: [url] }); return of({ id: 'profile', role: 'PLAYER' }); } };
+  const http = { patch: (url: string, value: unknown) => { calls.push({ name: 'patch', args: [url, value] }); return of({ id: 'profile', ...value as object }); }, get: (url: string) => { calls.push({ name: 'api', args: [url] }); return of({ id: 'profile', role: 'PLAYER' }); } };
   const injector = Injector.create({ providers: [AuthService, { provide: CONFIG, useValue: { firebase: { apiKey: 'local', authDomain: 'local', projectId: 'local', appId: 'local' } } }, { provide: FIREBASE_AUTH_SDK, useValue: sdk }, { provide: HttpClient, useValue: http }] });
   const service = injector.get(AuthService);
   return { service, sdk, calls, user, auth, http, emit: (value: any) => { auth.currentUser = value; listener(value); } };
@@ -113,4 +113,17 @@ test('registration rejects mismatched confirmation and clears secrets on mode ch
   assert.equal(called, false); assert.match(auth.error(), /do not match/);
   component.setMode('signin'); assert.equal(component.password, ''); assert.equal(component.confirmation, '');
   component.password = 'private'; component.ngOnDestroy(); assert.equal(component.password, '');
+});
+
+
+test('profile editing sends only profile fields and ignores a late response after account changes', async () => {
+  const { service, calls, http, emit } = setup();
+  const profile = { displayName: 'Player', contactEmail: 'contact@example.invalid', phone: '+1 555 123 4567', avatarColor: 'rose', useGooglePhoto: false };
+  await service.saveProfile(profile);
+  assert.deepEqual(calls[0], { name: 'patch', args: ['/api/me', profile] });
+  assert.equal(service.profile()?.phone, profile.phone);
+  const response = new Subject<any>(); http.patch = () => response as any;
+  const pending = service.saveProfile(profile); emit(null);
+  response.next({ id: 'old-profile', ...profile }); response.complete(); await pending;
+  assert.equal(service.profile(), null);
 });

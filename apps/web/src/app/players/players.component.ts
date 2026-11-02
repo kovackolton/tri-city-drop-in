@@ -1,10 +1,11 @@
 import { Component, Input, OnChanges, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { AvatarComponent } from '../avatar/avatar.component';
 import { message } from '../../auth.service';
-interface Player { id: string; name: string; isGuest: boolean; status: 'CONFIRMED' | 'WAITLISTED'; }
+interface Player { id: string; name: string; isGuest: boolean; status: 'CONFIRMED' | 'WAITLISTED'; avatarUrl: string | null; avatarColor: string; guestOf: string | null; }
 @Component({
-  selector: 'app-players',
+  selector: 'app-players', imports: [AvatarComponent],
   templateUrl: './players.component.html',
   styleUrl: './players.component.scss'
 })

@@ -1,4 +1,14 @@
-# Current milestone: event management and in-app notifications
+# Current milestone: venue photos and map embeds
+
+Locations now supports an optional approved external photo URL, credit text and a manually copied Google Maps embed. Game cards and My Games show thumbnails beside titles and maps near addresses; a building icon and directions link cover missing media. No image files, API keys or paid Maps/Places API integration were added. The local migration is applied. Frontend build, API compilation, 25 unit tests, 28 isolated PostgreSQL scenarios and seven frontend profile/map tests passed. Existing locations need their optional media configured; live image/map and browser checks remain manual. See [venue media review](location-media-review.md).
+
+## Previous milestone: player contact, avatars and My Games
+
+
+My profile now supports optional contact email/phone, a Google-hosted profile photo, or a colored initial. Private event rosters expose contact links only to the owning organizer and administrators; shared player cards exclude contact information. My Games has redesigned game/party cards and avatar lineups. No profile image files are stored. The local additive migration is applied. Frontend build, API compilation, 22 API unit tests, 27 isolated PostgreSQL scenarios and 16 frontend logic tests passed. Live Google photos and browser layouts remain manual checks. See [player profiles review](player-profiles-review.md).
+
+## Previous milestone: event management and in-app notifications
+
 
 Email/password authentication is now implemented alongside Google; Facebook UI/client integration is removed. Registration uses Firebase's password policy plus a 12-character app minimum, with verification resend/check and password reset. Passwords are handled only by Firebase's SDK and are never sent to the application API or persisted by the application. Password-token API access now requires verified email even for existing profiles. Eleven local auth service/form tests and 18 API unit tests pass. See [email/password review](email-password-review.md).
 

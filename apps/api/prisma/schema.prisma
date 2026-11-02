@@ -56,6 +56,10 @@ model User {
   email       String   @unique
   displayName String
   avatarUrl   String?
+  contactEmail String?
+  phone       String?
+  avatarColor String   @default("emerald")
+  useGooglePhoto Boolean @default(true)
   role        Role     @default(PLAYER)
   createdAt   DateTime @default(now()) @db.Timestamptz(3)
   updatedAt   DateTime @updatedAt @db.Timestamptz(3)
@@ -73,6 +77,9 @@ model Location {
   name      String
   address   String
   timezone  String @default("America/Toronto")
+  photoUrl  String?
+  photoCredit String?
+  mapEmbedUrl String?
   events    Event[]
 }
 

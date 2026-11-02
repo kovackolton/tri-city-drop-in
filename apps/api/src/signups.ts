@@ -2,6 +2,7 @@ import { BadRequestException, Body, ConflictException, Controller, Get, Inject, 
 import { Event, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
+import { appearance, appearanceSelect } from './profile-fields';
 import { Database } from './database';
 import { integer, object, text, uuid } from './validation';
 
@@ -105,7 +106,8 @@ export class SignupsService {
   async mine(userId: string) {
     // Limit by whole bookings so pagination never cuts off a party's guests.
     const hosts = await this.db.signup.findMany({ where: { userId, guestNumber: 0 }, select: { bookingId: true }, orderBy: [{ queuedAt: 'desc' }, { id: 'desc' }], take: 100 });
-    return this.db.signup.findMany({ where: { userId, bookingId: { in: hosts.map(h => h.bookingId) } }, include: { strikes: { select: { id: true, reason: true, createdAt: true, revokedAt: true, expiresAt: true } }, payment: true, event: { select: { id: true, title: true, startsAt: true, endsAt: true, status: true, cancellationCutoffHours: true, location: true, organizer: { select: { displayName: true } } } } }, orderBy: [{ queuedAt: 'desc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
+    const seats = await this.db.signup.findMany({ where: { userId, bookingId: { in: hosts.map(h => h.bookingId) } }, include: { strikes: { select: { id: true, reason: true, createdAt: true, revokedAt: true, expiresAt: true } }, payment: true, event: { select: { id: true, title: true, description: true, capacity: true, startsAt: true, endsAt: true, status: true, cancellationCutoffHours: true, location: true, organizer: { select: appearanceSelect } } } }, orderBy: [{ queuedAt: 'desc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
+    return seats.map(seat => ({ ...seat, event: { ...seat.event, organizer: appearance(seat.event.organizer) } }));
   }
   async participants(userId: string, eventId: string) {
     uuid(eventId);
@@ -113,15 +115,16 @@ export class SignupsService {
     if (!membership) throw new NotFoundException('Join this game to view its players.');
     const seats = await this.db.signup.findMany({
       where: { eventId, status: { in: ['CONFIRMED', 'WAITLISTED'] } },
-      select: { id: true, guestNumber: true, guestName: true, status: true, user: { select: { displayName: true } } },
+      select: { id: true, guestNumber: true, guestName: true, status: true, user: { select: appearanceSelect } },
       orderBy: [{ queuedAt: 'asc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }]
     });
-    return seats.map(s => ({ id: s.id, name: s.guestNumber === 0 ? s.user.displayName : s.guestName, isGuest: s.guestNumber > 0, status: s.status }));
+    return seats.map(s => ({ id: s.id, name: s.guestNumber === 0 ? s.user.displayName : s.guestName, isGuest: s.guestNumber > 0, status: s.status, avatarUrl: s.guestNumber === 0 ? appearance(s.user).avatarUrl : null, avatarColor: s.user.avatarColor, guestOf: s.guestNumber > 0 ? s.user.displayName : null }));
   }
   async roster(userId: string, eventId: string, administrator = false) {
     uuid(eventId);
     if (!await this.db.event.findFirst({ where: { id: eventId, ...(administrator ? {} : { organizerId: userId }) } })) throw new NotFoundException('Event not found.');
-    return this.db.signup.findMany({ where: { eventId }, select: { attendance: true, lateCancellation: true, strikes: { select: { id: true, reason: true, revokedAt: true, expiresAt: true } }, id: true, bookingId: true, guestNumber: true, guestName: true, status: true, queuedAt: true, event: { select: { startsAt: true, endsAt: true, status: true } }, user: { select: { displayName: true } }, payment: { select: { amountCents: true, status: true, playerPaid: true, playerReviewedAt: true, organizerPaid: true, organizerReviewedAt: true } } }, orderBy: [{ queuedAt: 'asc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
+    const seats = await this.db.signup.findMany({ where: { eventId }, select: { attendance: true, lateCancellation: true, strikes: { select: { id: true, reason: true, revokedAt: true, expiresAt: true } }, id: true, bookingId: true, guestNumber: true, guestName: true, status: true, queuedAt: true, event: { select: { startsAt: true, endsAt: true, status: true } }, user: { select: { ...appearanceSelect, email: true, contactEmail: true, phone: true } }, payment: { select: { amountCents: true, status: true, playerPaid: true, playerReviewedAt: true, organizerPaid: true, organizerReviewedAt: true } } }, orderBy: [{ queuedAt: 'asc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
+    return seats.map(seat => ({ ...seat, user: { ...appearance(seat.user), contactEmail: seat.user.contactEmail ?? seat.user.email, phone: seat.user.phone } }));
   }
 }
 
