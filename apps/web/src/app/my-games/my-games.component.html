@@ -20,6 +20,7 @@
     </header>
     <div class="game-body">
       <dl class="game-facts"><div><dt>Kickoff</dt><dd>{{ time(host.event.startsAt, host.event.location.timezone) }}</dd></div><div><dt>Final whistle</dt><dd>{{ time(host.event.endsAt, host.event.location.timezone) }}</dd></div><div><dt>The pitch</dt><dd>{{ host.event.location.address }}</dd></div><div><dt>Your booking</dt><dd>{{ party(host).length }} {{ party(host).length === 1 ? 'player' : 'players' }}<span class="text-stone-500"> &middot; {{ host.quotedPriceCents === 0 ? 'Free' : (host.quotedPriceCents / 100 | currency:'USD':'code') + ' per player' }}</span></dd></div></dl>
+      <app-event-guidance class="block mt-4" [bibsProvided]="host.event.bibsProvided" [shirtColorCount]="host.event.shirtColorCount" [minPlayers]="host.event.minPlayers" [confirmed]="host.event.confirmed" />
       <app-location-map class="mt-4" [name]="host.event.location.name" [address]="host.event.location.address" [embedUrl]="host.event.location.mapEmbedUrl" />
       @if (host.event.description) { <p class="text-sm text-stone-600 whitespace-pre-line mt-5">{{ host.event.description }}</p> }
       <div class="organizer-strip"><app-avatar [name]="host.event.organizer.displayName" [color]="host.event.organizer.avatarColor" [photoUrl]="host.event.organizer.avatarUrl" [size]="36" /><div><p class="text-xs text-stone-500">Your organizer</p><p class="font-semibold text-sm break-words">{{ host.event.organizer.displayName }}</p></div></div>

@@ -1,4 +1,9 @@
-# Current milestone: player identity, organizer requests and guest responsibility
+# Current milestone: event equipment and player targets
+
+Creation/editing includes bib availability, shirt-color count when bibs are not provided, and an optional minimum-player target. Player and organizer cards show the guidance and confirmed-count progress, including guests. The target is informational and does not trigger cancellation or block a game. Existing events remain unspecified until configured. The local migration is applied; frontend build, API compilation, 29 unit tests and 33 isolated PostgreSQL scenarios passed. Browser review remains manual. See [event guidance review](event-guidance-review.md).
+
+## Previous milestone: player identity, organizer requests and guest responsibility
+
 
 New profile setup includes optional nickname and a private 1-5 self-rated skill level with a team-balancing blurb. Existing account names are preserved and locked. Players can request organizer access; administrators have a Users page, request flags/filters, notifications and audited Grant/Clear decisions. Guest booking requires explicit payment-responsibility acknowledgment, retained through waitlist promotion. Per the selected policy, strikes remain organizer-reviewed and guest strikes belong to the booking account. The local migration is applied; builds, 27 API unit tests, 32 local PostgreSQL scenarios and 21 frontend logic tests passed. Browser review remains manual. See [identity/request review](player-identity-review.md).
 
