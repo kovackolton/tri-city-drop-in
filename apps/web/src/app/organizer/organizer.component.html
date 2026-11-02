@@ -1,0 +1,28 @@
+<h1 class="text-3xl font-bold">{{ auth.profile()?.role === 'ADMINISTRATOR' ? 'Administrator workspace' : 'Organizer workspace' }}</h1>
+    <p class="mt-2 text-stone-600">Create a pitch, then schedule your next game. All prices are per player in USD.</p>
+    @if (error()) { <p role="alert" class="notice error mt-5">{{ error() }}</p> }
+    @if (success()) { <p role="status" class="notice mt-5">{{ success() }}</p> }
+    <nav aria-label="Organizer pages" class="flex gap-3 mt-5"><button class="secondary" (click)="view.set('events'); load()">Events</button><button class="secondary" (click)="view.set('locations')">Locations</button></nav>
+    @if (view() === 'locations') { <app-locations (changed)="load()" /> } @else {
+    <div class="max-w-3xl mt-7">
+      <section class="panel"><h2 class="text-xl font-bold mb-4">{{ editingId() ? 'Edit event' : 'Create an event' }}</h2>
+        <form (ngSubmit)="createEvent()" class="space-y-4">
+          <label>Event title<input name="title" [(ngModel)]="event.title" required maxlength="160"></label>
+          <label>Location<select name="locationId" [(ngModel)]="event.locationId" required><option value="">Select a location</option>@for (l of locations(); track l.id) { <option [value]="l.id">{{ l.name }} ({{ l.timezone }})</option> }</select></label>
+          <p class="text-xs text-stone-500">Enter times in your device timezone: {{ deviceTimezone }}. The public listing displays the pitch timezone.</p>
+          <div class="grid sm:grid-cols-2 gap-4"><label>Starts<input name="startsAt" type="datetime-local" [(ngModel)]="event.startsAt" required></label><label>Ends<input name="endsAt" type="datetime-local" [(ngModel)]="event.endsAt" required></label></div>
+          <div class="grid sm:grid-cols-2 gap-4"><label>Player capacity<input name="capacity" type="number" min="1" max="1000" [(ngModel)]="event.capacity" required></label><label>Price per player (USD)<input name="price" type="text" inputmode="decimal" pattern="[0-9]+([.][0-9]{1,2})?" [(ngModel)]="event.price" required><span class="text-xs text-stone-500">0 = Free</span></label></div>
+          <div class="grid sm:grid-cols-2 gap-4"><label>Guests per player<input name="maxGuestsPerUser" type="number" min="0" max="20" [(ngModel)]="event.maxGuestsPerUser" required></label><label>Cancellation cutoff (hours)<input name="cutoff" type="number" min="0" max="8760" [(ngModel)]="event.cancellationCutoffHours" required></label></div>
+          <label>Description<textarea name="description" rows="3" maxlength="4000" [(ngModel)]="event.description"></textarea></label>
+          @if (!editingId()) { <label>Status<select name="status" [(ngModel)]="event.status"><option value="DRAFT">Draft — visible to you</option><option value="PUBLISHED">Published — visible to players</option></select></label> }
+          <button class="primary" [disabled]="busy() || loading() || !locations().length">{{ editingId() ? 'Save event changes' : 'Create event' }}</button>@if (editingId()) { <button type="button" class="secondary ml-3" (click)="cancelEdit()">Cancel edit</button> }
+        </form>
+      </section>
+    </div>
+    <section class="mt-8"><div class="flex items-center justify-between"><h2 class="text-xl font-bold">{{ auth.profile()?.role === 'ADMINISTRATOR' ? 'All events' : 'Your events' }}</h2><button class="secondary" [disabled]="busy() || loading()" (click)="load()">Refresh</button></div>
+      @if (loading()) { <p role="status" class="mt-4">Loading workspace…</p> }
+      @for (game of events(); track game.id) {
+        <article class="panel mt-4 flex flex-wrap justify-between gap-4 items-center"><div><h3 class="font-bold">{{ game.title }}</h3><p class="text-sm">{{ time(game.startsAt, game.location.timezone) }} · {{ game.location.name }}</p><p class="text-sm text-stone-500">{{ game.status }} · {{ game.capacity }} players · {{ game.priceCents === 0 ? 'Free' : (game.priceCents / 100 | currency:'USD':'code') }}</p></div>@if (game.status === 'DRAFT') { <button class="primary" [disabled]="busy()" (click)="publish(game.id)">Publish</button> }@if (auth.profile()?.role === 'ADMINISTRATOR') { <div class="flex gap-3"><button class="secondary" [disabled]="busy()" (click)="edit(game)">Edit event</button><button class="secondary" [disabled]="busy()" (click)="deleting.set(game.id)">Delete event</button></div>@if (deleting() === game.id) { <p class="text-sm">Delete this event from listings? Future bookings will be cancelled; historical records remain.</p><button class="primary" [disabled]="busy()" (click)="remove(game.id)">Confirm delete</button><button class="secondary" (click)="deleting.set('')">Keep event</button> } }</article>
+        <div class="mt-2 mb-5"><button class="secondary" [attr.aria-expanded]="rosterEvent() === game.id" (click)="rosterEvent.set(rosterEvent() === game.id ? '' : game.id)">{{ rosterEvent() === game.id ? 'Hide players' : 'View players' }}</button>@if (rosterEvent() === game.id) { <app-roster [eventId]="game.id" /> }</div>
+      } @empty { @if (!loading()) { <p class="mt-4 text-stone-500">You have no events yet.</p> } }
+    </section> }
