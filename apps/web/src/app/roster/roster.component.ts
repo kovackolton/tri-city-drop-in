@@ -1,17 +1,21 @@
 import { Component, Input, OnChanges, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { AvatarComponent } from '../avatar/avatar.component';
+import { contactEmailLink, contactPhoneLink } from '../../avatar';
 import { message } from '../../auth.service';
 import { PaymentReviewComponent } from '../payment-review/payment-review.component';
 import { OrganizerSeat, OrganizerSeatComponent } from '../organizer-seat/organizer-seat.component';
 import { DatePipe } from '@angular/common';
 @Component({
   selector: 'app-roster',
-  imports: [PaymentReviewComponent, OrganizerSeatComponent, DatePipe],
+  imports: [PaymentReviewComponent, OrganizerSeatComponent, DatePipe, AvatarComponent],
   templateUrl: './roster.component.html',
   styleUrl: './roster.component.scss'
 })
 export class RosterComponent implements OnChanges {
+  readonly emailLink = contactEmailLink;
+  readonly phoneLink = contactPhoneLink;
   @Input({ required: true }) eventId!: string;
   private readonly http = inject(HttpClient);
   readonly seats = signal<OrganizerSeat[]>([]);

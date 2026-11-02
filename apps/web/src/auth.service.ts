@@ -12,7 +12,7 @@ export const FIREBASE_AUTH_SDK = new InjectionToken('Firebase authentication SDK
   signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification,
   sendPasswordResetEmail, reload, validatePassword
 }) });
-export interface Profile { id: string; displayName: string; email: string; role: 'PLAYER' | 'ORGANIZER' | 'ADMINISTRATOR'; }
+export interface Profile { id: string; displayName: string; email: string; role: 'PLAYER' | 'ORGANIZER' | 'ADMINISTRATOR'; contactEmail?: string | null; phone?: string | null; avatarUrl?: string | null; avatarColor?: string; useGooglePhoto?: boolean; }
 export function message(error: unknown): string {
   if (error instanceof HttpErrorResponse) return error.status === 0 ? 'Cannot reach the API. Please try again.' : typeof error.error?.message === 'string' ? error.error.message : 'The request failed. Please try again.';
   const code = (error as { code?: string })?.code;
@@ -158,9 +158,10 @@ export class AuthService {
     } catch (error) { if (revision === this.revision) this.error.set(message(error)); }
     finally { this.ready.set(true); }
   }
-  async saveName(displayName: string) {
+  async saveName(displayName: string) { return this.saveProfile({ displayName }); }
+  async saveProfile(value: { displayName: string; contactEmail?: string | null; phone?: string | null; avatarColor?: string; useGooglePhoto?: boolean }) {
     const revision = this.revision;
-    const profile = await firstValueFrom(this.http.patch<Profile>('/api/me', { displayName }));
+    const profile = await firstValueFrom(this.http.patch<Profile>('/api/me', value));
     if (revision === this.revision) this.profile.set(profile);
   }
 }

@@ -11,6 +11,9 @@ import { PaymentsService } from '../src/payments';
 import { OrganizerService } from '../src/organizer';
 import { LocationsService } from '../src/locations';
 import { EventManagementService } from '../src/event-management';
+import { EventsController } from '../src/events';
+import { ProfilesController } from '../src/profiles';
+import { AuthRequest } from '../src/auth';
 import { NotificationsService } from '../src/notifications';
 import { AdministrationService } from '../src/administration';
 
@@ -118,6 +121,53 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.equal(await db.auditLog.count({ where: { eventId: e.id } }), 0);
     });
 
+    await t.test('contact and avatar preferences persist, and contact details stay private to event organizers', async () => {
+      const profiles = new ProfilesController(db);
+      const owner = users[18];
+      await db.user.update({ where: { id: owner.id }, data: { avatarUrl: 'https://lh3.googleusercontent.com/a/test' } });
+      const updated = await profiles.update({ user: owner } as AuthRequest, { displayName: 'Contact player', contactEmail: 'contact@example.invalid', phone: '+1 (555) 987-6543', avatarColor: 'violet', useGooglePhoto: false });
+      assert.equal(updated.phone, '+1 (555) 987-6543'); assert.equal(updated.email, owner.email);
+      const fresh = await db.user.findUniqueOrThrow({ where: { id: owner.id } });
+      assert.equal(profiles.me({ user: fresh } as AuthRequest).avatarColor, 'violet');
+      const e = await event(3); await join(18, e.id, ['Private guest']);
+      const roster = await service.roster(users[0].id, e.id);
+      assert.equal(roster[0].user.contactEmail, 'contact@example.invalid'); assert.equal(roster[0].user.phone, '+1 (555) 987-6543');
+      assert.equal(roster[0].user.avatarUrl, null);
+      assert.equal((await service.roster(users[2].id, e.id, true))[0].user.phone, fresh.phone);
+      await assert.rejects(service.roster(users[1].id, e.id), /Event not found/);
+      const players = await service.participants(owner.id, e.id);
+      assert.ok(players.every(player => !('email' in player) && !('contactEmail' in player) && !('phone' in player) && !('user' in player)));
+      assert.equal(players.find(player => !player.isGuest)?.avatarUrl, null);
+      assert.equal(players.find(player => player.isGuest)?.guestOf, 'Contact player');
+      assert.equal(players.find(player => player.isGuest)?.avatarUrl, null);
+      assert.equal(players.find(player => !player.isGuest)?.avatarColor, 'violet');
+      await profiles.update({ user: fresh } as AuthRequest, { contactEmail: null, phone: '', useGooglePhoto: true });
+      const cleared = await db.user.findUniqueOrThrow({ where: { id: owner.id } });
+      assert.equal(cleared.contactEmail, null); assert.equal(cleared.phone, null);
+      assert.equal((await service.roster(users[0].id, e.id))[0].user.contactEmail, owner.email);
+      assert.equal((await service.participants(owner.id, e.id)).find(player => !player.isGuest)?.avatarUrl, 'https://lh3.googleusercontent.com/a/test');
+      const ownGames = await service.mine(owner.id);
+      assert.ok(ownGames.every(seat => !('email' in seat.event.organizer) && !('phone' in seat.event.organizer) && !('contactEmail' in seat.event.organizer)));
+    });
+
+    await t.test('venue media persists, is shared by event cards and bookings, and survives edits that omit media', async () => {
+      const input = { name: 'Media pitch', address: '456 Test Avenue', timezone: 'America/Toronto', photoUrl: 'https://images.example.invalid/venue.jpg', photoCredit: 'Courtesy of venue', mapEmbedUrl: '<iframe src="https://www.google.com/maps/embed?pb=fixture" width="600"></iframe>' };
+      const venue = await locations.save(input);
+      assert.equal(venue.mapEmbedUrl, 'https://www.google.com/maps/embed?pb=fixture');
+      await assert.rejects(locations.save({ ...input, photoUrl: 'https://another.example.invalid/a.jpg' }), /already exists/);
+      await locations.save({ name: input.name, address: input.address, timezone: input.timezone }, venue.id);
+      const unchanged = await db.location.findUniqueOrThrow({ where: { id: venue.id } });
+      assert.equal(unchanged.photoUrl, input.photoUrl);
+      const e = await event(3); await db.event.update({ where: { id: e.id }, data: { locationId: venue.id } }); await join(15, e.id);
+      const publicGame = (await new EventsController(db).events()).find(game => game.id === e.id)!;
+      assert.equal(publicGame.photoUrl, input.photoUrl); assert.equal(publicGame.photoCredit, input.photoCredit); assert.equal(publicGame.mapEmbedUrl, venue.mapEmbedUrl);
+      const booking = (await service.mine(users[15].id)).find(seat => seat.eventId === e.id)!;
+      assert.equal(booking.event.location.photoUrl, input.photoUrl); assert.equal(booking.event.location.mapEmbedUrl, venue.mapEmbedUrl);
+      await locations.save({ ...input, photoUrl: null, photoCredit: null, mapEmbedUrl: null }, venue.id);
+      const cleared = await db.location.findUniqueOrThrow({ where: { id: venue.id } });
+      assert.equal(cleared.photoUrl, null); assert.equal(cleared.mapEmbedUrl, null);
+    });
+
     await t.test('simultaneous players cannot oversubscribe the last seats', async () => {
       const e = await event(4);
       const result = await Promise.all(Array.from({ length: 10 }, (_, i) => join(i + 1, e.id)));
@@ -204,7 +254,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.equal(players.length, 3);
       assert.ok(players.some(p => p.name === 'Named guest' && p.isGuest));
       assert.equal(players.filter(p => p.status === 'WAITLISTED').length, 1);
-      assert.deepEqual(Object.keys(players[0]).sort(), ['id', 'isGuest', 'name', 'status']);
+      assert.deepEqual(Object.keys(players[0]).sort(), ['avatarColor', 'avatarUrl', 'guestOf', 'id', 'isGuest', 'name', 'status']);
       assert.equal((await service.participants(users[22].id, e.id)).length, 3);
       await assert.rejects(service.participants(users[23].id, e.id), /Join this game/);
       const mine = await service.mine(users[21].id);

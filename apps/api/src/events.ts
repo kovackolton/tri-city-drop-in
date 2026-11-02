@@ -28,7 +28,7 @@ export class EventsController {
     return events.map(({ signups, ...e }) => ({
       id: e.id, title: e.title, description: e.description, startsAt: e.startsAt, endsAt: e.endsAt,
       priceCents: e.priceCents, currency: e.currency, timezone: e.location.timezone, maxGuestsPerUser: e.maxGuestsPerUser, cancellationCutoffHours: e.cancellationCutoffHours,
-      capacity: e.capacity, location: e.location.name, address: e.location.address,
+      capacity: e.capacity, location: e.location.name, address: e.location.address, photoUrl: e.location.photoUrl, photoCredit: e.location.photoCredit, mapEmbedUrl: e.location.mapEmbedUrl,
       confirmed: signups.filter(s => s.status === 'CONFIRMED').length, waitlisted: signups.filter(s => s.status === 'WAITLISTED').length
     }));
   }

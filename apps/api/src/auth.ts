@@ -2,6 +2,7 @@ import { CanActivate, ConflictException, ExecutionContext, ForbiddenException, I
 import { applicationDefault, getApps, initializeApp } from 'firebase-admin/app';
 import { DecodedIdToken, getAuth } from 'firebase-admin/auth';
 import { Prisma, User } from '@prisma/client';
+import { googleAvatarUrl } from './profile-fields';
 import { Database } from './database';
 export interface AuthRequest { headers: { authorization?: string }; user: User; }
 export function tokenFailure(error: unknown) {
@@ -32,19 +33,22 @@ export class FirebaseGuard implements CanActivate {
     if (!match) throw new UnauthorizedException('Sign in to continue.');
     const token = await this.tokens.verify(match[1]);
     if (token.firebase?.sign_in_provider === 'password' && !token.email_verified) throw new ForbiddenException('Verify your email before continuing.');
+    const picture = token.firebase?.sign_in_provider === 'google.com' ? googleAvatarUrl(token.picture) : null;
     // Never link accounts solely by matching email addresses.
     let user = await this.db.user.findUnique({ where: { firebaseUid: token.uid } });
     if (!user) {
       if (!token.email || !token.email_verified) throw new ForbiddenException('A verified email is required to create your profile.');
       try {
         user = await this.db.user.upsert({ where: { firebaseUid: token.uid }, update: {}, create: {
-          firebaseUid: token.uid, email: token.email.toLowerCase(), displayName: typeof token.name === 'string' ? token.name.slice(0, 80) : 'Player'
+          firebaseUid: token.uid, email: token.email.toLowerCase(), avatarUrl: picture, displayName: typeof token.name === 'string' ? token.name.slice(0, 80) : 'Player'
         } });
       } catch (error) {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('This email belongs to another profile. Use the original sign-in provider.');
         throw error;
       }
     }
+    // Keep only the provider-hosted URL; preserve the player's photo/initial preference.
+    if (picture && user.avatarUrl !== picture) user = await this.db.user.update({ where: { id: user.id }, data: { avatarUrl: picture } });
     req.user = user;
     return true;
   }

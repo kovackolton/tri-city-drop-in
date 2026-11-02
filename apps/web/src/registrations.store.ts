@@ -12,7 +12,7 @@ export interface Seat {
   payment: PaymentReview | null;
   attendance: string;
   strikes: { id: string; reason: string; createdAt: string; revokedAt: string | null; expiresAt: string | null }[];
-  event: { title: string; startsAt: string; endsAt: string; status: string; cancellationCutoffHours: number; location: Location; organizer: { displayName: string } };
+  event: { title: string; description?: string | null; capacity?: number; startsAt: string; endsAt: string; status: string; cancellationCutoffHours: number; location: Location; organizer: { displayName: string; avatarUrl?: string | null; avatarColor?: string } };
 }
 export const RegistrationsStore = signalStore(
   { providedIn: 'root' },

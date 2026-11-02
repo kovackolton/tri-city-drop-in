@@ -1,3 +1,5 @@
+import { LocationMapComponent } from '../location-map/location-map.component';
+import { LocationThumbnailComponent } from '../location-thumbnail/location-thumbnail.component';
 import { Component, EventEmitter, OnInit, Output, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -5,7 +7,7 @@ import { firstValueFrom } from 'rxjs';
 import { AuthService, message } from '../../auth.service';
 import { Location } from '../../models';
 @Component({
-  selector: 'app-locations', imports: [FormsModule],
+  selector: 'app-locations', imports: [FormsModule, LocationMapComponent, LocationThumbnailComponent],
   templateUrl: './locations.component.html',
   styleUrl: './locations.component.scss'
 })
@@ -16,12 +18,12 @@ export class LocationsComponent implements OnInit {
   readonly locations = signal<Location[]>([]);
   readonly editing = signal(''); readonly deleting = signal(''); readonly checked = signal('');
   readonly busy = signal(false); readonly error = signal(''); readonly notice = signal('');
-  form = { name: '', address: '', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+  form = { name: '', address: '', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, photoUrl: '', photoCredit: '', mapEmbedUrl: '' };
   ngOnInit() { void this.load(); }
   fingerprint() { return JSON.stringify(this.form); }
   invalidate() { this.checked.set(''); this.notice.set(''); }
-  reset() { this.editing.set(''); this.form = { name: '', address: '', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }; this.invalidate(); }
-  edit(location: Location) { this.editing.set(location.id); this.form = { name: location.name, address: location.address, timezone: location.timezone }; this.invalidate(); }
+  reset() { this.editing.set(''); this.form = { name: '', address: '', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, photoUrl: '', photoCredit: '', mapEmbedUrl: '' }; this.invalidate(); }
+  edit(location: Location) { this.editing.set(location.id); this.form = { name: location.name, address: location.address, timezone: location.timezone, photoUrl: location.photoUrl ?? '', photoCredit: location.photoCredit ?? '', mapEmbedUrl: location.mapEmbedUrl ?? '' }; this.invalidate(); }
   async load() { try { this.locations.set(await firstValueFrom(this.http.get<Location[]>('/api/locations'))); } catch (e) { this.error.set(message(e)); } }
   async check() {
     if (this.busy()) return;
