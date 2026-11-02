@@ -1,3 +1,4 @@
+import { EventGuidanceComponent } from '../event-guidance/event-guidance.component';
 import { LocationMapComponent } from '../location-map/location-map.component';
 import { LocationThumbnailComponent } from '../location-thumbnail/location-thumbnail.component';
 import { Component, inject, signal } from '@angular/core';
@@ -9,7 +10,7 @@ import { AuthService } from '../../auth.service';
 import { AvatarComponent } from '../avatar/avatar.component';
 import { PlayersComponent } from '../players/players.component';
 @Component({
-  selector: 'app-my-games', imports: [CurrencyPipe, PaymentReviewComponent, PlayersComponent, AvatarComponent, LocationMapComponent, LocationThumbnailComponent],
+  selector: 'app-my-games', imports: [CurrencyPipe, PaymentReviewComponent, PlayersComponent, AvatarComponent, LocationMapComponent, LocationThumbnailComponent, EventGuidanceComponent],
   templateUrl: './my-games.component.html',
   styleUrl: './my-games.component.scss'
 })

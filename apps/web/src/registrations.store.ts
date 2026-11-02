@@ -3,7 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { patchState, signalStore, withMethods, withState } from '@ngrx/signals';
 import { firstValueFrom } from 'rxjs';
 import { message } from './auth.service';
-import { Location } from './models';
+import { EventGuidance, Location } from './models';
 import { PaymentReview } from './app/payment-review/payment-review.component';
 
 export interface Seat {
@@ -12,7 +12,7 @@ export interface Seat {
   payment: PaymentReview | null;
   attendance: string; guestPaymentAcknowledgedAt?: string | null; guestPaymentTermsVersion?: string | null;
   strikes: { id: string; reason: string; createdAt: string; revokedAt: string | null; expiresAt: string | null }[];
-  event: { title: string; description?: string | null; capacity?: number; startsAt: string; endsAt: string; status: string; cancellationCutoffHours: number; location: Location; organizer: { displayName: string; avatarUrl?: string | null; avatarColor?: string } };
+  event: EventGuidance & { title: string; description?: string | null; capacity?: number; startsAt: string; endsAt: string; status: string; cancellationCutoffHours: number; location: Location; organizer: { displayName: string; avatarUrl?: string | null; avatarColor?: string } };
 }
 export const RegistrationsStore = signalStore(
   { providedIn: 'root' },

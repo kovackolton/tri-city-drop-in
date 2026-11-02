@@ -507,6 +507,30 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.equal(second.items.length, 1); assert.equal(second.nextCursor, null);
       assert.equal(new Set([...first.items, ...second.items].map(user => user.id)).size, 51);
     });
+    await t.test('equipment and minimum targets persist and display counts without blocking below-target games', async () => {
+      const events = new EventsController(db);
+      const e = await events.create({ user: users[0] } as AuthRequest, { title: 'Advisory target game', locationId: location.id, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString(), capacity: 6, priceCents: 0, maxGuestsPerUser: 1, status: 'DRAFT', bibsProvided: false, shirtColorCount: 3, minPlayers: 5 });
+      assert.equal(e.shirtColorCount, 3); assert.equal(e.minPlayers, 5);
+      await events.publish({ user: users[0] } as AuthRequest, e.id);
+      const seats = await service.join(users[16].id, e.id, { guests: ['Target guest'], expectedPriceCents: 0, guestPaymentAcknowledged: true });
+      const publicGame = (await events.events()).find(game => game.id === e.id)!;
+      assert.equal(publicGame.minPlayers, 5); assert.equal(publicGame.confirmed, 2); assert.equal(publicGame.shirtColorCount, 3);
+      assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).status, 'PUBLISHED');
+      const mine = (await service.mine(users[16].id)).find(seat => seat.eventId === e.id)!;
+      assert.equal(mine.event.confirmed, 2); assert.equal(mine.event.minPlayers, 5);
+      const managed = (await events.ownEvents({ user: users[0] } as AuthRequest)).find(game => game.id === e.id)!;
+      assert.equal(managed.confirmed, 2);
+      await service.cancel(users[16].id, e.id, seats[0].bookingId);
+      assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).status, 'PUBLISHED');
+      await administration.edit(users[0].id, e.id, { bibsProvided: true });
+      const bibs = await db.event.findUniqueOrThrow({ where: { id: e.id } }); assert.equal(bibs.bibsProvided, true); assert.equal(bibs.shirtColorCount, null); assert.equal(bibs.minPlayers, 5);
+      await assert.rejects(administration.edit(users[0].id, e.id, { capacity: 3 }), /target cannot exceed/);
+      await administration.edit(users[0].id, e.id, { capacity: 3, minPlayers: 2, bibsProvided: false, shirtColorCount: 2 });
+      await administration.edit(users[0].id, e.id, { minPlayers: null });
+      assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).minPlayers, null);
+      await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000), minPlayers: 2 } });
+      assert.equal((await management.transition(users[0].id, e.id, 'complete')).status, 'COMPLETED');
+    });
   } finally {
     await db.$disconnect();
     // schema is generated here with a strict prefix; never drop public or a caller-provided schema.

@@ -1,3 +1,4 @@
+import { EventGuidanceComponent } from '../event-guidance/event-guidance.component';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CurrencyPipe } from '@angular/common';
@@ -9,7 +10,7 @@ import { RosterComponent } from '../roster/roster.component';
 import { LocationsComponent } from '../locations/locations.component';
 
 @Component({
-  selector: 'app-organizer', imports: [FormsModule, CurrencyPipe, RosterComponent, LocationsComponent],
+  selector: 'app-organizer', imports: [FormsModule, CurrencyPipe, RosterComponent, LocationsComponent, EventGuidanceComponent],
   templateUrl: './organizer.component.html',
   styleUrl: './organizer.component.scss'
 })
@@ -29,7 +30,7 @@ export class OrganizerComponent implements OnInit {
   readonly success = signal('');
   readonly deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   readonly time = eventTime;
-  event = { title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT' };
+  event = { title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, shirtColorCount: 2 as number | null, minPlayers: null as number | null };
   ngOnInit() { void this.load(); }
   async load() {
     this.loading.set(true); this.error.set('');
@@ -56,16 +57,16 @@ export class OrganizerComponent implements OnInit {
     if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) { this.error.set('Enter valid start and end times.'); return; }
     await this.act(async () => {
       const { price: _, status, ...event } = this.event;
-      const payload = { ...event, startsAt: this.original && this.event.startsAt === this.localTime(this.original.startsAt) ? this.original.startsAt : startsAt.toISOString(), endsAt: this.original && this.event.endsAt === this.localTime(this.original.endsAt) ? this.original.endsAt : endsAt.toISOString(), priceCents };
+      const payload = { ...event, shirtColorCount: event.bibsProvided ? null : event.shirtColorCount, startsAt: this.original && this.event.startsAt === this.localTime(this.original.startsAt) ? this.original.startsAt : startsAt.toISOString(), endsAt: this.original && this.event.endsAt === this.localTime(this.original.endsAt) ? this.original.endsAt : endsAt.toISOString(), priceCents };
       await firstValueFrom(this.editingId() ? this.http.patch('/api/admin/events/' + this.editingId(), payload) : this.http.post('/api/events', { ...payload, status }));
       this.cancelEdit();
     }, 'Event saved.');
   }
-  cancelEdit() { this.editingId.set(''); this.original = null; this.event = { title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT' }; }
+  cancelEdit() { this.editingId.set(''); this.original = null; this.event = { title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, shirtColorCount: 2 as number | null, minPlayers: null as number | null }; }
   localTime(value: string) { const d = new Date(value); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
   edit(game: ManagedEvent) {
     this.original = game; this.editingId.set(game.id);
-    this.event = { title: game.title, description: game.description ?? '', locationId: game.location.id, startsAt: this.localTime(game.startsAt), endsAt: this.localTime(game.endsAt), capacity: game.capacity, price: (game.priceCents / 100).toFixed(2), maxGuestsPerUser: game.maxGuestsPerUser, cancellationCutoffHours: game.cancellationCutoffHours, status: game.status };
+    this.event = { title: game.title, description: game.description ?? '', locationId: game.location.id, startsAt: this.localTime(game.startsAt), endsAt: this.localTime(game.endsAt), capacity: game.capacity, price: (game.priceCents / 100).toFixed(2), maxGuestsPerUser: game.maxGuestsPerUser, cancellationCutoffHours: game.cancellationCutoffHours, status: game.status, bibsProvided: game.bibsProvided ?? false, shirtColorCount: game.shirtColorCount ?? 2, minPlayers: game.minPlayers ?? null };
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   canCancel(game: ManagedEvent) { return ['DRAFT', 'PUBLISHED'].includes(game.status) && new Date(game.startsAt) > new Date(); }

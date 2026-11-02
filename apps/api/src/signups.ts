@@ -109,8 +109,8 @@ export class SignupsService {
   async mine(userId: string) {
     // Limit by whole bookings so pagination never cuts off a party's guests.
     const hosts = await this.db.signup.findMany({ where: { userId, guestNumber: 0 }, select: { bookingId: true }, orderBy: [{ queuedAt: 'desc' }, { id: 'desc' }], take: 100 });
-    const seats = await this.db.signup.findMany({ where: { userId, bookingId: { in: hosts.map(h => h.bookingId) } }, include: { strikes: { select: { id: true, reason: true, createdAt: true, revokedAt: true, expiresAt: true } }, payment: true, event: { select: { id: true, title: true, description: true, capacity: true, startsAt: true, endsAt: true, status: true, cancellationCutoffHours: true, location: true, organizer: { select: appearanceSelect } } } }, orderBy: [{ queuedAt: 'desc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
-    return seats.map(seat => ({ ...seat, event: { ...seat.event, organizer: appearance(seat.event.organizer) } }));
+    const seats = await this.db.signup.findMany({ where: { userId, bookingId: { in: hosts.map(h => h.bookingId) } }, include: { strikes: { select: { id: true, reason: true, createdAt: true, revokedAt: true, expiresAt: true } }, payment: true, event: { select: { id: true, title: true, description: true, capacity: true, bibsProvided: true, shirtColorCount: true, minPlayers: true, _count: { select: { signups: { where: { status: 'CONFIRMED' } } } }, startsAt: true, endsAt: true, status: true, cancellationCutoffHours: true, location: true, organizer: { select: appearanceSelect } } } }, orderBy: [{ queuedAt: 'desc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
+    return seats.map(seat => { const { _count, ...event } = seat.event; return { ...seat, event: { ...event, confirmed: _count.signups, organizer: appearance(event.organizer) } }; });
   }
   async participants(userId: string, eventId: string) {
     uuid(eventId);

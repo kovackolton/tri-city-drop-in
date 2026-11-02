@@ -1,3 +1,4 @@
+import { EventGuidanceComponent } from './event-guidance/event-guidance.component';
 import { LocationMapComponent } from './location-map/location-map.component';
 import { LocationThumbnailComponent } from './location-thumbnail/location-thumbnail.component';
 import { Component, effect, inject, OnInit, OnDestroy, signal, untracked } from '@angular/core';
@@ -17,7 +18,7 @@ import { NotificationsStore } from '../notifications.store';
 import { EventsStore } from '../events.store';
 
 @Component({
-  selector: 'app-root', imports: [CurrencyPipe, ProfileComponent, AvatarComponent, OrganizerComponent, SignupComponent, MyGamesComponent, SignInComponent, LocationMapComponent, LocationThumbnailComponent, AdminUsersComponent],
+  selector: 'app-root', imports: [CurrencyPipe, ProfileComponent, AvatarComponent, OrganizerComponent, SignupComponent, MyGamesComponent, SignInComponent, LocationMapComponent, LocationThumbnailComponent, AdminUsersComponent, EventGuidanceComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss'
 })

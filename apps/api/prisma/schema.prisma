@@ -101,6 +101,9 @@ model Event {
   startsAt    DateTime @db.Timestamptz(3)
   endsAt      DateTime @db.Timestamptz(3)
   capacity    Int
+  bibsProvided Boolean?
+  shirtColorCount Int?
+  minPlayers Int?
   // Per player/guest seat. Zero means Free; 1250 means USD $12.50.
   priceCents  Int @default(0)
   currency    Currency @default(USD)

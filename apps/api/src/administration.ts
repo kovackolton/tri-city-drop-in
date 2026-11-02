@@ -3,13 +3,14 @@ import { AdministratorGuard, AuthRequest, FirebaseGuard } from './auth';
 import { Database } from './database';
 import { instant, integer, object, text, uuid } from './validation';
 import { randomUUID } from 'node:crypto';
+import { eventGuidanceInput } from './event-guidance';
 import { SignupsService } from './signups';
 @Injectable()
 export class AdministrationService {
   constructor(@Inject(Database) private readonly db: Database, @Inject(SignupsService) private readonly signups: SignupsService) {}
   async edit(actorId: string, id: string, value: unknown) {
     uuid(id);
-    const b = object(value, ['title', 'description', 'locationId', 'startsAt', 'endsAt', 'capacity', 'priceCents', 'maxGuestsPerUser', 'cancellationCutoffHours']);
+    const b = object(value, ['title', 'description', 'locationId', 'startsAt', 'endsAt', 'capacity', 'priceCents', 'maxGuestsPerUser', 'cancellationCutoffHours', 'bibsProvided', 'shirtColorCount', 'minPlayers']);
     return this.db.$transaction(async tx => {
       await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${id}::uuid FOR UPDATE`;
       const event = await tx.event.findUnique({ where: { id } });
@@ -27,6 +28,7 @@ export class AdministrationService {
       const locationId = b.locationId === undefined ? event.locationId : uuid(text(b.locationId, 'Location'));
       if (!await tx.location.findUnique({ where: { id: locationId } })) throw new BadRequestException('Location does not exist.');
       const data = {
+        ...eventGuidanceInput(b, capacity, event),
         title: b.title === undefined ? event.title : text(b.title, 'Title'), description: b.description === undefined ? event.description : b.description === '' || b.description === null ? null : text(b.description, 'Description', 4000),
         locationId, startsAt, endsAt, capacity, maxGuestsPerUser,
         priceCents: b.priceCents === undefined ? event.priceCents : integer(b.priceCents, 'Price', 0, 2147483647),
