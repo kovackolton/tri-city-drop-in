@@ -1,7 +1,7 @@
 import { Injectable, InjectionToken, inject, signal, computed } from '@angular/core';
 import { HttpClient, HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
 import { initializeApp, FirebaseOptions } from 'firebase/app';
-import { Auth, GoogleAuthProvider, User, getAuth, onIdTokenChanged, signInWithPopup, signOut, connectAuthEmulator, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, sendPasswordResetEmail, reload, validatePassword } from 'firebase/auth';
+import { Auth, GoogleAuthProvider, User, getAuth, onIdTokenChanged, signInWithPopup, signOut, connectAuthEmulator, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, sendPasswordResetEmail, reload, validatePassword, updateProfile } from 'firebase/auth';
 import { defer, firstValueFrom, switchMap } from 'rxjs';
 
 export interface RuntimeConfig { firebase: FirebaseOptions; authEmulatorUrl?: string; }
@@ -10,9 +10,9 @@ export const CONFIG = new InjectionToken<RuntimeConfig>('runtime config');
 export const FIREBASE_AUTH_SDK = new InjectionToken('Firebase authentication SDK', { providedIn: 'root', factory: () => ({
   initializeApp, getAuth, onIdTokenChanged, signInWithPopup, signOut, connectAuthEmulator,
   signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification,
-  sendPasswordResetEmail, reload, validatePassword
+  sendPasswordResetEmail, reload, validatePassword, updateProfile
 }) });
-export interface Profile { id: string; displayName: string; email: string; role: 'PLAYER' | 'ORGANIZER' | 'ADMINISTRATOR'; contactEmail?: string | null; phone?: string | null; avatarUrl?: string | null; avatarColor?: string; useGooglePhoto?: boolean; }
+export interface Profile { id: string; displayName: string; accountName?: string; accountNameSetAt?: string | null; profileCompletedAt?: string | null; nickname?: string | null; skillLevel?: number | null; email: string; role: 'PLAYER' | 'ORGANIZER' | 'ADMINISTRATOR'; contactEmail?: string | null; phone?: string | null; avatarUrl?: string | null; avatarColor?: string; useGooglePhoto?: boolean; }
 export function message(error: unknown): string {
   if (error instanceof HttpErrorResponse) return error.status === 0 ? 'Cannot reach the API. Please try again.' : typeof error.error?.message === 'string' ? error.error.message : 'The request failed. Please try again.';
   const code = (error as { code?: string })?.code;
@@ -87,8 +87,9 @@ export class AuthService {
     // Passwords go only to Firebase's SDK, never to our API, browser storage, or logs.
     await this.action(async auth => { await this.sdk.signInWithEmailAndPassword(auth, email.trim(), password); });
   }
-  async register(email: string, password: string) {
+  async register(email: string, password: string, accountName: string) {
     await this.action(async auth => {
+      if (!accountName.trim() || accountName.trim().length > 80) { this.error.set('Enter your account name (up to 80 characters).'); return; }
       if (password.length < 12) { this.error.set('Use at least 12 characters for your new password.'); return; }
       const policy = await this.sdk.validatePassword(auth, password);
       if (!policy.isValid) {
@@ -106,6 +107,10 @@ export class AuthService {
       const credential = await this.sdk.createUserWithEmailAndPassword(auth, email.trim(), password);
       // Account creation signs in automatically; the token listener keeps unverified users out of the API.
       this.firebaseUser.set(credential.user);
+      try {
+        await this.sdk.updateProfile(credential.user, { displayName: accountName.trim() });
+        await credential.user.getIdToken(true);
+      } catch { /* If Firebase name setup fails, the authenticated profile setup offers one initial account-name entry. */ }
       try {
         await this.sdk.sendEmailVerification(credential.user);
         this.notice.set('Account created. Check your email, including spam, for a verification link.');
@@ -158,8 +163,7 @@ export class AuthService {
     } catch (error) { if (revision === this.revision) this.error.set(message(error)); }
     finally { this.ready.set(true); }
   }
-  async saveName(displayName: string) { return this.saveProfile({ displayName }); }
-  async saveProfile(value: { displayName: string; contactEmail?: string | null; phone?: string | null; avatarColor?: string; useGooglePhoto?: boolean }) {
+  async saveProfile(value: { nickname?: string | null; skillLevel?: number | null; accountName?: string; contactEmail?: string | null; phone?: string | null; avatarColor?: string; useGooglePhoto?: boolean }) {
     const revision = this.revision;
     const profile = await firstValueFrom(this.http.patch<Profile>('/api/me', value));
     if (revision === this.revision) this.profile.set(profile);

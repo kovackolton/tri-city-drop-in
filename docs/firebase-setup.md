@@ -62,7 +62,7 @@ This requires local database access. There is no public role-assignment endpoint
 If the Angular terminal reports `ECONNREFUSED ::1:3000`, the request has not reached Firebase verification. The development proxy uses `127.0.0.1:3000` to match Nest's IPv4 listener. Restart `npm run dev:web` after changing proxy configuration. Opening `/api/me` directly without a bearer token returns 401 by design; test the signed-in application request instead.
 
 - Google and verified email/password sign-in persist on reload; sign-out removes the profile and organizer controls.
-- Profile display names can be edited. Email and role cannot be changed through that API.
+- Profile nicknames can be edited. Account names are locked after initial setup; email and role cannot be changed through the profile API. New email registration captures the account name before verification.
 - A normal PLAYER cannot call organizer endpoints, even by crafting HTTP requests.
 - An organizer can create a location and a draft event; drafts remain private to that organizer.
 - Publishing makes the event appear publicly with location time, capacity and USD price.

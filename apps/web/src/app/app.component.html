@@ -5,6 +5,7 @@
         <button class="block w-full text-left rounded-xl p-3" [class.bg-emerald-800]="page() === 'games'" [attr.aria-current]="page() === 'games' ? 'page' : null" (click)="navigate('games')">Upcoming games</button>
         @if (auth.profile()) { <button class="block w-full text-left rounded-xl p-3" [class.bg-emerald-800]="page() === 'notifications'" (click)="navigate('notifications')">Notifications ({{ notifications.unread() }})</button><button class="block w-full text-left rounded-xl p-3" [class.bg-emerald-800]="page() === 'mygames'" (click)="navigate('mygames')">My games</button><button class="block w-full text-left rounded-xl p-3" [class.bg-emerald-800]="page() === 'profile'" (click)="navigate('profile')">My profile</button> }
         @if ((auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <button class="block w-full text-left rounded-xl p-3" [class.bg-emerald-800]="page() === 'organizer'" (click)="navigate('organizer')">Organizer workspace</button> }
+        @if (auth.profile()?.role === 'ADMINISTRATOR') { <button class="block w-full text-left rounded-xl p-3" [class.bg-emerald-800]="page() === 'users'" (click)="openUsers()">Users</button> }
       </nav>
       <!-- <p class="mt-10 text-sm text-emerald-100/70">Good games. New faces.<br>Everyone belongs on the pitch.</p> -->
     </aside>
@@ -36,14 +37,15 @@
             @else if (!auth.error()) { <p role="status" class="notice">Finishing sign-in...</p> }
           </div>
         }
+        @else if (page() === 'users' && auth.profile()?.role === 'ADMINISTRATOR') { <app-admin-users [requestsOnly]="userRequestsOnly()" /> }
         @else if (page() === 'notifications' && auth.profile()) {
           <section aria-labelledby="notifications-heading">
-            <h1 id="notifications-heading" class="text-3xl font-bold">Notifications</h1>
+            <h1 id="notifications-heading" class="text-3xl font-bold">Notifications</h1>@if (auth.profile()?.role === 'ADMINISTRATOR') { <button class="secondary mt-4" (click)="reviewOrganizerRequests()">Review organizer requests</button> }
             <div class="flex gap-3 mt-5"><button class="secondary" [disabled]="notifications.loading()" (click)="notifications.load()">Refresh</button><button class="secondary" [disabled]="notifications.loading() || !notifications.unread()" (click)="notifications.read()">Mark all as read</button><button class="secondary" (click)="navigate('mygames')">My games</button></div>
             @if (notifications.error()) { <p role="alert" class="notice error mt-5">{{ notifications.error() }}</p> }
             @if (notifications.loading()) { <p role="status" class="mt-4">Updating notifications...</p> }
             @for (item of notifications.items(); track item.id) {
-              <article class="panel mt-4" [class.border-emerald-600]="!item.readAt"><h2 class="font-bold">{{ item.title }} @if (!item.readAt) { <span class="text-sm text-emerald-700"> ? Unread</span> }</h2><p class="mt-2">{{ item.message }}</p><p class="text-xs text-stone-500 mt-2">{{ time(item.createdAt, 'America/New_York') }}</p>@if (!item.readAt) { <button class="secondary mt-3" [disabled]="notifications.loading()" (click)="notifications.read(item.id)">Mark as read</button> }</article>
+              <article class="panel mt-4" [class.border-emerald-600]="!item.readAt"><h2 class="font-bold">{{ item.title }} @if (!item.readAt) { <span class="text-sm text-emerald-700"> ? Unread</span> }</h2><p class="mt-2">{{ item.message }}</p>@if (item.kind === 'ORGANIZER_REQUEST' && auth.profile()?.role === 'ADMINISTRATOR') { <button class="primary mt-3" (click)="reviewOrganizerRequests()">Review request</button> }@if (item.kind === 'ORGANIZER_REQUEST_GRANTED') { <button class="primary mt-3" (click)="auth.refreshProfile()">Refresh access</button> }<p class="text-xs text-stone-500 mt-2">{{ time(item.createdAt, 'America/New_York') }}</p>@if (!item.readAt) { <button class="secondary mt-3" [disabled]="notifications.loading()" (click)="notifications.read(item.id)">Mark as read</button> }</article>
             } @empty { @if (!notifications.loading() && !notifications.error()) { <p class="mt-5">No notifications yet.</p> } }
             <p class="text-sm text-stone-500 mt-5">Showing the latest 100 notifications. Updates refresh every 30 seconds while the app is open.</p>
           </section>
@@ -51,7 +53,7 @@
         @else if (page() === 'mygames'  && auth.profile()) { <app-my-games /> }
         @else if (page() === 'organizer' && (auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <app-organizer /> }
         @else if (page() === 'profile' && auth.profile()) {
-          <app-profile />
+          <app-profile (completed)="navigate('games')" />
         } @else {
           <!-- <p class="text-xs font-bold tracking-[.2em] text-emerald-700">FIND YOUR NEXT GAME</p>
           <h1 class="text-4xl md:text-5xl font-bold tracking-tight mt-3">More soccer.<br>Less organizing.</h1>

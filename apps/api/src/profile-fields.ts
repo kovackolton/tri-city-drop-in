@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { object, text } from './validation';
+import { object, text, integer } from './validation';
 export const avatarColors = ['emerald', 'teal', 'sky', 'indigo', 'violet', 'rose', 'amber', 'slate'] as const;
 export function googleAvatarUrl(value: unknown): string | null {
   if (typeof value !== 'string' || value.length > 2048) return null;
@@ -9,9 +9,11 @@ export function googleAvatarUrl(value: unknown): string | null {
   } catch { return null; }
 }
 export function profileInput(value: unknown) {
-  const b = object(value, ['displayName', 'contactEmail', 'phone', 'avatarColor', 'useGooglePhoto']);
-  const data: { displayName?: string; contactEmail?: string | null; phone?: string | null; avatarColor?: string; useGooglePhoto?: boolean } = {};
-  if (b.displayName !== undefined) data.displayName = text(b.displayName, 'Display name', 80);
+  const b = object(value, ['nickname', 'skillLevel', 'contactEmail', 'phone', 'avatarColor', 'useGooglePhoto', 'accountName']);
+  const data: { nickname?: string | null; skillLevel?: number | null; accountName?: string; contactEmail?: string | null; phone?: string | null; avatarColor?: string; useGooglePhoto?: boolean } = {};
+  if (b.nickname !== undefined) data.nickname = b.nickname === '' || b.nickname === null ? null : text(b.nickname, 'Nickname', 80);
+  if (b.skillLevel !== undefined) data.skillLevel = b.skillLevel === null ? null : integer(b.skillLevel, 'Skill rating', 1, 5);
+  if (b.accountName !== undefined) data.accountName = text(b.accountName, 'Account name', 80);
   if (b.contactEmail !== undefined) {
     const email = b.contactEmail === null || b.contactEmail === '' ? null : text(b.contactEmail, 'Contact email', 254).toLowerCase();
     if (email && !/^[a-z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(email)) throw new BadRequestException('Enter a valid contact email.');
@@ -33,7 +35,7 @@ export function profileInput(value: unknown) {
   }
   return data;
 }
-export const appearanceSelect = { displayName: true, avatarUrl: true, avatarColor: true, useGooglePhoto: true } as const;
-export function appearance(user: { displayName: string; avatarUrl: string | null; avatarColor: string; useGooglePhoto: boolean }) {
-  return { displayName: user.displayName, avatarColor: user.avatarColor, avatarUrl: user.useGooglePhoto ? googleAvatarUrl(user.avatarUrl) : null };
+export const appearanceSelect = { displayName: true, nickname: true, avatarUrl: true, avatarColor: true, useGooglePhoto: true } as const;
+export function appearance(user: { displayName: string; nickname?: string | null; avatarUrl: string | null; avatarColor: string; useGooglePhoto: boolean }) {
+  return { displayName: user.nickname ?? user.displayName, avatarColor: user.avatarColor, avatarUrl: user.useGooglePhoto ? googleAvatarUrl(user.avatarUrl) : null };
 }

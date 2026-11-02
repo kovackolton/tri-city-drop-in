@@ -53,6 +53,7 @@ export class OrganizerService {
       }
       const strike = await tx.strike.create({ data: { userId: seat.userId, signupId, reason, issuedById: actorId } });
       await tx.auditLog.create({ data: { actorId, eventId: seat.eventId, action: 'STRIKE_ISSUED', details: { signupId, strikeId: strike.id, reason, note } } });
+      await tx.notification.create({ data: { userId: seat.userId, kind: 'STRIKE_ISSUED', dedupeKey: `strike:${strike.id}`, payload: { eventId: seat.eventId, title: seat.event.title, signupId, guest: seat.guestNumber > 0 } } });
       return strike;
     });
   }

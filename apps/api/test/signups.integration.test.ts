@@ -8,6 +8,7 @@ import { PrismaClient } from '@prisma/client';
 import { Database } from '../src/database';
 import { SignupsService } from '../src/signups';
 import { PaymentsService } from '../src/payments';
+import { OrganizerRequestsService } from '../src/organizer-requests';
 import { OrganizerService } from '../src/organizer';
 import { LocationsService } from '../src/locations';
 import { EventManagementService } from '../src/event-management';
@@ -32,15 +33,16 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
   const administration = new AdministrationService(db, service);
   const management = new EventManagementService(db);
   const notifications = new NotificationsService(db);
+  const requests = new OrganizerRequestsService(db);
   try {
     // All tables and fixtures live in this new schema, never the application's public tables.
     execFileSync(process.execPath, [resolve('../../node_modules/prisma/build/index.js'), 'migrate', 'deploy'], {
       cwd: process.cwd(), env: { ...process.env, DATABASE_URL: url.toString() }, stdio: 'pipe'
     });
-    const users = await Promise.all(Array.from({ length: 24 }, (_, i) => db.user.create({ data: { firebaseUid: `test-${i}`, email: `test${i}@example.invalid`, displayName: `Player ${i}`, role: i === 0 ? 'ORGANIZER' : 'PLAYER' } })));
+    const users = await Promise.all(Array.from({ length: 24 }, (_, i) => db.user.create({ data: { firebaseUid: `test-${i}`, email: `test${i}@example.invalid`, displayName: `Player ${i}`, accountNameSetAt: new Date(), profileCompletedAt: new Date(), role: i === 0 ? 'ORGANIZER' : 'PLAYER' } })));
     const location = await db.location.create({ data: { name: 'Test pitch', address: 'Test only', timezone: 'America/New_York' } });
     const event = (capacity: number, priceCents = 1000) => db.event.create({ data: { title: 'Test game', organizerId: users[0].id, locationId: location.id, capacity, priceCents, maxGuestsPerUser: Math.min(3, capacity - 1), status: 'PUBLISHED', startsAt: new Date(Date.now() + 86400000), endsAt: new Date(Date.now() + 90000000) } });
-    const join = (user: number, eventId: string, guests: string[] = [], expectedPriceCents = 1000) => service.join(users[user].id, eventId, { guests, expectedPriceCents });
+    const join = (user: number, eventId: string, guests: string[] = [], expectedPriceCents = 1000) => service.join(users[user].id, eventId, { guests, expectedPriceCents, guestPaymentAcknowledged: guests.length > 0 });
 
     await t.test('cancellation is owner-only, idempotent, retains parties and voids charges', async () => {
       const e = await event(2);
@@ -125,7 +127,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       const profiles = new ProfilesController(db);
       const owner = users[18];
       await db.user.update({ where: { id: owner.id }, data: { avatarUrl: 'https://lh3.googleusercontent.com/a/test' } });
-      const updated = await profiles.update({ user: owner } as AuthRequest, { displayName: 'Contact player', contactEmail: 'contact@example.invalid', phone: '+1 (555) 987-6543', avatarColor: 'violet', useGooglePhoto: false });
+      const updated = await profiles.update({ user: owner } as AuthRequest, { nickname: 'Contact player', skillLevel: 3, contactEmail: 'contact@example.invalid', phone: '+1 (555) 987-6543', avatarColor: 'violet', useGooglePhoto: false });
       assert.equal(updated.phone, '+1 (555) 987-6543'); assert.equal(updated.email, owner.email);
       const fresh = await db.user.findUniqueOrThrow({ where: { id: owner.id } });
       assert.equal(profiles.me({ user: fresh } as AuthRequest).avatarColor, 'violet');
@@ -133,6 +135,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       const roster = await service.roster(users[0].id, e.id);
       assert.equal(roster[0].user.contactEmail, 'contact@example.invalid'); assert.equal(roster[0].user.phone, '+1 (555) 987-6543');
       assert.equal(roster[0].user.avatarUrl, null);
+      assert.equal(roster[0].user.accountName, owner.displayName); assert.equal(roster[0].user.skillLevel, 3);
       assert.equal((await service.roster(users[2].id, e.id, true))[0].user.phone, fresh.phone);
       await assert.rejects(service.roster(users[1].id, e.id), /Event not found/);
       const players = await service.participants(owner.id, e.id);
@@ -418,6 +421,91 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.equal(await db.auditLog.count({ where: { eventId: e.id, action: 'ADMIN_EVENT_DELETED' } }), 1);
       await assert.rejects(join(3, e.id), /future published/);
       assert.equal((await service.mine(users[1].id)).filter(s => s.bookingId === a[0].bookingId).length, 2);
+    });
+    await t.test('onboarding sets a missing account name once, while nickname changes preserve it under concurrency', async () => {
+      const user = await db.user.create({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Player' } });
+      const profiles = new ProfilesController(db);
+      const outcomes = await Promise.allSettled(['Real Name', 'Other Name'].map(accountName => profiles.update({ user } as AuthRequest, { accountName, nickname: 'Pitch nickname', skillLevel: 2 })));
+      assert.equal(outcomes.filter(outcome => outcome.status === 'fulfilled').length, 1);
+      const saved = await db.user.findUniqueOrThrow({ where: { id: user.id } });
+      assert.ok(saved.accountNameSetAt); assert.ok(saved.profileCompletedAt);
+      await assert.rejects(profiles.update({ user: saved } as AuthRequest, { accountName: 'Changed' }), /cannot be edited/);
+      await assert.rejects(profiles.update({ user: saved } as AuthRequest, { displayName: 'Changed' }), /Unexpected field/);
+      const updated = await profiles.update({ user: saved } as AuthRequest, { nickname: 'New nick', skillLevel: 5 });
+      assert.equal(updated.accountName, saved.displayName); assert.equal(updated.displayName, 'New nick');
+      const e = await event(2); await service.join(user.id, e.id, { guests: [], expectedPriceCents: 1000 });
+      const participants = await service.participants(user.id, e.id);
+      assert.equal(participants[0].name, 'New nick'); assert.equal('accountName' in participants[0], false); assert.equal('skillLevel' in participants[0], false);
+      const roster = await service.roster(users[0].id, e.id);
+      assert.equal(roster[0].user.accountName, saved.displayName); assert.equal(roster[0].user.skillLevel, 5);
+    });
+    await t.test('organizer requests deduplicate, notify admins and require administrator-only decisions', async () => {
+      const adminUser = await db.user.create({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Admin', role: 'ADMINISTRATOR' } });
+      const requester = users[10];
+      const [a, b] = await Promise.all([requests.request(requester.id), requests.request(requester.id)]);
+      assert.equal(a.id, b.id); assert.equal(await db.organizerRequest.count({ where: { userId: requester.id, status: 'PENDING' } }), 1);
+      assert.equal(await db.notification.count({ where: { userId: adminUser.id, kind: 'ORGANIZER_REQUEST' } }), 1);
+      const directory = await requests.users('Player 10', true);
+      assert.equal(directory.items[0].organizerRequest?.id, a.id); assert.equal(directory.items[0].accountName, requester.displayName);
+      await assert.rejects(requests.review(users[0].id, a.id, 'grant'), /Administrator access/);
+      assert.equal((await db.user.findUniqueOrThrow({ where: { id: requester.id } })).role, 'PLAYER');
+      await requests.review(adminUser.id, a.id, 'clear'); await requests.review(adminUser.id, a.id, 'clear');
+      assert.equal((await db.user.findUniqueOrThrow({ where: { id: requester.id } })).role, 'PLAYER');
+      const next = await requests.request(requester.id); assert.notEqual(next.id, a.id);
+      await assert.rejects(requests.review(adminUser.id, a.id, 'grant'), /already been reviewed/);
+      const decisions = await Promise.allSettled([requests.review(adminUser.id, next.id, 'grant'), requests.review(adminUser.id, next.id, 'clear')]);
+      assert.ok(decisions.some(decision => decision.status === 'fulfilled'));
+      const resolved = await db.organizerRequest.findUniqueOrThrow({ where: { id: next.id } });
+      assert.ok(resolved.reviewedAt); assert.equal(resolved.reviewedById, adminUser.id);
+      assert.equal((await db.user.findUniqueOrThrow({ where: { id: requester.id } })).role, resolved.status === 'GRANTED' ? 'ORGANIZER' : 'PLAYER');
+      assert.equal(await db.notification.count({ where: { dedupeKey: `organizer-outcome:${next.id}` } }), 1);
+      assert.equal(await db.notification.count({ where: { userId: adminUser.id, kind: 'ORGANIZER_REQUEST', readAt: null } }), 0);
+      const pendingUser = users[11]; const pending = await requests.request(pendingUser.id);
+      const lateAdmin = await db.user.create({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Later admin', role: 'ADMINISTRATOR' } });
+      await notifications.inbox(lateAdmin.id); await notifications.inbox(lateAdmin.id);
+      assert.equal(await db.notification.count({ where: { dedupeKey: `organizer-request:${pending.id}:${lateAdmin.id}` } }), 1);
+      await requests.users('', true); assert.equal((await requests.mine(pendingUser.id))?.status, 'PENDING');
+      await requests.review(adminUser.id, pending.id, 'grant'); await requests.review(adminUser.id, pending.id, 'grant');
+      assert.equal((await db.user.findUniqueOrThrow({ where: { id: pendingUser.id } })).role, 'ORGANIZER');
+      await assert.rejects(requests.request(pendingUser.id), /already have/);
+      const inbox = await notifications.inbox(adminUser.id); assert.ok(inbox.items.some(item => item.kind === 'ORGANIZER_REQUEST'));
+    });
+    await t.test('guest acknowledgment is required and retained; unpaid guest strikes belong to the booking account after review', async () => {
+      const e = await event(3);
+      await assert.rejects(service.join(users[12].id, e.id, { guests: ['Guest'], expectedPriceCents: 1000 }), /Acknowledge/);
+      const seats = await service.join(users[12].id, e.id, { guests: ['Guest'], expectedPriceCents: 1000, guestPaymentAcknowledged: true });
+      assert.ok(seats.every(seat => seat.guestPaymentAcknowledgedAt && seat.guestPaymentTermsVersion === 'guest-payment-v1'));
+      const retry = await service.join(users[12].id, e.id, { guests: ['Guest'], expectedPriceCents: 1000, guestPaymentAcknowledged: true });
+      assert.equal(retry[0].guestPaymentAcknowledgedAt?.getTime(), seats[0].guestPaymentAcknowledgedAt?.getTime());
+      const guest = seats.find(seat => seat.guestNumber === 1)!;
+      await assert.rejects(organizer.issue(users[0].id, guest.id, { reason: 'MISSED_PAYMENT', note: 'Unpaid guest' }), /after the event/);
+      await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000) } });
+      await payments.review(users[0].id, guest.id, 'organizer', { paid: false });
+      await assert.rejects(organizer.issue(users[0].id, guest.id, { reason: 'MISSED_PAYMENT', note: 'Unpaid guest' }), /Both payment reviews/);
+      await payments.review(users[12].id, guest.id, 'player', { paid: false });
+      const strike = await organizer.issue(users[0].id, guest.id, { reason: 'MISSED_PAYMENT', note: 'Reviewed unpaid guest' });
+      assert.equal(strike.userId, users[12].id); assert.equal(strike.signupId, guest.id);
+      assert.equal(await db.notification.count({ where: { dedupeKey: `strike:${strike.id}` } }), 1);
+      await payments.review(users[0].id, guest.id, 'organizer', { paid: true });
+      assert.ok((await db.strike.findUniqueOrThrow({ where: { id: strike.id } })).revokedAt);
+      const free = await event(3, 0); await assert.rejects(service.join(users[13].id, free.id, { guests: ['Guest'], expectedPriceCents: 0 }), /Acknowledge/);
+      const freeSeats = await service.join(users[13].id, free.id, { guests: ['Guest'], expectedPriceCents: 0, guestPaymentAcknowledged: true });
+      assert.ok(freeSeats.every(seat => seat.guestPaymentAcknowledgedAt));
+      const small = await event(2);
+      const full = await service.join(users[14].id, small.id, { guests: ['Filler guest'], expectedPriceCents: 1000, guestPaymentAcknowledged: true });
+      await assert.rejects(service.join(users[15].id, small.id, { guests: ['Waiting guest'], expectedPriceCents: 1000 }), /Acknowledge/);
+      const waiting = await service.join(users[15].id, small.id, { guests: ['Waiting guest'], expectedPriceCents: 1000, guestPaymentAcknowledged: true });
+      assert.ok(waiting.every(seat => seat.status === 'WAITLISTED' && seat.guestPaymentAcknowledgedAt));
+      await service.cancel(users[14].id, small.id, full[0].bookingId);
+      const promoted = await db.signup.findUniqueOrThrow({ where: { id: waiting[0].id } });
+      assert.equal(promoted.status, 'CONFIRMED'); assert.equal(promoted.guestPaymentAcknowledgedAt?.getTime(), waiting[0].guestPaymentAcknowledgedAt?.getTime());
+    });
+    await t.test('administrator user pagination preserves unique users across creation-time ties', async () => {
+      await db.user.createMany({ data: Array.from({ length: 51 }, (_, index) => ({ firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: `PageFixture ${index}` })) });
+      const first = await requests.users('PageFixture'); assert.equal(first.items.length, 50); assert.ok(first.nextCursor);
+      const second = await requests.users('PageFixture', false, first.nextCursor!);
+      assert.equal(second.items.length, 1); assert.equal(second.nextCursor, null);
+      assert.equal(new Set([...first.items, ...second.items].map(user => user.id)).size, 51);
     });
   } finally {
     await db.$disconnect();

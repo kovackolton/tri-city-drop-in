@@ -1,4 +1,9 @@
-# Current milestone: venue photos and map embeds
+# Current milestone: player identity, organizer requests and guest responsibility
+
+New profile setup includes optional nickname and a private 1-5 self-rated skill level with a team-balancing blurb. Existing account names are preserved and locked. Players can request organizer access; administrators have a Users page, request flags/filters, notifications and audited Grant/Clear decisions. Guest booking requires explicit payment-responsibility acknowledgment, retained through waitlist promotion. Per the selected policy, strikes remain organizer-reviewed and guest strikes belong to the booking account. The local migration is applied; builds, 27 API unit tests, 32 local PostgreSQL scenarios and 21 frontend logic tests passed. Browser review remains manual. See [identity/request review](player-identity-review.md).
+
+## Previous milestone: venue photos and map embeds
+
 
 Locations now supports an optional approved external photo URL, credit text and a manually copied Google Maps embed. Game cards and My Games show thumbnails beside titles and maps near addresses; a building icon and directions link cover missing media. No image files, API keys or paid Maps/Places API integration were added. The local migration is applied. Frontend build, API compilation, 25 unit tests, 28 isolated PostgreSQL scenarios and seven frontend profile/map tests passed. Existing locations need their optional media configured; live image/map and browser checks remain manual. See [venue media review](location-media-review.md).
 

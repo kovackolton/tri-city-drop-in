@@ -40,7 +40,9 @@ export class FirebaseGuard implements CanActivate {
       if (!token.email || !token.email_verified) throw new ForbiddenException('A verified email is required to create your profile.');
       try {
         user = await this.db.user.upsert({ where: { firebaseUid: token.uid }, update: {}, create: {
-          firebaseUid: token.uid, email: token.email.toLowerCase(), avatarUrl: picture, displayName: typeof token.name === 'string' ? token.name.slice(0, 80) : 'Player'
+          firebaseUid: token.uid, email: token.email.toLowerCase(), avatarUrl: picture,
+          displayName: typeof token.name === 'string' && token.name.trim() ? token.name.trim().slice(0, 80) : 'Player',
+          accountNameSetAt: typeof token.name === 'string' && token.name.trim() ? new Date() : null
         } });
       } catch (error) {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('This email belongs to another profile. Use the original sign-in provider.');
