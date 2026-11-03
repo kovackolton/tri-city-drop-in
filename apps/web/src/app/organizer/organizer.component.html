@@ -42,6 +42,7 @@
             <details class="event-details"><summary>Event details &amp; equipment</summary><div class="pt-3"><p class="text-sm text-muted">{{ game.location.address }}</p><p class="text-sm text-muted mt-2">Ends {{ time(game.endsAt, game.location.timezone) }}</p><app-event-guidance class="block mt-3" [bibsProvided]="game.bibsProvided" [shirtColorCount]="game.shirtColorCount" [minPlayers]="game.minPlayers" [confirmed]="game.confirmed" />@if (game.description) { <p class="text-sm whitespace-pre-line mt-3">{{ game.description }}</p> }</div></details>
           </div>
           <div class="event-toolbar">
+            @if (canShare(game)) { <app-event-share [eventId]="game.id" /> }
             <button class="primary" [disabled]="busy()" [attr.aria-expanded]="rosterEvent() === game.id" [attr.aria-controls]="'event-management-' + game.id" (click)="rosterEvent.set(rosterEvent() === game.id ? '' : game.id)">{{ rosterEvent() === game.id ? 'Close player management' : 'Manage players' }}</button>
             @if (game.status === 'DRAFT') { <button class="secondary" [disabled]="busy()" (click)="publish(game.id)">Publish event</button> }
             @if (auth.profile()?.role === 'ADMINISTRATOR' || canCancel(game) || canComplete(game)) {

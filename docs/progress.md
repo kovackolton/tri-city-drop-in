@@ -1,4 +1,8 @@
-# Current milestone: paid event cost confirmation
+# Current milestone: event sharing and Cloud Run container
+
+Published games have server-rendered rich-link metadata, venue photos/soccer-ball fallback, live availability and FIFO-aware waitlist wording. Share/Copy controls and a pinned shared-game view preserve the target through sign-in/waiver review. A combined Dockerfile.cloudrun serves the API, HTML previews and Angular app with runtime public configuration on the injected port. No cloud deployment or new paid service. Clean image build and local container smoke passed, plus API/frontend builds, 39 API unit tests, 57 PostgreSQL scenarios and 28 frontend logic tests. Messaging-app rendering and signed-in browser flows remain manual. See [sharing/Cloud Run review](event-sharing-cloudrun-review.md).
+
+## Previous milestone: paid event cost confirmation
 
 Paid joins, waitlists and invitations now require a separate cost acknowledgment button in a dialog showing the price and party total. Free joins remain direct. The server requires explicit acknowledgment for paid player submissions, validates the quote and audits consent once per new booking. Guest responsibility, waiver and strike checks remain independent. No migration or external service. Builds, 36 API unit tests, 56 PostgreSQL scenarios and 26 frontend logic tests passed; browser review remains manual. See [cost confirmation review](paid-cost-confirmation-review.md).
 

@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { ExecutionContext, ForbiddenException, UnauthorizedException, ServiceUnavailableException } from '@nestjs/common';
 import { User } from '@prisma/client';
 import { AdministratorGuard, AuthRequest, FirebaseGuard, OrganizerGuard, TokenVerifier, tokenFailure } from '../src/auth';
+import { availability, renderPreview, previewMetadata, siteOrigin, ShareEvent } from '../src/event-sharing';
+import { publicWebConfig } from '../src/web-hosting';
 import { Database } from '../src/database';
 import { eventFilters, matchesEventDate } from '../src/event-filters';
 import { balanceTeams, combinedRating, reshuffleTeams } from '../src/teams';
@@ -268,4 +270,30 @@ test('paid signup requires explicit cost acknowledgment while free signup does n
   for (const costAcknowledged of [undefined, false, 'true', 1]) assert.throws(() => signupInput({ guests: [], expectedPriceCents: 1200, costAcknowledged }), /cost|Cost/);
   assert.equal(signupInput({ guests: [], expectedPriceCents: 1200, costAcknowledged: true }).price, 1200);
   assert.equal(signupInput({ guests: [], expectedPriceCents: 0 }).price, 0);
+});
+
+
+const shareFixture = () => ({ id: '12345678-1234-1234-1234-123456789012', title: 'Friday soccer', description: 'Everyone welcome', status: 'PUBLISHED', startsAt: new Date('2030-01-05T00:00:00Z'), endsAt: new Date('2030-01-05T02:00:00Z'), capacity: 4, priceCents: 1200, signups: [{ status: 'CONFIRMED' }], location: { name: 'Test venue', address: '123 Test Street', timezone: 'America/New_York', photoUrl: null, photoCredit: null } }) as ShareEvent;
+const shareNow = new Date('2030-01-04T00:00:00Z');
+test('share availability respects FIFO even when spare capacity exists, and closes started/cancelled games', () => {
+  const event = shareFixture(); assert.equal(availability(event, shareNow).text, '3 spots available');
+  event.signups.push({ status: 'WAITLISTED' }); assert.match(availability(event, shareNow).text, /Waitlist open/); assert.equal(availability(event, shareNow).action, 'Join Waitlist');
+  event.signups = Array.from({ length: 4 }, () => ({ status: 'CONFIRMED' })); assert.match(availability(event, shareNow).text, /Full/);
+  event.status = 'CANCELLED'; assert.equal(availability(event, shareNow).open, false);
+  event.status = 'PUBLISHED'; assert.equal(availability(event, new Date('2030-01-05T01:00:00Z')).open, false);
+});
+test('preview HTML includes metadata without JavaScript and escapes event text and image URLs', () => {
+  const event = shareFixture(); event.title = '<script>alert(1)</script>'; event.location.name = 'Pitch & Field';
+  const rendered = renderPreview(event, 'https://soccer.example.test', shareNow);
+  assert.ok(rendered.includes('property="og:title"')); assert.ok(rendered.includes('USD 12.00 per player')); assert.ok(rendered.includes('7:00 PM EST'));
+  assert.ok(rendered.includes('&lt;script&gt;alert(1)&lt;/script&gt;')); assert.ok(!rendered.includes('<script>alert(1)</script>'));
+  assert.ok(rendered.includes('/share/soccer-ball.png')); assert.ok(rendered.includes('/?event=' + event.id));
+  event.location.photoUrl = 'https://images.example.test/pitch.jpg?a=1&b=2'; assert.ok(renderPreview(event, 'https://soccer.example.test', shareNow).includes('pitch.jpg?a=1&amp;b=2'));
+  event.location.photoUrl = 'javascript:alert(1)'; assert.match(previewMetadata(event, 'https://soccer.example.test', shareNow).image, /soccer-ball.png$/);
+});
+test('public origins reject credentials and paths and runtime web config only exposes allowed client fields', () => {
+  assert.equal(siteOrigin('https://soccer.example.test/'), 'https://soccer.example.test');
+  for (const value of ['http://soccer.example.test', 'https://user:pass@soccer.example.test', 'https://soccer.example.test/path', 'https://soccer.example.test/?x=1', 'javascript:alert(1)']) assert.throws(() => siteOrigin(value));
+  const config = publicWebConfig(JSON.stringify({ apiKey: 'public-key', authDomain: 'example.test', projectId: 'test', appId: 'test-app', private_key: 'never-expose' }));
+  assert.equal(config.firebase.apiKey, 'public-key'); assert.equal('private_key' in config.firebase, false); assert.throws(() => publicWebConfig('bad-json'));
 });

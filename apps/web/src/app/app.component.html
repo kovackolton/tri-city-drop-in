@@ -63,11 +63,15 @@
         @else if (page() === 'mygames'  && auth.profile()) { <app-my-games [revealHistory]="!!paymentEventId()" /> }
         @else if (page() === 'organizer' && (auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <app-organizer /> }
         @else if (page() === 'profile' && auth.profile()) {
+          @if (store.selectedId()) { <button type="button" class="secondary mb-5" (click)="navigate('games')">Return to shared game</button> }
           <app-profile [sectionRequest]="profileSectionRequest()" (completed)="navigate('games')" />
         } @else {
           <!-- <p class="text-xs font-bold tracking-[.2em] text-accent">FIND YOUR NEXT GAME</p>
           <h1 class="text-4xl md:text-5xl font-bold tracking-tight mt-3">More soccer.<br>Less organizing.</h1>
           <p class="mt-4 text-muted max-w-lg">Find a pitch, grab a spot, and show up ready to play. Upcoming drop-in games around the Tri-Cities.</p> -->
+          @if (store.selectedId()) { <section id="shared-game" tabindex="-1" aria-labelledby="shared-game-heading" class="mt-6 mb-8"><div class="flex flex-wrap justify-between items-center gap-3 mb-4"><div><h1 id="shared-game-heading" class="text-2xl font-bold">Shared game</h1><p class="text-sm text-muted mt-1">This game is shown separately from the filters below. Availability is checked again when you join.</p></div><button type="button" class="secondary" (click)="dismissSharedGame()">Browse all games</button></div>
+            @if (store.selectedLoading()) { <p role="status">Loading the shared game...</p> }@else if (store.selectedError()) { <p role="alert" class="notice error">{{ store.selectedError() }}</p> }@else if (store.selectedGame(); as game) { <app-event-card [game]="game" (changed)="refreshAfterJoin()" (signIn)="navigate('signin')" /> }
+          </section> }
           <section aria-labelledby="games-heading" class="mt-10">
             <div class="flex justify-between items-center mb-5"><h2 id="games-heading" class="text-xl font-bold">Upcoming games</h2><button class="secondary" [disabled]="store.loading()" (click)="refreshGames()">Refresh</button></div>
             <form class="panel mb-5" (ngSubmit)="applyFilters()" aria-label="Filter upcoming games">
@@ -84,26 +88,10 @@
             @if (store.loading()) { <p role="status">Loading games...</p> }
             @else if (store.error()) { <div role="alert" class="notice error"><p>{{ store.error() }}</p><button class="underline mt-3" (click)="store.load()">Try again</button></div> }
             @else {
-              <p role="status" class="text-sm text-muted mb-4">{{ store.events().length }} matching {{ store.events().length === 1 ? 'game' : 'games' }} (up to 100 shown).</p>
+              <p role="status" class="text-sm text-muted mb-4">{{ listedGames().length }} {{ store.selectedId() ? 'other matching' : 'matching' }} {{ store.events().length === 1 ? 'game' : 'games' }} (up to 100 shown).</p>
               <div class="grid lg:grid-cols-2 gap-5">
-              @for (game of store.events(); track game.id) {
-                <article class="panel event-card">
-                  <header class="event-card-header">
-                  <div class="flex flex-wrap justify-between items-start gap-3"><p class="event-start text-sm font-semibold">{{ time(game.startsAt, game.timezone) }}</p><span class="text-xs rounded-full bg-badge text-badge-text px-3 py-1">{{ game.priceCents === 0 ? 'Free' : (game.priceCents / 100 | currency:'USD':'USD ') }}</span></div>
-                  <div class="flex items-start gap-4 mt-5"><app-location-thumbnail [name]="game.location" [photoUrl]="game.photoUrl" [photoCredit]="game.photoCredit" /><div class="min-w-0"><h3 class="text-2xl font-bold break-words">{{ game.title }}</h3><p class="mt-2 font-medium">{{ game.location }}</p></div></div>
-                  </header>
-                  <div class="event-card-body">
-                  <p class="text-sm text-muted">{{ game.address }}</p>
-                  <app-location-map class="mt-3" [name]="game.location" [address]="game.address" [embedUrl]="game.mapEmbedUrl" />
-                  <app-organizer-contact [name]="game.organizer?.displayName" [email]="game.organizerContactEmail" [phone]="game.organizerContactPhone" [callAllowed]="game.contactCallAllowed" [textAllowed]="game.contactTextAllowed" />
-                  @if (game.description) { <p class="mt-3 text-sm whitespace-pre-line">{{ game.description }}</p> }
-                  <p class="text-xs text-muted mt-3">Ends {{ time(game.endsAt, game.timezone) }} Ã‚Â· Price per player</p>
-                  <div class="mt-6 border-t border-divider pt-4 flex justify-between text-sm"><span>{{ game.confirmed }} / {{ game.capacity }} players</span><span>{{ game.waitlisted }} waiting</span></div>
-                  <app-event-guidance class="block mt-4" [bibsProvided]="game.bibsProvided" [shirtColorCount]="game.shirtColorCount" [minPlayers]="game.minPlayers" [confirmed]="game.confirmed" />
-                  @if (auth.profile()) { <app-signup [game]="game" (changed)="store.load()" /> }
-                  @else { <p class="text-sm text-muted mt-4">Sign in to join this game.</p> }
-                  </div>
-                </article>
+              @for (game of listedGames(); track game.id) {
+                <app-event-card [game]="game" (changed)="refreshAfterJoin()" (signIn)="navigate('signin')" />
               } @empty { <div class="rounded-2xl border border-dashed border-default p-8 text-muted">No upcoming games match these filters. Try clearing or adjusting them.</div> }
               </div>
             }

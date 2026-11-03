@@ -22,6 +22,8 @@ import { SignupComponent } from '../src/app/signup/signup.component';
 import { Game } from '../src/models';
 import { MyGamesComponent } from '../src/app/my-games/my-games.component';
 import { AuthService } from '../src/auth.service';
+import { EventShareComponent } from '../src/app/event-share/event-share.component';
+import { sharedEventId, shareMessage, SharedGame } from '../src/event-sharing';
 import { EventsStore, defaultGameFilters } from '../src/events.store';
 import { RegistrationsStore, Seat } from '../src/registrations.store';
 
@@ -337,4 +339,31 @@ test('paid invitations require a separate confirmation and reject a price change
   invite.event.priceCents = 1500; await component.confirmCost(); assert.equal(calls.length, 0); assert.match(component.error(), /changed/);
   await component.respond(invite, 'accept'); await component.confirmCost(); assert.equal(calls.length, 1); assert.deepEqual(calls[0].body, { expectedPriceCents: 1500, costAcknowledged: true }); assert.equal(component.costConfirmation(), null);
   injector.destroy();
+});
+
+
+test('shared games load independently of list filters and cannot be restored by an old response after dismissal', async () => {
+  const requests: { url: string; response: Subject<any> }[] = [];
+  const injector = Injector.create({ providers: [EventsStore, { provide: HttpClient, useValue: { get: (url: string) => { const response = new Subject<any>(); requests.push({ url, response }); return response; } } }] });
+  const store = injector.get(EventsStore);
+  const first = store.loadSelected('first'); const second = store.loadSelected('second');
+  requests[1].response.next({ game: { id: 'second' } }); requests[1].response.complete(); await second;
+  requests[0].response.next({ game: { id: 'first' } }); requests[0].response.complete(); await first;
+  assert.equal(store.selectedGame()?.id, 'second'); assert.equal(store.events().length, 0);
+  const stale = store.loadSelected('third'); store.clearSelected(); requests[2].response.next({ game: { id: 'third' } }); requests[2].response.complete(); await stale;
+  assert.equal(store.selectedGame(), null); assert.equal(store.selectedId(), '');
+  const unavailable = store.loadSelected('ended'); requests[3].response.error(new Error('404')); await unavailable; assert.equal(store.selectedGame(), null); assert.match(store.selectedError(), /unavailable/);
+  assert.equal(sharedEventId('?event=some-id&other=x'), 'some-id'); assert.equal(sharedEventId(''), ''); injector.destroy();
+});
+
+test('event sharing fetches fresh public metadata and ignores results for a previous card', async () => {
+  const responses: Subject<SharedGame>[] = [];
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: { get: () => { const response = new Subject<SharedGame>(); responses.push(response); return response; } } }] });
+  const component = runInInjectionContext(injector, () => new EventShareComponent());
+  component.eventId = 'first'; const stale = component.prepare(); component.eventId = 'second'; component.ngOnChanges();
+  const data = { game: { id: 'second', title: 'Friday soccer' }, share: { url: 'https://soccer.example.test/games/second', title: 'Friday soccer / Join Game', description: 'Friday at 7 PM / USD 12.00 per player / 6 spots available', availability: '6 spots available', action: 'Join Game', open: true } } as SharedGame;
+  responses[0].next(data); responses[0].complete(); await stale; assert.equal(component.data(), null);
+  const fresh = component.prepare(); responses[1].next(data); responses[1].complete(); await fresh;
+  assert.equal(component.data()?.share.availability, '6 spots available'); assert.ok(shareMessage(data.share).includes('USD 12.00')); assert.ok(shareMessage(data.share).includes('6 spots available'));
+  await component.prepare(); assert.equal(component.open(), false); injector.destroy();
 });

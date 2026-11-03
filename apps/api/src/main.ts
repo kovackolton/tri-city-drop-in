@@ -4,6 +4,8 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { StrikesService, MyStrikesController, AdminStrikesController } from './strikes';
 import { WaiverService, WaiverController } from './waiver';
+import { EventSharingController, EventSharingService } from './event-sharing';
+import { configureWebHosting } from './web-hosting';
 import { Database } from './database';
 import { AdministratorGuard, FirebaseGuard, OrganizerGuard, TokenVerifier } from './auth';
 import { OrganizerRequestsService, OrganizerRequestsController, AdminUsersController } from './organizer-requests';
@@ -19,14 +21,15 @@ import { OrganizerController, OrganizerService } from './organizer';
 import { LocationsController, LocationsService } from './locations';
 import { AdministrationController, AdministrationService } from './administration';
 
-@Module({ controllers: [WaiverController, MyStrikesController, AdminStrikesController, TeamsController, EventInvitationsController, OrganizerRequestsController, AdminUsersController, NotificationsController, EventManagementController, EventsController, ProfilesController, SignupsController, PaymentsController, OrganizerController, LocationsController, AdministrationController], providers: [WaiverService, StrikesService, TeamsService, EventInvitationsService, OrganizerRequestsService, NotificationsService, EventManagementService, Database, AdministratorGuard, FirebaseGuard, OrganizerGuard, TokenVerifier, SignupsService, PaymentsService, OrganizerService, LocationsService, AdministrationService] })
+@Module({ controllers: [EventSharingController, WaiverController, MyStrikesController, AdminStrikesController, TeamsController, EventInvitationsController, OrganizerRequestsController, AdminUsersController, NotificationsController, EventManagementController, EventsController, ProfilesController, SignupsController, PaymentsController, OrganizerController, LocationsController, AdministrationController], providers: [EventSharingService, WaiverService, StrikesService, TeamsService, EventInvitationsService, OrganizerRequestsService, NotificationsService, EventManagementService, Database, AdministratorGuard, FirebaseGuard, OrganizerGuard, TokenVerifier, SignupsService, PaymentsService, OrganizerService, LocationsService, AdministrationService] })
 export class AppModule {}
 
 async function bootstrap() {
   if (process.env.NODE_ENV === 'production' && process.env.FIREBASE_AUTH_EMULATOR_HOST) throw new Error('Auth emulator is forbidden in production.');
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false });
   app.useBodyParser('json', { limit: '32kb' });
-  app.enableCors({ origin: process.env.WEB_ORIGIN ?? 'http://localhost:4200' });
+  configureWebHosting(app);
+  app.enableCors({ origin: process.env.WEB_ORIGIN ?? process.env.PUBLIC_SITE_ORIGIN ?? 'http://localhost:4200' });
   app.enableShutdownHooks();
   await app.listen(Number(process.env.PORT ?? 3000), '0.0.0.0');
 }
