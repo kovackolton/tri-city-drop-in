@@ -4,7 +4,9 @@
     @if (success()) { <p role="status" class="notice mt-5">{{ success() }}</p> }
     <nav aria-label="Organizer pages" class="flex gap-3 mt-5"><button class="secondary" (click)="view.set('events'); load()">Events</button><button class="secondary" (click)="view.set('locations')">Locations</button></nav>
     @if (view() === 'locations') { <app-locations (changed)="load()" /> } @else {
-    <div class="max-w-3xl mt-7">
+    <div class="mt-6"><button type="button" class="primary" [disabled]="busy()" [attr.aria-expanded]="showEventForm()" aria-controls="organizer-event-form" (click)="showEventForm.set(!showEventForm())">{{ showEventForm() ? 'Hide event form' : editingId() ? 'Continue editing event' : 'Create an event' }}</button></div>
+    @if (showEventForm()) {
+    <div id="organizer-event-form" class="max-w-3xl mt-5">
       <section class="panel"><h2 class="text-xl font-bold mb-4">{{ editingId() ? 'Edit event' : 'Create an event' }}</h2>
         <form (ngSubmit)="createEvent()" class="space-y-4">
           <label>Event title<input name="title" [(ngModel)]="event.title" required maxlength="160"></label>
@@ -28,6 +30,7 @@
         </form>
       </section>
     </div>
+    }
     <section class="mt-8" aria-label="Manage events">
       <div class="event-list-heading"><div><h2 class="text-xl font-bold">{{ auth.profile()?.role === 'ADMINISTRATOR' ? 'All events' : 'Your events' }}</h2><p class="text-sm text-muted mt-1">Choose an event to manage players, teams or event history.</p></div><button class="secondary" [disabled]="busy() || loading()" (click)="load()">Refresh events</button></div>
       @if (loading()) { <p role="status" class="mt-4">Loading workspace...</p> }
