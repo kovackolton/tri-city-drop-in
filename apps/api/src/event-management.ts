@@ -19,7 +19,7 @@ export class EventManagementService {
       if (action === 'complete' && (event.status !== 'PUBLISHED' || event.endsAt > now)) throw new ConflictException('Only published events that have ended can be completed.');
       if (action === 'cancel') {
         const hosts = await tx.signup.findMany({ where: { eventId: id, guestNumber: 0, status: { in: ['CONFIRMED', 'WAITLISTED'] } }, select: { userId: true } });
-        await tx.signup.updateMany({ where: { eventId: id, status: { in: ['CONFIRMED', 'WAITLISTED'] } }, data: { status: 'CANCELLED', cancelledAt: now, lateCancellation: false } });
+        await tx.signup.updateMany({ where: { eventId: id, status: { in: ['CONFIRMED', 'WAITLISTED'] } }, data: { status: 'CANCELLED', teamNumber: null, cancelledAt: now, lateCancellation: false } });
         await tx.paymentObligation.updateMany({ where: { signup: { eventId: id } }, data: { status: 'VOID' } });
         for (const host of hosts) await tx.notification.create({ data: { userId: host.userId, kind: 'EVENT_CANCELLED', dedupeKey: `cancelled:${id}:${host.userId}`, payload: { eventId: id, title: event.title } } });
       }

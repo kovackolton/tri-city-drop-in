@@ -74,6 +74,7 @@ model User {
   notifications Notification[]
   auditLogs   AuditLog[]
   paymentReviews PaymentObligation[] @relation("PaymentReviewer")
+  eventInvitations EventInvitation[]
   organizerRequests OrganizerRequest[] @relation("OrganizerRequester")
   reviewedOrganizerRequests OrganizerRequest[] @relation("OrganizerRequestReviewer")
 }
@@ -104,6 +105,12 @@ model Event {
   bibsProvided Boolean?
   shirtColorCount Int?
   minPlayers Int?
+  teamCount Int @default(2)
+  teamBalancingEnabled Boolean @default(false)
+  organizerContactEmail String?
+  organizerContactPhone String?
+  contactCallAllowed Boolean @default(false)
+  contactTextAllowed Boolean @default(false)
   // Per player/guest seat. Zero means Free; 1250 means USD $12.50.
   priceCents  Int @default(0)
   currency    Currency @default(USD)
@@ -113,6 +120,7 @@ model Event {
   createdAt   DateTime @default(now()) @db.Timestamptz(3)
   updatedAt   DateTime @updatedAt @db.Timestamptz(3)
   signups     Signup[]
+  invitations EventInvitation[]
   auditLogs   AuditLog[]
   @@index([status, startsAt])
   @@index([organizerId, startsAt])
@@ -127,6 +135,7 @@ model Signup {
   user        User @relation(fields: [userId], references: [id], onDelete: Restrict)
   guestNumber Int @default(0)
   guestName   String?
+  teamNumber Int?
   bookingId   String @db.Uuid
   quotedPriceCents Int @default(0)
   lateCancellation Boolean @default(false)
@@ -222,4 +231,18 @@ model OrganizerRequest {
   reviewedBy User? @relation("OrganizerRequestReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
   @@index([status, requestedAt])
   @@index([userId, requestedAt])
+}
+
+
+model EventInvitation {
+  id String @id @default(uuid()) @db.Uuid
+  eventId String @db.Uuid
+  event Event @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  status String @default("PENDING")
+  bookingId String? @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  @@unique([eventId, userId])
+  @@index([userId, status])
 }

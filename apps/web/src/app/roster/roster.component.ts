@@ -1,6 +1,7 @@
-import { Component, Input, OnChanges, inject, signal } from '@angular/core';
+import { Component, EventEmitter, Input, OnChanges, Output, ViewChild, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { EventTeamsComponent } from '../event-teams/event-teams.component';
 import { AvatarComponent } from '../avatar/avatar.component';
 import { contactEmailLink, contactPhoneLink } from '../../avatar';
 import { message } from '../../auth.service';
@@ -9,7 +10,7 @@ import { OrganizerSeat, OrganizerSeatComponent } from '../organizer-seat/organiz
 import { DatePipe } from '@angular/common';
 @Component({
   selector: 'app-roster',
-  imports: [PaymentReviewComponent, OrganizerSeatComponent, DatePipe, AvatarComponent],
+  imports: [PaymentReviewComponent, OrganizerSeatComponent, DatePipe, AvatarComponent, EventTeamsComponent],
   templateUrl: './roster.component.html',
   styleUrl: './roster.component.scss'
 })
@@ -17,6 +18,8 @@ export class RosterComponent implements OnChanges {
   readonly emailLink = contactEmailLink;
   readonly phoneLink = contactPhoneLink;
   @Input({ required: true }) eventId!: string;
+  @Output() changed = new EventEmitter<void>();
+  @ViewChild(EventTeamsComponent) teamView?: EventTeamsComponent;
   private readonly http = inject(HttpClient);
   readonly seats = signal<OrganizerSeat[]>([]);
   readonly showAudit = signal(false);
@@ -26,7 +29,7 @@ export class RosterComponent implements OnChanges {
   ngOnChanges() { void this.load(); }
   async load() {
     this.loading.set(true); this.error.set('');
-    try { this.seats.set(await firstValueFrom(this.http.get<OrganizerSeat[]>(`/api/organizer/events/${this.eventId}/roster`))); if (this.showAudit()) await this.loadAudit(); }
+    try { this.seats.set(await firstValueFrom(this.http.get<OrganizerSeat[]>(`/api/organizer/events/${this.eventId}/roster`))); if (this.showAudit()) await this.loadAudit(); await this.teamView?.load(); }
     catch (error) { this.error.set(message(error)); }
     finally { this.loading.set(false); }
   }

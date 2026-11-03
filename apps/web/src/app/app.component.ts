@@ -1,3 +1,4 @@
+import { OrganizerContactComponent } from './organizer-contact/organizer-contact.component';
 import { EventGuidanceComponent } from './event-guidance/event-guidance.component';
 import { LocationMapComponent } from './location-map/location-map.component';
 import { LocationThumbnailComponent } from './location-thumbnail/location-thumbnail.component';
@@ -18,7 +19,7 @@ import { NotificationsStore } from '../notifications.store';
 import { EventsStore } from '../events.store';
 
 @Component({
-  selector: 'app-root', imports: [CurrencyPipe, ProfileComponent, AvatarComponent, OrganizerComponent, SignupComponent, MyGamesComponent, SignInComponent, LocationMapComponent, LocationThumbnailComponent, AdminUsersComponent, EventGuidanceComponent],
+  selector: 'app-root', imports: [CurrencyPipe, ProfileComponent, AvatarComponent, OrganizerComponent, SignupComponent, MyGamesComponent, SignInComponent, LocationMapComponent, LocationThumbnailComponent, AdminUsersComponent, EventGuidanceComponent, OrganizerContactComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss'
 })

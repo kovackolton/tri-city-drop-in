@@ -4,6 +4,8 @@ import { Database } from './database';
 import { uuid } from './validation';
 
 const descriptions: Record<string, string> = {
+  EVENT_INVITATION: 'You are invited to this game. Open My games to review the price and accept or decline.',
+  ORGANIZER_BOOKED_PLAYER: 'An organizer booked a seat for you. Check My games for confirmed/waitlisted status, price and cancellation. Draft bookings are provisional until publication.',
   ORGANIZER_REQUEST: 'A player requested organizer access. Review their pending request on the Users page.',
   ORGANIZER_REQUEST_GRANTED: 'An administrator granted organizer access. Refresh your profile to open the organizer workspace.',
   ORGANIZER_REQUEST_CLEARED: 'An administrator cleared your organizer request. You can submit a new request from My profile.',

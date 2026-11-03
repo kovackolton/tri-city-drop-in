@@ -8,7 +8,7 @@ import { PaymentReview } from './app/payment-review/payment-review.component';
 
 export interface Seat {
   id: string; eventId: string; bookingId: string; guestNumber: number; guestName: string | null;
-  status: 'CONFIRMED' | 'WAITLISTED' | 'CANCELLED'; quotedPriceCents: number; lateCancellation: boolean;
+  teamNumber?: number | null; status: 'CONFIRMED' | 'WAITLISTED' | 'CANCELLED'; quotedPriceCents: number; lateCancellation: boolean;
   payment: PaymentReview | null;
   attendance: string; guestPaymentAcknowledgedAt?: string | null; guestPaymentTermsVersion?: string | null;
   strikes: { id: string; reason: string; createdAt: string; revokedAt: string | null; expiresAt: string | null }[];

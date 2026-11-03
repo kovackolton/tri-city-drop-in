@@ -6,6 +6,10 @@ import { googleEmbedUrl, googleDirectionsUrl } from '../src/location-media';
 import { LocationMapComponent } from '../src/app/location-map/location-map.component';
 import { DomSanitizer } from '@angular/platform-browser';
 import { avatarInitial, avatarPalette, contactEmailLink, contactPhoneLink } from '../src/avatar';
+import { DialogComponent } from '../src/app/dialog/dialog.component';
+import { PaymentReviewComponent } from '../src/app/payment-review/payment-review.component';
+import { HttpClient } from '@angular/common/http';
+import { Subject, throwError } from 'rxjs';
 import { SignupComponent } from '../src/app/signup/signup.component';
 import { Game } from '../src/models';
 import { MyGamesComponent } from '../src/app/my-games/my-games.component';
@@ -77,4 +81,31 @@ test('guest signup cannot submit without acknowledgment and resets it when anoth
   component.remove(1); component.guestPaymentAcknowledged = true; await component.join();
   assert.deepEqual(calls[0], ['game', ['Guest'], 1000, true]);
   assert.deepEqual(component.guests, []); assert.equal(component.guestPaymentAcknowledged, false);
+});
+
+
+test('modal dialog uses the native overlay and prevents Escape dismissal while a mutation is pending', () => {
+  const component = new DialogComponent();
+  const native = { open: false, showModal() { this.open = true; }, close() { this.open = false; } };
+  component.element = { nativeElement: native as HTMLDialogElement };
+  component.closed.subscribe(() => { component.open = false; component.ngOnChanges(); });
+  component.open = true; component.ngAfterViewInit(); assert.equal(native.open, true);
+  let prevented = false; component.busy = true; component.cancel({ preventDefault: () => { prevented = true; } } as Event);
+  assert.equal(prevented, true); assert.equal(native.open, true);
+  component.busy = false; component.cancel({ preventDefault: () => {} } as Event); assert.equal(native.open, false);
+  component.open = true; component.ngOnChanges(); component.ngOnDestroy(); assert.equal(native.open, false);
+});
+test('payment review stays in its modal on failure, prevents duplicate submissions and closes on success', async () => {
+  let calls = 0; let body: unknown;
+  const response = new Subject<unknown>();
+  const http = { post: (_: string, value: unknown) => { calls++; body = value; return response; } };
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: http }] });
+  const component = runInInjectionContext(injector, () => new PaymentReviewComponent());
+  component.signupId = 'seat'; component.side = 'organizer'; component.openReview();
+  const pending = component.review(true); await component.review(false);
+  assert.equal(calls, 1); assert.equal(component.showReview(), true); assert.deepEqual(body, { paid: true });
+  response.next({}); response.complete(); await pending; assert.equal(component.showReview(), false);
+  http.post = () => throwError(() => ({ code: 'local-failure' })) as any;
+  component.openReview(); await component.review(false);
+  assert.equal(component.showReview(), true); assert.ok(component.error()); assert.equal(component.busy(), false);
 });

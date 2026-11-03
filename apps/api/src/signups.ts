@@ -17,11 +17,11 @@ export function signupInput(value: unknown) {
 @Injectable()
 export class SignupsService {
   constructor(@Inject(Database) private readonly db: Database) {}
-  private async lockedEvent(tx: Prisma.TransactionClient, eventId: string) {
+  private async lockedEvent(tx: Prisma.TransactionClient, eventId: string, allowDraft = false) {
     const rows = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Event" WHERE "id" = ${eventId}::uuid FOR UPDATE`;
     if (!rows.length) throw new NotFoundException('Event not found.');
     const event = await tx.event.findUniqueOrThrow({ where: { id: eventId } });
-    if (event.deletedAt || event.status !== 'PUBLISHED' || event.startsAt <= new Date()) throw new ConflictException('Registration changes are available only for future published events.');
+    if (event.deletedAt || !(event.status === 'PUBLISHED' || allowDraft && event.status === 'DRAFT') || event.startsAt <= new Date()) throw new ConflictException('Registration changes are available only for future published events.');
     return event;
   }
   private async charge(tx: Prisma.TransactionClient, event: Event, seats: { id: string; quotedPriceCents: number }[]) {
@@ -35,6 +35,13 @@ export class SignupsService {
     const { guests, price } = signupInput(value);
     return this.db.$transaction(async tx => {
       const event = await this.lockedEvent(tx, eventId);
+      return this.bookParty(tx, event, userId, guests, price);
+
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, maxWait: 10000, timeout: 15000 });
+  }
+  // Caller holds the event lock (or has just created the event in this transaction).
+  async bookParty(tx: Prisma.TransactionClient, event: Event, userId: string, guests: string[], price: number) {
+    const eventId = event.id;
       const existing = await tx.signup.findMany({ where: { eventId, userId, status: { in: ['CONFIRMED', 'WAITLISTED'] } }, orderBy: { guestNumber: 'asc' } });
       if (existing.length) {
         if (existing[0].quotedPriceCents === price && JSON.stringify(existing.slice(1).map(s => s.guestName)) === JSON.stringify(guests)) return existing;
@@ -54,19 +61,18 @@ export class SignupsService {
       const seats = await tx.signup.findMany({ where: { bookingId }, orderBy: { guestNumber: 'asc' } });
       if (status === 'CONFIRMED') await this.charge(tx, event, seats);
       return seats;
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, maxWait: 10000, timeout: 15000 });
   }
   async cancel(userId: string, eventId: string, bookingId: string, organizerReason?: string, administrator = false) {
     uuid(eventId); uuid(bookingId);
     return this.db.$transaction(async tx => {
-      const event = await this.lockedEvent(tx, eventId);
+      const event = await this.lockedEvent(tx, eventId, true);
       if (organizerReason !== undefined && !administrator && event.organizerId !== userId) throw new NotFoundException('Booking not found.');
       const seats = await tx.signup.findMany({ where: { eventId, ...(organizerReason === undefined ? { userId } : {}), bookingId } });
       if (!seats.length) throw new NotFoundException('Booking not found.');
       if (seats.every(s => s.status === 'CANCELLED')) return { status: 'CANCELLED', lateCancellation: seats[0].lateCancellation };
       const now = new Date();
-      const lateCancellation = organizerReason === undefined && seats[0].status === 'CONFIRMED' && now.getTime() >= event.startsAt.getTime() - event.cancellationCutoffHours * 3600000;
-      await tx.signup.updateMany({ where: { eventId, bookingId }, data: { status: 'CANCELLED', cancelledAt: now, lateCancellation } });
+      const lateCancellation = event.status === 'PUBLISHED' && organizerReason === undefined && seats[0].status === 'CONFIRMED' && now.getTime() >= event.startsAt.getTime() - event.cancellationCutoffHours * 3600000;
+      await tx.signup.updateMany({ where: { eventId, bookingId }, data: { status: 'CANCELLED', teamNumber: null, cancelledAt: now, lateCancellation } });
       await tx.paymentObligation.updateMany({ where: { signupId: { in: seats.map(s => s.id) } }, data: { status: 'VOID' } });
       if (organizerReason !== undefined) {
         await tx.auditLog.create({ data: { actorId: userId, eventId, action: 'ORGANIZER_REMOVED_PARTY', details: { bookingId, reason: organizerReason } } });
@@ -109,7 +115,7 @@ export class SignupsService {
   async mine(userId: string) {
     // Limit by whole bookings so pagination never cuts off a party's guests.
     const hosts = await this.db.signup.findMany({ where: { userId, guestNumber: 0 }, select: { bookingId: true }, orderBy: [{ queuedAt: 'desc' }, { id: 'desc' }], take: 100 });
-    const seats = await this.db.signup.findMany({ where: { userId, bookingId: { in: hosts.map(h => h.bookingId) } }, include: { strikes: { select: { id: true, reason: true, createdAt: true, revokedAt: true, expiresAt: true } }, payment: true, event: { select: { id: true, title: true, description: true, capacity: true, bibsProvided: true, shirtColorCount: true, minPlayers: true, _count: { select: { signups: { where: { status: 'CONFIRMED' } } } }, startsAt: true, endsAt: true, status: true, cancellationCutoffHours: true, location: true, organizer: { select: appearanceSelect } } } }, orderBy: [{ queuedAt: 'desc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
+    const seats = await this.db.signup.findMany({ where: { userId, bookingId: { in: hosts.map(h => h.bookingId) } }, include: { strikes: { select: { id: true, reason: true, createdAt: true, revokedAt: true, expiresAt: true } }, payment: true, event: { select: { id: true, title: true, description: true, capacity: true, teamCount: true, teamBalancingEnabled: true, organizerContactEmail: true, organizerContactPhone: true, contactCallAllowed: true, contactTextAllowed: true, bibsProvided: true, shirtColorCount: true, minPlayers: true, _count: { select: { signups: { where: { status: 'CONFIRMED' } } } }, startsAt: true, endsAt: true, status: true, cancellationCutoffHours: true, location: true, organizer: { select: appearanceSelect } } } }, orderBy: [{ queuedAt: 'desc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
     return seats.map(seat => { const { _count, ...event } = seat.event; return { ...seat, event: { ...event, confirmed: _count.signups, organizer: appearance(event.organizer) } }; });
   }
   async participants(userId: string, eventId: string) {
@@ -118,15 +124,15 @@ export class SignupsService {
     if (!membership) throw new NotFoundException('Join this game to view its players.');
     const seats = await this.db.signup.findMany({
       where: { eventId, status: { in: ['CONFIRMED', 'WAITLISTED'] } },
-      select: { id: true, guestNumber: true, guestName: true, status: true, user: { select: appearanceSelect } },
+      select: { id: true, teamNumber: true, guestNumber: true, guestName: true, status: true, user: { select: appearanceSelect } },
       orderBy: [{ queuedAt: 'asc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }]
     });
-    return seats.map(s => ({ id: s.id, name: s.guestNumber === 0 ? appearance(s.user).displayName : s.guestName, isGuest: s.guestNumber > 0, status: s.status, avatarUrl: s.guestNumber === 0 ? appearance(s.user).avatarUrl : null, avatarColor: s.user.avatarColor, guestOf: s.guestNumber > 0 ? appearance(s.user).displayName : null }));
+    return seats.map(s => ({ id: s.id, name: s.guestNumber === 0 ? appearance(s.user).displayName : s.guestName, isGuest: s.guestNumber > 0, status: s.status, teamNumber: s.teamNumber, avatarUrl: s.guestNumber === 0 ? appearance(s.user).avatarUrl : null, avatarColor: s.user.avatarColor, guestOf: s.guestNumber > 0 ? appearance(s.user).displayName : null }));
   }
   async roster(userId: string, eventId: string, administrator = false) {
     uuid(eventId);
     if (!await this.db.event.findFirst({ where: { id: eventId, ...(administrator ? {} : { organizerId: userId }) } })) throw new NotFoundException('Event not found.');
-    const seats = await this.db.signup.findMany({ where: { eventId }, select: { guestPaymentAcknowledgedAt: true, guestPaymentTermsVersion: true, attendance: true, lateCancellation: true, strikes: { select: { id: true, reason: true, revokedAt: true, expiresAt: true } }, id: true, bookingId: true, guestNumber: true, guestName: true, status: true, queuedAt: true, event: { select: { startsAt: true, endsAt: true, status: true } }, user: { select: { ...appearanceSelect, skillLevel: true, email: true, contactEmail: true, phone: true } }, payment: { select: { amountCents: true, status: true, playerPaid: true, playerReviewedAt: true, organizerPaid: true, organizerReviewedAt: true } } }, orderBy: [{ queuedAt: 'asc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
+    const seats = await this.db.signup.findMany({ where: { eventId }, select: { teamNumber: true, guestPaymentAcknowledgedAt: true, guestPaymentTermsVersion: true, attendance: true, lateCancellation: true, strikes: { select: { id: true, reason: true, revokedAt: true, expiresAt: true } }, id: true, bookingId: true, guestNumber: true, guestName: true, status: true, queuedAt: true, event: { select: { startsAt: true, endsAt: true, status: true } }, user: { select: { ...appearanceSelect, skillLevel: true, email: true, contactEmail: true, phone: true } }, payment: { select: { amountCents: true, status: true, playerPaid: true, playerReviewedAt: true, organizerPaid: true, organizerReviewedAt: true } } }, orderBy: [{ queuedAt: 'asc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
     return seats.map(seat => ({ ...seat, user: { ...appearance(seat.user), accountName: seat.user.displayName, nickname: seat.user.nickname, skillLevel: seat.user.skillLevel, contactEmail: seat.user.contactEmail ?? seat.user.email, phone: seat.user.phone } }));
   }
 }
