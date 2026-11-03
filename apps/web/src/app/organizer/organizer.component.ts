@@ -31,8 +31,8 @@ export class OrganizerComponent implements OnInit {
   readonly deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   readonly time = eventTime;
   playerSearch = ''; initialPlayerMode: 'INVITE' | 'BOOK' = 'INVITE';
-  readonly playerResults = signal<{ id: string; displayName: string; accountName: string }[]>([]);
-  readonly selectedPlayers = signal<{ id: string; displayName: string; accountName: string }[]>([]);
+  readonly playerResults = signal<{ id: string; displayName: string; accountName: string; skillLevel?: number | null; adminSkillLevel?: number | null }[]>([]);
+  readonly selectedPlayers = signal<{ id: string; displayName: string; accountName: string; skillLevel?: number | null; adminSkillLevel?: number | null }[]>([]);
   readonly searchingPlayers = signal(false);
   async searchPlayers() {
     if (this.searchingPlayers()) return;
@@ -40,7 +40,7 @@ export class OrganizerComponent implements OnInit {
     try { this.playerResults.set(await firstValueFrom(this.http.get<ReturnType<typeof this.playerResults>>('/api/organizer/players', { params: { search: this.playerSearch } }))); }
     catch (error) { this.error.set(message(error)); } finally { this.searchingPlayers.set(false); }
   }
-  selectPlayer(player: { id: string; displayName: string; accountName: string }) { if (!this.selectedPlayers().some(selected => selected.id === player.id) && this.selectedPlayers().length < 100) this.selectedPlayers.update(players => [...players, player]); }
+  selectPlayer(player: { id: string; displayName: string; accountName: string; skillLevel?: number | null; adminSkillLevel?: number | null }) { if (!this.selectedPlayers().some(selected => selected.id === player.id) && this.selectedPlayers().length < 100) this.selectedPlayers.update(players => [...players, player]); }
   removePlayer(id: string) { this.selectedPlayers.update(players => players.filter(player => player.id !== id)); }
   event = { title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, shirtColorCount: 2 as number | null, minPlayers: null as number | null, teamCount: 2, teamBalancingEnabled: false, organizerContactEmail: '', organizerContactPhone: '', contactCallAllowed: false, contactTextAllowed: false };
   ngOnInit() { void this.load(); }

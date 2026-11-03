@@ -4,9 +4,11 @@ import { Database } from './database';
 import { uuid } from './validation';
 
 const descriptions: Record<string, string> = {
+  USER_ROLE_CHANGED: 'An administrator changed your account role. Refresh access to update your workspace.',
   EVENT_INVITATION: 'You are invited to this game. Open My games to review the price and accept or decline.',
   ORGANIZER_BOOKED_PLAYER: 'An organizer booked a seat for you. Check My games for confirmed/waitlisted status, price and cancellation. Draft bookings are provisional until publication.',
   ORGANIZER_REQUEST: 'A player requested organizer access. Review their pending request on the Users page.',
+  ORGANIZER_ACCESS_GRANTED: 'An administrator granted organizer access. Refresh your profile to open the organizer workspace.',
   ORGANIZER_REQUEST_GRANTED: 'An administrator granted organizer access. Refresh your profile to open the organizer workspace.',
   ORGANIZER_REQUEST_CLEARED: 'An administrator cleared your organizer request. You can submit a new request from My profile.',
   STRIKE_ISSUED: 'An organizer recorded a reviewed strike on your account. View My games for the affected player or guest seat.',

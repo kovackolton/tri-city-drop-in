@@ -9,8 +9,8 @@ export class EventInvitationsService {
   constructor(@Inject(Database) private readonly db: Database, @Inject(SignupsService) private readonly signups: SignupsService) {}
   async search(search: string) {
     if (typeof search !== 'string' || search.trim().length < 2 || search.length > 80) throw new BadRequestException('Enter 2 to 80 characters to find existing players.');
-    const users = await this.db.user.findMany({ where: { OR: [{ displayName: { contains: search.trim(), mode: 'insensitive' } }, { nickname: { contains: search.trim(), mode: 'insensitive' } }] }, select: { id: true, ...appearanceSelect }, orderBy: [{ displayName: 'asc' }, { id: 'asc' }], take: 20 });
-    return users.map(user => ({ id: user.id, ...appearance(user), accountName: user.displayName }));
+    const users = await this.db.user.findMany({ where: { OR: [{ displayName: { contains: search.trim(), mode: 'insensitive' } }, { nickname: { contains: search.trim(), mode: 'insensitive' } }] }, select: { id: true, ...appearanceSelect, skillLevel: true, adminSkillLevel: true }, orderBy: [{ displayName: 'asc' }, { id: 'asc' }], take: 20 });
+    return users.map(user => ({ id: user.id, ...appearance(user), accountName: user.displayName, skillLevel: user.skillLevel, adminSkillLevel: user.adminSkillLevel }));
   }
   mine(userId: string) {
     return this.db.eventInvitation.findMany({ where: { userId, status: 'PENDING', event: { deletedAt: null, status: 'PUBLISHED', startsAt: { gt: new Date() } } }, select: { id: true, event: { select: { id: true, title: true, startsAt: true, priceCents: true, location: true } } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 100 });
