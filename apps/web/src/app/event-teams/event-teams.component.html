@@ -1,0 +1,16 @@
+<section class="panel mt-4" aria-label="Event teams"><div class="flex flex-wrap gap-3 justify-between items-center"><h3 class="font-bold">Teams</h3><button class="secondary" [disabled]="busy()" (click)="load()">Refresh teams</button></div>
+@if (error()) { <p role="alert" class="notice error mt-3">{{ error() }}</p> }
+@if (notice()) { <p role="status" class="notice mt-3">{{ notice() }}</p> }
+@if (data(); as teams) {
+  @if (teams.editable) { <form class="mt-4 flex flex-wrap gap-3 items-end" (ngSubmit)="save()"><label>Number of teams<input name="teamCount" type="number" min="2" max="16" [(ngModel)]="teamCount" required></label><label class="flex items-center gap-2 pb-3"><input class="!w-auto !m-0" name="balancing" type="checkbox" [(ngModel)]="enabled">Enable rating-based auto-balancing</label><button class="secondary" [disabled]="busy()">Save team settings</button></form>
+    @if (teams.teamBalancingEnabled) { <button class="primary mt-4" [disabled]="busy() || !teams.players.length" (click)="confirming.set(true)">Auto-balance confirmed players</button> }
+  }
+  <p class="text-xs text-stone-500 mt-3">New signups and promoted players remain unassigned until you assign them or run balancing. Guests and unrated players use a neutral rating of 3/5 for balancing. Booking parties may play on different teams. Player ratings are not shown to other players.</p>
+  <div class="grid sm:grid-cols-2 gap-4 mt-4">@for (number of [null, ...numbers()]; track number) {
+    <section class="rounded-xl border border-stone-200 p-3"><h4 class="font-bold text-sm">{{ number === null ? 'Unassigned' : 'Team ' + number }} <span class="font-normal text-stone-500">({{ members(number).length }})</span></h4>
+      <ul class="space-y-3 mt-3">@for (player of members(number); track player.id) { <li><div class="flex items-center gap-2"><app-avatar [name]="player.displayName" [color]="player.avatarColor" [photoUrl]="player.avatarUrl" [size]="30" /><div class="min-w-0"><p class="text-sm font-semibold break-words">{{ player.displayName }}</p><p class="text-xs text-stone-500">{{ player.isGuest ? 'Guest' : player.accountName }} &middot; {{ player.rating ? player.rating + '/5 self-rated' : 'Unrated (estimated 3/5)' }}</p></div></div>@if (teams.editable) { <label class="text-xs mt-2">Assign team<select [value]="player.teamNumber ?? ''" [disabled]="busy()" (change)="assign(player.id, $any($event.target).value, $any($event.target))"><option value="">Unassigned</option>@for (team of numbers(); track team) { <option [value]="team">Team {{ team }}</option> }</select></label> }</li> } @empty { <li class="text-xs text-stone-500">No players.</li> }</ul>
+    </section>
+  }</div>
+} @else if (!error()) { <p role="status" class="mt-3">Loading teams...</p> }
+<app-dialog [open]="confirming()" title="Auto-balance teams" [busy]="busy()" (closed)="confirming.set(false)"><p class="text-sm">Replace current team assignments for all confirmed players using their self-ratings? Guests and unrated players use an estimate of 3/5. You can adjust the result manually.</p><button class="primary mt-4" [disabled]="busy()" (click)="balance()">Confirm auto-balance</button></app-dialog>
+</section>

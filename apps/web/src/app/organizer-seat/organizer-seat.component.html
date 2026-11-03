@@ -2,25 +2,20 @@
     @if (seat.status === 'CONFIRMED' && started()) {
       <label>Attendance<select [value]="seat.attendance" [disabled]="busy()" (change)="mark($any($event.target).value)"><option value="UNMARKED">Unmarked</option><option value="PRESENT">Present</option><option value="ABSENT" [disabled]="!ended()">Absent (after event)</option><option value="EXCUSED">Excused</option></select></label>
     } @else { <p class="text-xs text-stone-500">Attendance: {{ seat.attendance }}</p> }
-    @if (ended() || seat.guestNumber === 0 && !started() && seat.status !== 'CANCELLED') {
-      <label class="mt-3">Review / override note<textarea rows="2" maxlength="1000" [(ngModel)]="note" placeholder="Explain this decision"></textarea></label>
-    }
-    @if (ended()) {
-      <label class="mt-3">Strike reason<select [(ngModel)]="reason"><option value="NO_SHOW">Missed the game</option><option value="LATE_CANCELLATION">Late cancellation</option><option value="MISSED_PAYMENT">Missed payment</option></select></label>
-      <p class="text-xs text-stone-500 mt-2">{{ eligibility() }}</p>
-      <button class="secondary mt-2" [disabled]="busy() || !!eligibility() || !note.trim()" (click)="issue()">Issue strike</button>
-    }
-    @for (strike of seat.strikes; track strike.id) {
-      <div class="mt-3 rounded-lg bg-stone-50 p-3"><span>{{ label(strike.reason) }} · {{ strike.revokedAt ? 'Revoked' : 'Recorded' }}</span>
-        @if (!strike.revokedAt) { <button class="secondary ml-3" [disabled]="busy() || !note.trim()" (click)="revoke(strike.id)">Revoke strike</button> }
-      </div>
-    }
+    @if (ended() || seat.strikes.length) { <button class="secondary mt-3" [disabled]="busy()" (click)="note = ''; error.set(''); showStrikes.set(true)">Review strikes ({{ seat.strikes.length }})</button> }
+    <app-dialog [open]="showStrikes()" title="Strike review" [busy]="busy()" (closed)="showStrikes.set(false)">
+      <p class="font-semibold">{{ seat.guestNumber === 0 ? seat.user.displayName : seat.guestName }}</p><p class="text-sm text-stone-500 mt-2">Strikes require organizer review. Guest strikes apply to the booking account.</p>
+      <label class="mt-4">Review note<textarea rows="3" maxlength="1000" [(ngModel)]="note" placeholder="Explain this decision"></textarea></label>
+      @if (ended()) { <label class="mt-4">Strike reason<select [(ngModel)]="reason"><option value="NO_SHOW">Missed the game</option><option value="LATE_CANCELLATION">Late cancellation</option><option value="MISSED_PAYMENT">Missed payment</option></select></label><p class="text-xs text-stone-500 mt-2">{{ eligibility() }}</p><button class="primary mt-3" [disabled]="busy() || !!eligibility() || !note.trim()" (click)="issue()">Confirm strike</button> }
+      @for (strike of seat.strikes; track strike.id) { <div class="mt-4 rounded-lg bg-stone-50 p-3"><span>{{ label(strike.reason) }} &middot; {{ strike.revokedAt ? 'Revoked' : 'Recorded' }}</span>@if (!strike.revokedAt) { <button class="secondary mt-2 ml-2" [disabled]="busy() || !note.trim()" (click)="revoke(strike.id)">Confirm revocation</button> }</div> }
+      @if (error()) { <p role="alert" class="notice error mt-3">{{ error() }}</p> }
+    </app-dialog>
     @if (seat.guestNumber === 0 && !started() && seat.status !== 'CANCELLED') {
-      <div class="flex flex-wrap gap-2 mt-3">
+      <label class="mt-3">Override note<textarea rows="2" maxlength="1000" [(ngModel)]="note" placeholder="Explain this decision"></textarea></label><div class="flex flex-wrap gap-2 mt-3">
         <button class="secondary" [disabled]="busy() || !note.trim()" (click)="confirm.set('remove')">Remove whole party</button>
         @if (seat.status === 'WAITLISTED') { <button class="secondary" [disabled]="busy() || !note.trim()" (click)="confirm.set('promote')">Promote party (override queue)</button> }
       </div>
       @if (confirm()) { <p class="mt-3">{{ confirm() === 'remove' ? 'Remove this player and all guests? Their charges will be voided, with no late-cancellation penalty.' : 'Move this whole party ahead of the queue? Every seat must fit within capacity.' }}</p><div class="flex gap-2 mt-2"><button class="primary" [disabled]="busy() || !note.trim()" (click)="override()">Confirm {{ confirm() }}</button><button class="secondary" [disabled]="busy()" (click)="confirm.set('')">Keep unchanged</button></div> }
     }
-    @if (error()) { <p role="alert" class="text-amber-800 mt-2">{{ error() }}</p> }
+    @if (error() && !showStrikes()) { <p role="alert" class="text-amber-800 mt-2">{{ error() }}</p> }
   </div>

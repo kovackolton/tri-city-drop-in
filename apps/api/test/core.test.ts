@@ -5,6 +5,8 @@ import { ExecutionContext, ForbiddenException, UnauthorizedException, ServiceUna
 import { User } from '@prisma/client';
 import { AdministratorGuard, AuthRequest, FirebaseGuard, OrganizerGuard, TokenVerifier, tokenFailure } from '../src/auth';
 import { Database } from '../src/database';
+import { balanceTeams } from '../src/teams';
+import { eventOptionsInput, initialPlayersInput } from '../src/event-options';
 import { eventGuidanceInput } from '../src/event-guidance';
 import { eventInput, EventsController } from '../src/events';
 import { ProfilesController } from '../src/profiles';
@@ -107,7 +109,7 @@ test('profile updates cannot escalate role', async () => {
 });
 test('publishing is scoped to owned future drafts and writes an audit entry', async () => {
   let query: any, audited = false;
-  const tx = { event: { updateMany: async (input: unknown) => { query = input; return { count: 1 }; } }, auditLog: { create: async () => { audited = true; } } };
+  const tx = { eventInvitation: { findMany: async () => [] }, event: { findUniqueOrThrow: async () => ({ id: 'event', status: 'PUBLISHED' }), updateMany: async (input: unknown) => { query = input; return { count: 1 }; } }, auditLog: { create: async () => { audited = true; } } };
   const controller = new EventsController({ $transaction: async (work: (tx: unknown) => unknown) => work(tx) } as unknown as Database);
   await controller.publish({ user: organizer } as AuthRequest, valid().locationId);
   assert.equal(query.where.organizerId, organizer.id);
@@ -210,4 +212,25 @@ test('guidance edits preserve unknown legacy settings and reject impossible targ
   assert.deepEqual(eventGuidanceInput({ bibsProvided: false }, 20, { bibsProvided: true, shirtColorCount: null, minPlayers: null }), { bibsProvided: false, shirtColorCount: 2, minPlayers: null });
   assert.throws(() => eventGuidanceInput({}, 5, { ...legacy, minPlayers: 10 }));
   assert.equal(eventGuidanceInput({ minPlayers: null }, 5, { ...legacy, minPlayers: 10 }).minPlayers, null);
+});
+
+
+test('balancing uses self-ratings and neutral estimates while keeping team sizes within one', () => {
+  const players = [{ id: 'a', rating: 5 }, { id: 'b', rating: 4 }, { id: 'c', rating: 3 }, { id: 'd', rating: 2 }];
+  const teams = balanceTeams(players, 2);
+  assert.deepEqual(teams.map(team => team.total), [7, 7]);
+  const odd = balanceTeams([...players, { id: 'e', rating: null }], 3);
+  assert.equal(new Set(odd.flatMap(team => team.ids)).size, 5);
+  assert.ok(Math.max(...odd.map(team => team.ids.length)) - Math.min(...odd.map(team => team.ids.length)) <= 1);
+  assert.equal(odd.reduce((total, team) => total + team.total, 0), 17);
+});
+test('team and event-contact settings reject invalid or ambiguous availability', () => {
+  assert.equal(eventOptionsInput({ teamCount: 4, teamBalancingEnabled: true, organizerContactPhone: '+1 555 123 4567', contactTextAllowed: true }).contactTextAllowed, true);
+  for (const input of [{ teamCount: 1 }, { teamCount: 17 }, { teamCount: 2.5 }, { teamBalancingEnabled: 'true' }, { contactCallAllowed: true }, { organizerContactPhone: '+1 555 123 4567' }, { organizerContactEmail: 'not email' }]) assert.throws(() => eventOptionsInput(input));
+  assert.equal(eventOptionsInput({}).organizerContactPhone, null);
+});
+test('initial player lists validate identity, mode, uniqueness and bounds', () => {
+  const id = valid().locationId;
+  assert.deepEqual(initialPlayersInput({ initialPlayerIds: [id], initialPlayerMode: 'BOOK' }), { ids: [id], mode: 'BOOK' });
+  for (const input of [{ initialPlayerIds: [id, id] }, { initialPlayerIds: ['not an id'] }, { initialPlayerIds: Array(101).fill(id) }, { initialPlayerMode: 'OTHER' }]) assert.throws(() => initialPlayersInput(input));
 });

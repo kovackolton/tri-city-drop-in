@@ -12,7 +12,7 @@ describe('OrganizerSeatComponent', () => {
       providers: [provideHttpClient(), provideHttpClientTesting(), { provide: CONFIG, useValue: { firebase: {} } }]
     }).compileComponents();
     const fixture = TestBed.createComponent(OrganizerSeatComponent);
-    const inputs = {"eventId":"game","seat":{"id":"seat","bookingId":"booking","guestNumber":0,"status":"CONFIRMED","attendance":"UNMARKED","strikes":[],"payment":null,"event":{"startsAt":"2099-01-01T11:00:00Z","endsAt":"2099-01-01T12:00:00Z","status":"PUBLISHED"}}};
+    const inputs = {"eventId":"game","seat":{"id":"seat","bookingId":"booking","guestNumber":0,"status":"CONFIRMED","attendance":"UNMARKED","strikes":[],"user":{"displayName":"Player","accountName":"Player","nickname":null,"skillLevel":null,"contactEmail":"player@example.invalid","phone":null},"payment":null,"event":{"startsAt":"2099-01-01T11:00:00Z","endsAt":"2099-01-01T12:00:00Z","status":"PUBLISHED"}}};
     for (const [name, value] of Object.entries(inputs)) fixture.componentRef.setInput(name, value);
     fixture.detectChanges();
     const http = TestBed.inject(HttpTestingController);

@@ -8,9 +8,15 @@
       @if (disagrees()) { <p class="text-xs text-amber-700 mt-2">Payment reports differ. Please resolve this with the organizer.</p> }
       @if (!ended()) { <p class="text-xs text-stone-500 mt-2">Pay in person at the event. Both reviews open after the event ends.</p> }
       @else if (eventStatus === 'PUBLISHED' || eventStatus === 'COMPLETED') {
-        <p class="text-xs text-stone-500 mt-2">{{ side === 'player' ? 'Review whether you paid for this seat.' : 'Review whether payment was received for this seat.' }} Each tick means reviewed, including an unpaid review.</p>
-        <div class="flex flex-wrap gap-2 mt-2"><button class="secondary" [disabled]="busy()" (click)="review(true)">{{ side === 'player' ? 'I paid' : 'Payment received' }}</button><button class="secondary" [disabled]="busy()" (click)="review(false)">{{ side === 'player' ? 'I have not paid' : 'Not received' }}</button></div>
+        <button class="secondary mt-3" [disabled]="busy()" (click)="openReview()">{{ side === 'organizer' ? 'Review payment received' : 'Review payment' }}</button>
+        <app-dialog [open]="showReview()" title="Payment review" [busy]="busy()" (closed)="showReview.set(false)">
+          <p class="font-semibold">{{ playerName || 'Selected seat' }}</p><p class="text-sm mt-2">{{ payment.amountCents / 100 | currency:'USD':'code' }} per seat</p>
+          <p class="text-sm text-stone-600 mt-3">{{ side === 'player' ? 'Record whether you paid for this seat.' : 'Record whether you received payment for this seat.' }} Each review is independent and can be corrected later.</p>
+          @if (disagrees()) { <p class="notice mt-3 text-sm">Player and organizer reports currently differ.</p> }
+          <div class="flex flex-wrap gap-3 mt-5"><button class="primary" [disabled]="busy()" (click)="review(true)">{{ side === 'player' ? 'I paid' : 'Payment received' }}</button><button class="secondary" [disabled]="busy()" (click)="review(false)">{{ side === 'player' ? 'I have not paid' : 'Not received' }}</button></div>
+          @if (error()) { <p role="alert" class="notice error mt-3">{{ error() }}</p> }
+        </app-dialog>
       }
-      @if (error()) { <p role="alert" class="text-sm text-amber-800 mt-2">{{ error() }}</p> }
+
       @if (notice()) { <p role="status" class="text-xs text-emerald-700 mt-2">{{ notice() }}</p> }
     }

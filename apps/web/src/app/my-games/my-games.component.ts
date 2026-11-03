@@ -1,3 +1,4 @@
+import { OrganizerContactComponent } from '../organizer-contact/organizer-contact.component';
 import { EventGuidanceComponent } from '../event-guidance/event-guidance.component';
 import { LocationMapComponent } from '../location-map/location-map.component';
 import { LocationThumbnailComponent } from '../location-thumbnail/location-thumbnail.component';
@@ -8,9 +9,10 @@ import { eventTime } from '../../models';
 import { PaymentReviewComponent } from '../payment-review/payment-review.component';
 import { AuthService } from '../../auth.service';
 import { AvatarComponent } from '../avatar/avatar.component';
+import { EventInvitationsComponent } from '../event-invitations/event-invitations.component';
 import { PlayersComponent } from '../players/players.component';
 @Component({
-  selector: 'app-my-games', imports: [CurrencyPipe, PaymentReviewComponent, PlayersComponent, AvatarComponent, LocationMapComponent, LocationThumbnailComponent, EventGuidanceComponent],
+  selector: 'app-my-games', imports: [CurrencyPipe, PaymentReviewComponent, PlayersComponent, AvatarComponent, LocationMapComponent, LocationThumbnailComponent, EventGuidanceComponent, OrganizerContactComponent, EventInvitationsComponent],
   templateUrl: './my-games.component.html',
   styleUrl: './my-games.component.scss'
 })
@@ -33,6 +35,6 @@ export class MyGamesComponent {
     ];
   }
   party(host: Seat) { return this.store.seats().filter(s => s.bookingId === host.bookingId); }
-  canCancel(host: Seat) { return host.status !== 'CANCELLED' && host.event.status === 'PUBLISHED' && new Date(host.event.startsAt).getTime() > Date.now(); }
+  canCancel(host: Seat) { return host.status !== 'CANCELLED' && ['DRAFT', 'PUBLISHED'].includes(host.event.status) && new Date(host.event.startsAt).getTime() > Date.now(); }
   async cancel(host: Seat) { if (await this.store.cancel(host.eventId, host.bookingId)) this.confirming.set(''); }
 }

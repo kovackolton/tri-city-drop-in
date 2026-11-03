@@ -12,6 +12,8 @@ import { OrganizerRequestsService } from '../src/organizer-requests';
 import { OrganizerService } from '../src/organizer';
 import { LocationsService } from '../src/locations';
 import { EventManagementService } from '../src/event-management';
+import { TeamsService } from '../src/teams';
+import { EventInvitationsService } from '../src/event-invitations';
 import { EventsController } from '../src/events';
 import { ProfilesController } from '../src/profiles';
 import { AuthRequest } from '../src/auth';
@@ -34,6 +36,8 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
   const management = new EventManagementService(db);
   const notifications = new NotificationsService(db);
   const requests = new OrganizerRequestsService(db);
+  const teams = new TeamsService(db);
+  const invitations = new EventInvitationsService(db, service);
   try {
     // All tables and fixtures live in this new schema, never the application's public tables.
     execFileSync(process.execPath, [resolve('../../node_modules/prisma/build/index.js'), 'migrate', 'deploy'], {
@@ -257,7 +261,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.equal(players.length, 3);
       assert.ok(players.some(p => p.name === 'Named guest' && p.isGuest));
       assert.equal(players.filter(p => p.status === 'WAITLISTED').length, 1);
-      assert.deepEqual(Object.keys(players[0]).sort(), ['avatarColor', 'avatarUrl', 'guestOf', 'id', 'isGuest', 'name', 'status']);
+      assert.deepEqual(Object.keys(players[0]).sort(), ['avatarColor', 'avatarUrl', 'guestOf', 'id', 'isGuest', 'name', 'status', 'teamNumber']);
       assert.equal((await service.participants(users[22].id, e.id)).length, 3);
       await assert.rejects(service.participants(users[23].id, e.id), /Join this game/);
       const mine = await service.mine(users[21].id);
@@ -530,6 +534,86 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).minPlayers, null);
       await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000), minPlayers: 2 } });
       assert.equal((await management.transition(users[0].id, e.id, 'complete')).status, 'COMPLETED');
+    });
+    await t.test('team assignment and balancing are owner-only, use confirmed players and stay private', async () => {
+      const e = await event(4); await join(1, e.id); await join(2, e.id, ['Guest']); await join(3, e.id); const waiting = await join(4, e.id);
+      await db.user.update({ where: { id: users[1].id }, data: { skillLevel: 5 } });
+      await db.user.update({ where: { id: users[2].id }, data: { skillLevel: 1 } });
+      await assert.rejects(teams.data(users[5].id, e.id), /Event not found/);
+      await assert.rejects(teams.balance(users[0].id, e.id), /Enable rating/);
+      await teams.settings(users[0].id, e.id, { teamCount: 2, teamBalancingEnabled: true });
+      await teams.balance(users[0].id, e.id);
+      const data = await teams.data(users[0].id, e.id); assert.equal(data.players.length, 4);
+      assert.equal(data.players.filter(player => player.teamNumber === 1).length, 2); assert.equal(data.players.filter(player => player.teamNumber === 2).length, 2);
+      assert.equal(data.players.find(player => player.isGuest)?.rating, null);
+      await assert.rejects(teams.assign(users[0].id, e.id, { signupId: waiting[0].id, teamNumber: 1 }), /Confirmed seat/);
+      await assert.rejects(teams.assign(users[0].id, e.id, { signupId: data.players[0].id, teamNumber: 3 }), /Team must/);
+      await assert.rejects(teams.assign(users[5].id, e.id, { signupId: data.players[0].id, teamNumber: 1 }), /Event not found/);
+      const shared = await service.participants(users[1].id, e.id); assert.ok(shared.some(player => player.teamNumber));
+      assert.ok(shared.every(player => !('rating' in player) && !('skillLevel' in player) && !('accountName' in player)));
+      const first = (await db.signup.findMany({ where: { eventId: e.id, userId: users[1].id } }))[0];
+      await service.cancel(users[1].id, e.id, first.bookingId);
+      assert.equal((await db.signup.findUniqueOrThrow({ where: { id: first.id } })).teamNumber, null);
+      assert.equal((await db.signup.findUniqueOrThrow({ where: { id: waiting[0].id } })).teamNumber, null);
+      const active = (await teams.data(users[0].id, e.id)).players[0];
+      await teams.settings(users[0].id, e.id, { teamCount: 4, teamBalancingEnabled: false });
+      await teams.assign(users[0].id, e.id, { signupId: active.id, teamNumber: 4 });
+      await teams.settings(users[0].id, e.id, { teamCount: 2, teamBalancingEnabled: false });
+      assert.equal((await db.signup.findUniqueOrThrow({ where: { id: active.id } })).teamNumber, null);
+      await management.transition(users[0].id, e.id, 'cancel');
+      await assert.rejects(teams.balance(users[0].id, e.id), /before the event ends/);
+    });
+    await t.test('event creation immediately books selected existing players using capacity and provisional draft rules', async () => {
+      const events = new EventsController(db, service);
+      const base = { title: 'Organizer selected players', locationId: location.id, startsAt: new Date(Date.now() + 3600000).toISOString(), endsAt: new Date(Date.now() + 7200000).toISOString(), capacity: 1, maxGuestsPerUser: 0, priceCents: 1200, status: 'DRAFT', initialPlayerIds: [users[6].id, users[7].id], initialPlayerMode: 'BOOK', teamCount: 3 };
+      const e = await events.create({ user: users[0] } as AuthRequest, base);
+      const seats = await db.signup.findMany({ where: { eventId: e.id }, orderBy: { queuedAt: 'asc' } });
+      assert.equal(seats.filter(seat => seat.status === 'CONFIRMED').length, 1); assert.equal(seats.filter(seat => seat.status === 'WAITLISTED').length, 1);
+      assert.equal(await db.paymentObligation.count({ where: { signup: { eventId: e.id } } }), 1);
+      assert.ok(seats.every(seat => !seat.guestPaymentAcknowledgedAt));
+      const confirmed = seats.find(seat => seat.status === 'CONFIRMED')!;
+      const cancelled = await service.cancel(confirmed.userId, e.id, confirmed.bookingId); assert.equal(cancelled.lateCancellation, false);
+      const remaining = await db.signup.findFirstOrThrow({ where: { eventId: e.id, status: 'CONFIRMED' } }); assert.notEqual(remaining.userId, confirmed.userId);
+      assert.equal(await db.notification.count({ where: { kind: 'ORGANIZER_BOOKED_PLAYER', payload: { path: ['eventId'], equals: e.id } } }), 2);
+      const before = await db.event.count();
+      await assert.rejects(events.create({ user: users[0] } as AuthRequest, { ...base, initialPlayerIds: [randomUUID()] }), /no longer exists/);
+      assert.equal(await db.event.count(), before);
+    });
+    await t.test('draft invitations notify only on publication, accept at reviewed price and retain idempotency', async () => {
+      const events = new EventsController(db, service);
+      const e = await events.create({ user: users[0] } as AuthRequest, { title: 'Invited game', locationId: location.id, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString(), capacity: 1, maxGuestsPerUser: 0, priceCents: 1500, status: 'DRAFT', initialPlayerIds: [users[8].id, users[9].id], initialPlayerMode: 'INVITE' });
+      assert.equal(await db.signup.count({ where: { eventId: e.id } }), 0);
+      assert.equal(await db.notification.count({ where: { kind: 'EVENT_INVITATION', payload: { path: ['eventId'], equals: e.id } } }), 0);
+      assert.equal((await invitations.mine(users[8].id)).some(invite => invite.event.id === e.id), false);
+      await events.publish({ user: users[0] } as AuthRequest, e.id);
+      assert.equal(await db.notification.count({ where: { kind: 'EVENT_INVITATION', payload: { path: ['eventId'], equals: e.id } } }), 2);
+      const invite = (await invitations.mine(users[8].id)).find(invite => invite.event.id === e.id)!;
+      const second = (await invitations.mine(users[9].id)).find(invite => invite.event.id === e.id)!;
+      await assert.rejects(invitations.respond(users[10].id, invite.id, 'accept', { expectedPriceCents: 1500 }), /Invitation not found/);
+      await assert.rejects(invitations.respond(users[8].id, invite.id, 'accept', { expectedPriceCents: 1000 }), /price changed/);
+      const [a, b] = await Promise.all([invitations.respond(users[8].id, invite.id, 'accept', { expectedPriceCents: 1500 }), invitations.respond(users[9].id, second.id, 'accept', { expectedPriceCents: 1500 })]);
+      assert.equal(await db.signup.count({ where: { eventId: e.id, status: 'CONFIRMED' } }), 1); assert.equal(await db.signup.count({ where: { eventId: e.id, status: 'WAITLISTED' } }), 1);
+      const seat = await db.signup.findFirstOrThrow({ where: { bookingId: a.bookingId! } });
+      await service.cancel(users[8].id, e.id, seat.bookingId);
+      await invitations.respond(users[8].id, invite.id, 'accept', { expectedPriceCents: 1500 });
+      assert.equal((await db.signup.findUniqueOrThrow({ where: { id: seat.id } })).status, 'CANCELLED');
+      assert.equal(b.status, 'ACCEPTED');
+      assert.equal(await db.notification.count({ where: { userId: users[8].id, dedupeKey: `event-invitation:${invite.id}`, readAt: null } }), 0);
+      assert.equal(await db.auditLog.count({ where: { eventId: e.id, actorId: users[8].id, action: 'INVITATION_ACCEPTED' } }), 1);
+    });
+    await t.test('published invitations can be declined without seats and public contacts are explicit per-event', async () => {
+      const events = new EventsController(db, service);
+      const e = await events.create({ user: users[0] } as AuthRequest, { title: 'Public organizer contact', locationId: location.id, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString(), capacity: 4, priceCents: 0, status: 'PUBLISHED', initialPlayerIds: [users[17].id], initialPlayerMode: 'INVITE', organizerContactEmail: 'games@example.invalid', organizerContactPhone: '+1 555 111 2222', contactTextAllowed: true });
+      const invite = (await invitations.mine(users[17].id)).find(invite => invite.event.id === e.id)!;
+      await invitations.respond(users[17].id, invite.id, 'decline'); await invitations.respond(users[17].id, invite.id, 'decline');
+      assert.equal(await db.signup.count({ where: { eventId: e.id } }), 0);
+      const publicGame = (await events.events()).find(game => game.id === e.id)!;
+      assert.equal(publicGame.organizerContactEmail, 'games@example.invalid'); assert.equal(publicGame.contactCallAllowed, false); assert.equal(publicGame.contactTextAllowed, true);
+      assert.equal('phone' in publicGame.organizer, false); assert.equal('email' in publicGame.organizer, false);
+      await assert.rejects(administration.edit(users[0].id, e.id, { organizerContactPhone: '' }), /phone number/);
+      await administration.edit(users[0].id, e.id, { organizerContactPhone: '', contactTextAllowed: false });
+      assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).organizerContactPhone, null);
+      const search = await invitations.search('Player'); assert.ok(search.every(player => !('email' in player) && !('phone' in player) && !('rating' in player)));
     });
   } finally {
     await db.$disconnect();

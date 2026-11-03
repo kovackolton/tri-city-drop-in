@@ -30,7 +30,19 @@ export class OrganizerComponent implements OnInit {
   readonly success = signal('');
   readonly deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   readonly time = eventTime;
-  event = { title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, shirtColorCount: 2 as number | null, minPlayers: null as number | null };
+  playerSearch = ''; initialPlayerMode: 'INVITE' | 'BOOK' = 'INVITE';
+  readonly playerResults = signal<{ id: string; displayName: string; accountName: string }[]>([]);
+  readonly selectedPlayers = signal<{ id: string; displayName: string; accountName: string }[]>([]);
+  readonly searchingPlayers = signal(false);
+  async searchPlayers() {
+    if (this.searchingPlayers()) return;
+    this.searchingPlayers.set(true); this.error.set('');
+    try { this.playerResults.set(await firstValueFrom(this.http.get<ReturnType<typeof this.playerResults>>('/api/organizer/players', { params: { search: this.playerSearch } }))); }
+    catch (error) { this.error.set(message(error)); } finally { this.searchingPlayers.set(false); }
+  }
+  selectPlayer(player: { id: string; displayName: string; accountName: string }) { if (!this.selectedPlayers().some(selected => selected.id === player.id) && this.selectedPlayers().length < 100) this.selectedPlayers.update(players => [...players, player]); }
+  removePlayer(id: string) { this.selectedPlayers.update(players => players.filter(player => player.id !== id)); }
+  event = { title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, shirtColorCount: 2 as number | null, minPlayers: null as number | null, teamCount: 2, teamBalancingEnabled: false, organizerContactEmail: '', organizerContactPhone: '', contactCallAllowed: false, contactTextAllowed: false };
   ngOnInit() { void this.load(); }
   async load() {
     this.loading.set(true); this.error.set('');
@@ -58,15 +70,15 @@ export class OrganizerComponent implements OnInit {
     await this.act(async () => {
       const { price: _, status, ...event } = this.event;
       const payload = { ...event, shirtColorCount: event.bibsProvided ? null : event.shirtColorCount, startsAt: this.original && this.event.startsAt === this.localTime(this.original.startsAt) ? this.original.startsAt : startsAt.toISOString(), endsAt: this.original && this.event.endsAt === this.localTime(this.original.endsAt) ? this.original.endsAt : endsAt.toISOString(), priceCents };
-      await firstValueFrom(this.editingId() ? this.http.patch('/api/admin/events/' + this.editingId(), payload) : this.http.post('/api/events', { ...payload, status }));
+      await firstValueFrom(this.editingId() ? this.http.patch('/api/admin/events/' + this.editingId(), payload) : this.http.post('/api/events', { ...payload, status, initialPlayerIds: this.selectedPlayers().map(player => player.id), initialPlayerMode: this.initialPlayerMode }));
       this.cancelEdit();
     }, 'Event saved.');
   }
-  cancelEdit() { this.editingId.set(''); this.original = null; this.event = { title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, shirtColorCount: 2 as number | null, minPlayers: null as number | null }; }
+  cancelEdit() { this.selectedPlayers.set([]); this.playerResults.set([]); this.playerSearch = ''; this.initialPlayerMode = 'INVITE'; this.editingId.set(''); this.original = null; this.event = { title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, shirtColorCount: 2 as number | null, minPlayers: null as number | null, teamCount: 2, teamBalancingEnabled: false, organizerContactEmail: '', organizerContactPhone: '', contactCallAllowed: false, contactTextAllowed: false }; }
   localTime(value: string) { const d = new Date(value); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
   edit(game: ManagedEvent) {
-    this.original = game; this.editingId.set(game.id);
-    this.event = { title: game.title, description: game.description ?? '', locationId: game.location.id, startsAt: this.localTime(game.startsAt), endsAt: this.localTime(game.endsAt), capacity: game.capacity, price: (game.priceCents / 100).toFixed(2), maxGuestsPerUser: game.maxGuestsPerUser, cancellationCutoffHours: game.cancellationCutoffHours, status: game.status, bibsProvided: game.bibsProvided ?? false, shirtColorCount: game.shirtColorCount ?? 2, minPlayers: game.minPlayers ?? null };
+    this.selectedPlayers.set([]); this.playerResults.set([]); this.original = game; this.editingId.set(game.id);
+    this.event = { title: game.title, description: game.description ?? '', locationId: game.location.id, startsAt: this.localTime(game.startsAt), endsAt: this.localTime(game.endsAt), capacity: game.capacity, price: (game.priceCents / 100).toFixed(2), maxGuestsPerUser: game.maxGuestsPerUser, cancellationCutoffHours: game.cancellationCutoffHours, status: game.status, bibsProvided: game.bibsProvided ?? false, shirtColorCount: game.shirtColorCount ?? 2, minPlayers: game.minPlayers ?? null, teamCount: game.teamCount ?? 2, teamBalancingEnabled: game.teamBalancingEnabled ?? false, organizerContactEmail: game.organizerContactEmail ?? '', organizerContactPhone: game.organizerContactPhone ?? '', contactCallAllowed: game.contactCallAllowed ?? false, contactTextAllowed: game.contactTextAllowed ?? false };
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   canCancel(game: ManagedEvent) { return ['DRAFT', 'PUBLISHED'].includes(game.status) && new Date(game.startsAt) > new Date(); }

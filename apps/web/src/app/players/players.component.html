@@ -5,7 +5,7 @@
   @if (!loading() && !error()) {
     @for (status of ['CONFIRMED', 'WAITLISTED']; track status) {
       <h4 class="text-sm font-semibold mt-5 flex items-center gap-2"><span class="lineup-dot" [class.waiting]="status === 'WAITLISTED'"></span>{{ status === 'CONFIRMED' ? 'Confirmed' : 'Waitlist' }}<span class="text-stone-500 font-normal">{{ group(status === 'CONFIRMED' ? 'CONFIRMED' : 'WAITLISTED').length }}</span></h4>
-      <ul class="lineup-grid mt-3">@for (player of group(status === 'CONFIRMED' ? 'CONFIRMED' : 'WAITLISTED'); track player.id) { <li class="player-tile"><app-avatar [name]="player.name" [color]="player.avatarColor" [photoUrl]="player.avatarUrl" /><div class="min-w-0"><p class="text-sm font-semibold break-words">{{ player.name }}</p><p class="text-xs text-stone-500 mt-1">{{ player.isGuest ? 'Guest of ' + player.guestOf : 'Player' }}</p></div></li> } @empty { <li class="text-sm text-stone-500">{{ status === 'CONFIRMED' ? 'No confirmed players yet.' : 'No players waiting.' }}</li> }</ul>
+      <ul class="lineup-grid mt-3">@for (player of group(status === 'CONFIRMED' ? 'CONFIRMED' : 'WAITLISTED'); track player.id) { <li class="player-tile"><app-avatar [name]="player.name" [color]="player.avatarColor" [photoUrl]="player.avatarUrl" /><div class="min-w-0"><p class="text-sm font-semibold break-words">{{ player.name }}</p><p class="text-xs text-stone-500 mt-1">{{ player.isGuest ? 'Guest of ' + player.guestOf : 'Player' }} @if (player.teamNumber) { &middot; Team {{ player.teamNumber }} }</p></div></li> } @empty { <li class="text-sm text-stone-500">{{ status === 'CONFIRMED' ? 'No confirmed players yet.' : 'No players waiting.' }}</li> }</ul>
     }
   }
 </section>

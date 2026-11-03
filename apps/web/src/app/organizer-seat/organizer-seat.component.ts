@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { message } from '../../auth.service';
+import { DialogComponent } from '../dialog/dialog.component';
 import { PaymentReview } from '../payment-review/payment-review.component';
 export interface OrganizerSeat {
   id: string; bookingId: string; guestNumber: number; guestName: string | null; status: string; attendance: string; lateCancellation: boolean;
@@ -11,7 +12,7 @@ export interface OrganizerSeat {
   strikes: { id: string; reason: string; revokedAt: string | null; expiresAt: string | null }[];
 }
 @Component({
-  selector: 'app-organizer-seat', imports: [FormsModule],
+  selector: 'app-organizer-seat', imports: [FormsModule, DialogComponent],
   templateUrl: './organizer-seat.component.html',
   styleUrl: './organizer-seat.component.scss'
 })
@@ -23,6 +24,7 @@ export class OrganizerSeatComponent {
   readonly busy = signal(false);
   readonly error = signal('');
   readonly confirm = signal('');
+  readonly showStrikes = signal(false);
   note = '';
   reason = 'NO_SHOW';
   started() { return Date.parse(this.seat.event.startsAt) <= Date.now(); }

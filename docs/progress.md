@@ -1,4 +1,9 @@
-# Current milestone: event equipment and player targets
+# Current milestone: teams, initial players, organizer contact and review dialogs
+
+Event creation supports team count/balancing, selecting existing accounts for invitations or immediate bookings, and explicitly public contact email/phone with C/T availability. Owners/admins manage confirmed team assignments and run optional self-rating balancing; guests/unrated players use an estimated 3/5 and private ratings remain hidden from peers. Invitations are accepted/declined in My Games. Draft reservations are provisional and cancellable. Payment and strike review use native overlay dialogs. The local migration is applied; frontend build, API compilation, 32 unit tests, 37 PostgreSQL scenarios and 23 frontend logic tests passed. Browser checks remain manual. See [teams and invitations review](teams-invitations-review.md).
+
+## Previous milestone: event equipment and player targets
+
 
 Creation/editing includes bib availability, shirt-color count when bibs are not provided, and an optional minimum-player target. Player and organizer cards show the guidance and confirmed-count progress, including guests. The target is informational and does not trigger cancellation or block a game. Existing events remain unspecified until configured. The local migration is applied; frontend build, API compilation, 29 unit tests and 33 isolated PostgreSQL scenarios passed. Browser review remains manual. See [event guidance review](event-guidance-review.md).
 

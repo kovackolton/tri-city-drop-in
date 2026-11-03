@@ -3,6 +3,7 @@ import { AdministratorGuard, AuthRequest, FirebaseGuard } from './auth';
 import { Database } from './database';
 import { instant, integer, object, text, uuid } from './validation';
 import { randomUUID } from 'node:crypto';
+import { eventOptionsInput } from './event-options';
 import { eventGuidanceInput } from './event-guidance';
 import { SignupsService } from './signups';
 @Injectable()
@@ -10,7 +11,7 @@ export class AdministrationService {
   constructor(@Inject(Database) private readonly db: Database, @Inject(SignupsService) private readonly signups: SignupsService) {}
   async edit(actorId: string, id: string, value: unknown) {
     uuid(id);
-    const b = object(value, ['title', 'description', 'locationId', 'startsAt', 'endsAt', 'capacity', 'priceCents', 'maxGuestsPerUser', 'cancellationCutoffHours', 'bibsProvided', 'shirtColorCount', 'minPlayers']);
+    const b = object(value, ['title', 'description', 'locationId', 'startsAt', 'endsAt', 'capacity', 'priceCents', 'maxGuestsPerUser', 'cancellationCutoffHours', 'bibsProvided', 'shirtColorCount', 'minPlayers', 'teamCount', 'teamBalancingEnabled', 'organizerContactEmail', 'organizerContactPhone', 'contactCallAllowed', 'contactTextAllowed']);
     return this.db.$transaction(async tx => {
       await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${id}::uuid FOR UPDATE`;
       const event = await tx.event.findUnique({ where: { id } });
@@ -28,7 +29,7 @@ export class AdministrationService {
       const locationId = b.locationId === undefined ? event.locationId : uuid(text(b.locationId, 'Location'));
       if (!await tx.location.findUnique({ where: { id: locationId } })) throw new BadRequestException('Location does not exist.');
       const data = {
-        ...eventGuidanceInput(b, capacity, event),
+        ...eventGuidanceInput(b, capacity, event), ...eventOptionsInput(b, event),
         title: b.title === undefined ? event.title : text(b.title, 'Title'), description: b.description === undefined ? event.description : b.description === '' || b.description === null ? null : text(b.description, 'Description', 4000),
         locationId, startsAt, endsAt, capacity, maxGuestsPerUser,
         priceCents: b.priceCents === undefined ? event.priceCents : integer(b.priceCents, 'Price', 0, 2147483647),
@@ -40,6 +41,7 @@ export class AdministrationService {
       })) return event;
       const revision = randomUUID();
       const updated = await tx.event.update({ where: { id }, data });
+      await tx.signup.updateMany({ where: { eventId: id, teamNumber: { gt: updated.teamCount } }, data: { teamNumber: null } });
       if (updated.status === 'PUBLISHED' && updated.startsAt > new Date() && capacity > event.capacity) await this.signups.promote(tx, updated);
       await tx.paymentObligation.updateMany({ where: { signup: { eventId: id }, status: 'UNPAID' }, data: { dueAt: endsAt } });
       const hosts = await tx.signup.findMany({ where: { eventId: id, guestNumber: 0, status: { in: ['CONFIRMED', 'WAITLISTED'] } }, select: { userId: true } });
@@ -57,7 +59,7 @@ export class AdministrationService {
       if (event.deletedAt) return { deleted: true };
       if (event.startsAt > new Date()) {
         const hosts = await tx.signup.findMany({ where: { eventId: id, guestNumber: 0, status: { in: ['CONFIRMED', 'WAITLISTED'] } } });
-        await tx.signup.updateMany({ where: { eventId: id, status: { in: ['CONFIRMED', 'WAITLISTED'] } }, data: { status: 'CANCELLED', cancelledAt: new Date(), lateCancellation: false } });
+        await tx.signup.updateMany({ where: { eventId: id, status: { in: ['CONFIRMED', 'WAITLISTED'] } }, data: { status: 'CANCELLED', teamNumber: null, cancelledAt: new Date(), lateCancellation: false } });
         await tx.paymentObligation.updateMany({ where: { signup: { eventId: id }, status: { in: ['UNPAID', 'NOT_REQUIRED'] } }, data: { status: 'VOID' } });
         for (const host of hosts) await tx.notification.create({ data: { userId: host.userId, kind: 'EVENT_CANCELLED', dedupeKey: `deleted:${id}:${host.userId}`, payload: { eventId: id, title: event.title } } });
       }
