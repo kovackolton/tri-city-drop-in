@@ -1,4 +1,8 @@
-# Current milestone: waiver and profile sections
+# Current milestone: paid event cost confirmation
+
+Paid joins, waitlists and invitations now require a separate cost acknowledgment button in a dialog showing the price and party total. Free joins remain direct. The server requires explicit acknowledgment for paid player submissions, validates the quote and audits consent once per new booking. Guest responsibility, waiver and strike checks remain independent. No migration or external service. Builds, 36 API unit tests, 56 PostgreSQL scenarios and 26 frontend logic tests passed; browser review remains manual. See [cost confirmation review](paid-cost-confirmation-review.md).
+
+## Previous milestone: waiver and profile sections
 
 Strike banners are limited to My profile / My games and target a collapsible strike section. A collapsible My profile waiver renders the server's complete versioned participation/strike rules and records explicit I agree acceptance with an immutable text/hash/identity/time snapshot. Unsigned users get targeted banners on Upcoming games / My games and cannot make new bookings through any path or role; existing bookings and payment access remain. Local migration applied without backfilling signatures. API and frontend builds, 35 API unit tests, 54 PostgreSQL scenarios and 24 frontend logic tests passed. Browser review remains manual. See [waiver/profile sections review](waiver-profile-sections-review.md).
 

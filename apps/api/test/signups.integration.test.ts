@@ -57,7 +57,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
     const users = await Promise.all(Array.from({ length: 24 }, (_, i) => createAcceptedUser({ data: { firebaseUid: `test-${i}`, email: `test${i}@example.invalid`, displayName: `Player ${i}`, accountNameSetAt: new Date(), profileCompletedAt: new Date(), role: i === 0 ? 'ORGANIZER' : 'PLAYER' } })));
     const location = await db.location.create({ data: { name: 'Test pitch', address: 'Test only', timezone: 'America/New_York' } });
     const event = (capacity: number, priceCents = 1000) => db.event.create({ data: { title: 'Test game', organizerId: users[0].id, locationId: location.id, capacity, priceCents, maxGuestsPerUser: Math.min(3, capacity - 1), status: 'PUBLISHED', startsAt: new Date(Date.now() + 86400000), endsAt: new Date(Date.now() + 90000000) } });
-    const join = (user: number, eventId: string, guests: string[] = [], expectedPriceCents = 1000) => service.join(users[user].id, eventId, { guests, expectedPriceCents, guestPaymentAcknowledged: guests.length > 0 });
+    const join = (user: number, eventId: string, guests: string[] = [], expectedPriceCents = 1000) => service.join(users[user].id, eventId, { guests, costAcknowledged: true, expectedPriceCents, guestPaymentAcknowledged: guests.length > 0 });
 
     await t.test('cancellation is owner-only, idempotent, retains parties and voids charges', async () => {
       const e = await event(2);
@@ -133,9 +133,10 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
     });
     await t.test('no-op event edits do not send notices or duplicate the audit trail', async () => {
       const e = await event(2); await join(19, e.id);
+      const auditCount = await db.auditLog.count({ where: { eventId: e.id } });
       await administration.edit(users[0].id, e.id, { title: e.title });
       assert.equal(await db.notification.count({ where: { userId: users[19].id } }), 0);
-      assert.equal(await db.auditLog.count({ where: { eventId: e.id } }), 0);
+      assert.equal(await db.auditLog.count({ where: { eventId: e.id } }), auditCount);
     });
 
     await t.test('contact and avatar preferences persist, and contact details stay private to event organizers', async () => {
@@ -452,7 +453,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       await assert.rejects(profiles.update({ user: saved } as AuthRequest, { displayName: 'Changed' }), /Unexpected field/);
       const updated = await profiles.update({ user: saved } as AuthRequest, { nickname: 'New nick', skillLevel: 5 });
       assert.equal(updated.accountName, saved.displayName); assert.equal(updated.displayName, 'New nick');
-      const e = await event(2); await service.join(user.id, e.id, { guests: [], expectedPriceCents: 1000 });
+      const e = await event(2); await service.join(user.id, e.id, { guests: [], costAcknowledged: true, expectedPriceCents: 1000 });
       const participants = await service.participants(user.id, e.id);
       assert.equal(participants[0].name, 'New nick'); assert.equal('accountName' in participants[0], false); assert.equal('skillLevel' in participants[0], false);
       const roster = await service.roster(users[0].id, e.id);
@@ -491,10 +492,10 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
     });
     await t.test('guest acknowledgment is required and retained; unpaid guest strikes belong to the booking account after review', async () => {
       const e = await event(3);
-      await assert.rejects(service.join(users[12].id, e.id, { guests: ['Guest'], expectedPriceCents: 1000 }), /Acknowledge/);
-      const seats = await service.join(users[12].id, e.id, { guests: ['Guest'], expectedPriceCents: 1000, guestPaymentAcknowledged: true });
+      await assert.rejects(service.join(users[12].id, e.id, { guests: ['Guest'], costAcknowledged: true, expectedPriceCents: 1000 }), /Acknowledge/);
+      const seats = await service.join(users[12].id, e.id, { guests: ['Guest'], costAcknowledged: true, expectedPriceCents: 1000, guestPaymentAcknowledged: true });
       assert.ok(seats.every(seat => seat.guestPaymentAcknowledgedAt && seat.guestPaymentTermsVersion === 'guest-payment-v1'));
-      const retry = await service.join(users[12].id, e.id, { guests: ['Guest'], expectedPriceCents: 1000, guestPaymentAcknowledged: true });
+      const retry = await service.join(users[12].id, e.id, { guests: ['Guest'], costAcknowledged: true, expectedPriceCents: 1000, guestPaymentAcknowledged: true });
       assert.equal(retry[0].guestPaymentAcknowledgedAt?.getTime(), seats[0].guestPaymentAcknowledgedAt?.getTime());
       const guest = seats.find(seat => seat.guestNumber === 1)!;
       await assert.rejects(organizer.issue(users[0].id, guest.id, { reason: 'MISSED_PAYMENT', note: 'Unpaid guest' }), /after the event/);
@@ -509,13 +510,13 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.equal(await db.notification.count({ where: { dedupeKey: `strike:${strike.id}` } }), 1);
       await payments.review(users[0].id, guest.id, 'organizer', { paid: true });
       assert.ok((await db.strike.findUniqueOrThrow({ where: { id: strike.id } })).revokedAt);
-      const free = await event(3, 0); await assert.rejects(service.join(users[13].id, free.id, { guests: ['Guest'], expectedPriceCents: 0 }), /Acknowledge/);
-      const freeSeats = await service.join(users[13].id, free.id, { guests: ['Guest'], expectedPriceCents: 0, guestPaymentAcknowledged: true });
+      const free = await event(3, 0); await assert.rejects(service.join(users[13].id, free.id, { guests: ['Guest'], costAcknowledged: true, expectedPriceCents: 0 }), /Acknowledge/);
+      const freeSeats = await service.join(users[13].id, free.id, { guests: ['Guest'], costAcknowledged: true, expectedPriceCents: 0, guestPaymentAcknowledged: true });
       assert.ok(freeSeats.every(seat => seat.guestPaymentAcknowledgedAt));
       const small = await event(2);
-      const full = await service.join(users[14].id, small.id, { guests: ['Filler guest'], expectedPriceCents: 1000, guestPaymentAcknowledged: true });
-      await assert.rejects(service.join(users[15].id, small.id, { guests: ['Waiting guest'], expectedPriceCents: 1000 }), /Acknowledge/);
-      const waiting = await service.join(users[15].id, small.id, { guests: ['Waiting guest'], expectedPriceCents: 1000, guestPaymentAcknowledged: true });
+      const full = await service.join(users[14].id, small.id, { guests: ['Filler guest'], costAcknowledged: true, expectedPriceCents: 1000, guestPaymentAcknowledged: true });
+      await assert.rejects(service.join(users[15].id, small.id, { guests: ['Waiting guest'], costAcknowledged: true, expectedPriceCents: 1000 }), /Acknowledge/);
+      const waiting = await service.join(users[15].id, small.id, { guests: ['Waiting guest'], costAcknowledged: true, expectedPriceCents: 1000, guestPaymentAcknowledged: true });
       assert.ok(waiting.every(seat => seat.status === 'WAITLISTED' && seat.guestPaymentAcknowledgedAt));
       await service.cancel(users[14].id, small.id, full[0].bookingId);
       const promoted = await db.signup.findUniqueOrThrow({ where: { id: waiting[0].id } });
@@ -533,7 +534,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       const e = await events.create({ user: users[0] } as AuthRequest, { title: 'Advisory target game', locationId: location.id, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString(), capacity: 6, priceCents: 0, maxGuestsPerUser: 1, status: 'DRAFT', bibsProvided: false, shirtColorCount: 3, minPlayers: 5 });
       assert.equal(e.shirtColorCount, 3); assert.equal(e.minPlayers, 5);
       await events.publish({ user: users[0] } as AuthRequest, e.id);
-      const seats = await service.join(users[16].id, e.id, { guests: ['Target guest'], expectedPriceCents: 0, guestPaymentAcknowledged: true });
+      const seats = await service.join(users[16].id, e.id, { guests: ['Target guest'], costAcknowledged: true, expectedPriceCents: 0, guestPaymentAcknowledged: true });
       const publicGame = (await events.events()).find(game => game.id === e.id)!;
       assert.equal(publicGame.minPlayers, 5); assert.equal(publicGame.confirmed, 2); assert.equal(publicGame.shirtColorCount, 3);
       assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).status, 'PUBLISHED');
@@ -606,13 +607,13 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.equal(await db.notification.count({ where: { kind: 'EVENT_INVITATION', payload: { path: ['eventId'], equals: e.id } } }), 2);
       const invite = (await invitations.mine(users[8].id)).find(invite => invite.event.id === e.id)!;
       const second = (await invitations.mine(users[9].id)).find(invite => invite.event.id === e.id)!;
-      await assert.rejects(invitations.respond(users[10].id, invite.id, 'accept', { expectedPriceCents: 1500 }), /Invitation not found/);
-      await assert.rejects(invitations.respond(users[8].id, invite.id, 'accept', { expectedPriceCents: 1000 }), /price changed/);
-      const [a, b] = await Promise.all([invitations.respond(users[8].id, invite.id, 'accept', { expectedPriceCents: 1500 }), invitations.respond(users[9].id, second.id, 'accept', { expectedPriceCents: 1500 })]);
+      await assert.rejects(invitations.respond(users[10].id, invite.id, 'accept', { costAcknowledged: true, expectedPriceCents: 1500 }), /Invitation not found/);
+      await assert.rejects(invitations.respond(users[8].id, invite.id, 'accept', { costAcknowledged: true, expectedPriceCents: 1000 }), /price changed/);
+      const [a, b] = await Promise.all([invitations.respond(users[8].id, invite.id, 'accept', { costAcknowledged: true, expectedPriceCents: 1500 }), invitations.respond(users[9].id, second.id, 'accept', { costAcknowledged: true, expectedPriceCents: 1500 })]);
       assert.equal(await db.signup.count({ where: { eventId: e.id, status: 'CONFIRMED' } }), 1); assert.equal(await db.signup.count({ where: { eventId: e.id, status: 'WAITLISTED' } }), 1);
       const seat = await db.signup.findFirstOrThrow({ where: { bookingId: a.bookingId! } });
       await service.cancel(users[8].id, e.id, seat.bookingId);
-      await invitations.respond(users[8].id, invite.id, 'accept', { expectedPriceCents: 1500 });
+      await invitations.respond(users[8].id, invite.id, 'accept', { costAcknowledged: true, expectedPriceCents: 1500 });
       assert.equal((await db.signup.findUniqueOrThrow({ where: { id: seat.id } })).status, 'CANCELLED');
       assert.equal(b.status, 'ACCEPTED');
       assert.equal(await db.notification.count({ where: { userId: users[8].id, dedupeKey: `event-invitation:${invite.id}`, readAt: null } }), 0);
@@ -642,8 +643,8 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       const date = new Intl.DateTimeFormat('en-CA', { timeZone: venue.timezone }).format(start);
       const filtered = await events.events({ period: 'day', date, city: 'filter city', locationId: venue.id, organizerId: users[0].id, freeOnly: 'true', search: 'sample' });
       assert.equal(filtered.length, 1); assert.equal(filtered[0].id, a.id);
-      await service.join(users[19].id, a.id, { guests: [], expectedPriceCents: 0 });
-      await service.join(users[20].id, a.id, { guests: ['Guest'], expectedPriceCents: 0, guestPaymentAcknowledged: true });
+      await service.join(users[19].id, a.id, { guests: [], costAcknowledged: true, expectedPriceCents: 0 });
+      await service.join(users[20].id, a.id, { guests: ['Guest'], costAcknowledged: true, expectedPriceCents: 0, guestPaymentAcknowledged: true });
       assert.equal((await events.events({ locationId: venue.id, freeOnly: 'true', spacesOnly: 'true' })).length, 0);
       assert.equal((await events.events({ locationId: venue.id, spacesOnly: 'true' }))[0].id, b.id);
       const facets = await events.filters(); assert.ok(facets.locations.some(location => location.id === venue.id && location.city === 'Filter City'));
@@ -652,11 +653,11 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
     });
     await t.test('My Games keeps complete per-event attempts and counts only player cancellations once per party', async () => {
       const e = await event(4, 0);
-      const a = await service.join(users[21].id, e.id, { guests: ['Guest'], expectedPriceCents: 0, guestPaymentAcknowledged: true });
+      const a = await service.join(users[21].id, e.id, { guests: ['Guest'], costAcknowledged: true, expectedPriceCents: 0, guestPaymentAcknowledged: true });
       await service.cancel(users[21].id, e.id, a[0].bookingId); await service.cancel(users[21].id, e.id, a[0].bookingId);
-      const b = await service.join(users[21].id, e.id, { guests: [], expectedPriceCents: 0 }); await service.cancel(users[21].id, e.id, b[0].bookingId);
-      const c = await service.join(users[21].id, e.id, { guests: [], expectedPriceCents: 0 }); await service.cancel(users[0].id, e.id, c[0].bookingId, 'Organizer removal');
-      const d = await service.join(users[21].id, e.id, { guests: [], expectedPriceCents: 0 });
+      const b = await service.join(users[21].id, e.id, { guests: [], costAcknowledged: true, expectedPriceCents: 0 }); await service.cancel(users[21].id, e.id, b[0].bookingId);
+      const c = await service.join(users[21].id, e.id, { guests: [], costAcknowledged: true, expectedPriceCents: 0 }); await service.cancel(users[0].id, e.id, c[0].bookingId, 'Organizer removal');
+      const d = await service.join(users[21].id, e.id, { guests: [], costAcknowledged: true, expectedPriceCents: 0 });
       const mine = (await service.mine(users[21].id)).filter(seat => seat.eventId === e.id);
       assert.equal(mine.filter(seat => seat.guestNumber === 0).length, 4); assert.ok(mine.every(seat => seat.playerCancellationCount === 2 && seat.bookingCount === 4));
       assert.equal(mine.find(seat => seat.id === c[0].id)?.cancellationSource, 'ORGANIZER');
@@ -670,7 +671,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
     });
     await t.test('reshuffle uses the enabled balancing permission and organizers can make the final assignment', async () => {
       const e = await event(6, 0); const ids = [1, 2, 3, 4, 5, 6];
-      for (const index of ids) await service.join(users[index].id, e.id, { guests: [], expectedPriceCents: 0 });
+      for (const index of ids) await service.join(users[index].id, e.id, { guests: [], costAcknowledged: true, expectedPriceCents: 0 });
       await assert.rejects(teams.balance(users[0].id, e.id, false, true), /Enable rating/);
       await teams.settings(users[0].id, e.id, { teamCount: 2, teamBalancingEnabled: true });
       await teams.balance(users[0].id, e.id);
@@ -694,7 +695,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.equal((await db.user.findUniqueOrThrow({ where: { id: target.id } })).skillLevel, 2);
       assert.equal((await requests.users('RatingFixture')).items[0].adminSkillLevel, 4);
       const found = (await invitations.search('RatingFixture'))[0]; assert.equal(found.skillLevel, 2); assert.equal(found.adminSkillLevel, 4);
-      const e = await event(4); await service.join(target.id, e.id, { guests: [], expectedPriceCents: 1000 });
+      const e = await event(4); await service.join(target.id, e.id, { guests: [], costAcknowledged: true, expectedPriceCents: 1000 });
       const roster = await service.roster(users[0].id, e.id); assert.equal(roster[0].user.adminSkillLevel, 4);
       const team = await teams.data(users[0].id, e.id); assert.equal(team.players[0].adminRating, 4); assert.equal(team.players[0].rating, 2);
       const shared = await service.participants(target.id, e.id); assert.ok(shared.every(player => !('adminSkillLevel' in player) && !('adminRating' in player)));
@@ -749,7 +750,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       const ratings = [[5, 2], [null, 5], [1, null], [null, null]] as const;
       for (const [index, rating] of ratings.entries()) {
         const player = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: `Combined ${index}`, skillLevel: rating[0], adminSkillLevel: rating[1] } });
-        await service.join(player.id, e.id, { guests: index === 0 ? ['Guest'] : [], expectedPriceCents: 1000, guestPaymentAcknowledged: true });
+        await service.join(player.id, e.id, { guests: index === 0 ? ['Guest'] : [], costAcknowledged: true, expectedPriceCents: 1000, guestPaymentAcknowledged: true });
       }
       const seats = await db.signup.findMany({ where: { eventId: e.id }, include: { user: true } });
       const expected = new Map(seats.map(seat => [seat.id, seat.guestNumber ? 3 : seat.user.skillLevel !== null && seat.user.adminSkillLevel !== null ? (seat.user.skillLevel + seat.user.adminSkillLevel) / 2 : seat.user.skillLevel ?? seat.user.adminSkillLevel ?? 3]));
@@ -765,8 +766,8 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
     await t.test('overdue payment reminders are per booking, include guests, stop after either answer and stay private', async () => {
       const user = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'ReminderFixture' } });
       const other = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'OtherReminder' } });
-      const e = await event(2); const seats = await service.join(user.id, e.id, { guests: ['Guest'], expectedPriceCents: 1000, guestPaymentAcknowledged: true });
-      await service.join(other.id, e.id, { guests: [], expectedPriceCents: 1000 });
+      const e = await event(2); const seats = await service.join(user.id, e.id, { guests: ['Guest'], costAcknowledged: true, expectedPriceCents: 1000, guestPaymentAcknowledged: true });
+      await service.join(other.id, e.id, { guests: [], costAcknowledged: true, expectedPriceCents: 1000 });
       await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 25 * 3600000), endsAt: new Date(Date.now() - 23 * 3600000) } });
       assert.equal((await notifications.inbox(user.id)).items.filter(item => item.kind === 'PAYMENT_REVIEW_REMINDER').length, 0);
       await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 27 * 3600000), endsAt: new Date(Date.now() - 25 * 3600000) } });
@@ -782,7 +783,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
     });
     await t.test('unreviewed and organizer-paid seats never earn payment strikes; late explicit unpaid reviews apply immediately', async () => {
       const players = await Promise.all(Array.from({ length: 3 }, () => createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'GraceFixture' } })));
-      const e = await event(3); const seats = await Promise.all(players.map(player => service.join(player.id, e.id, { guests: [], expectedPriceCents: 1000 })));
+      const e = await event(3); const seats = await Promise.all(players.map(player => service.join(player.id, e.id, { guests: [], costAcknowledged: true, expectedPriceCents: 1000 })));
       await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 50 * 3600000), endsAt: new Date(Date.now() - 48 * 3600000) } });
       for (const player of players) assert.equal((await strikes.report(player.id)).count, 0);
       await payments.review(players[0].id, seats[0][0].id, 'player', { paid: true });
@@ -800,7 +801,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
     });
     await t.test('early unpaid reviews become strikes only after grace and concurrent refreshes do not duplicate them', async () => {
       const player = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'BoundaryFixture' } });
-      const e = await event(1); const seats = await service.join(player.id, e.id, { guests: [], expectedPriceCents: 1000 });
+      const e = await event(1); const seats = await service.join(player.id, e.id, { guests: [], costAcknowledged: true, expectedPriceCents: 1000 });
       await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 25 * 3600000), endsAt: new Date(Date.now() - 23 * 3600000) } });
       await payments.review(users[0].id, seats[0].id, 'organizer', { paid: false }); assert.equal((await strikes.report(player.id)).count, 0);
       await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 27 * 3600000), endsAt: new Date(Date.now() - 25 * 3600000) } });
@@ -824,30 +825,30 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
     await t.test('three mixed current strikes block all new booking paths, retain existing seats and clear on organizer payment', async () => {
       const adminUser = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'LimitAdmin', role: 'ADMINISTRATOR' } });
       const player = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'LimitFixture' } });
-      const old = await event(2); const party = await service.join(player.id, old.id, { guests: ['Guest debt'], expectedPriceCents: 1000, guestPaymentAcknowledged: true });
-      const kept = await event(2); const existing = await service.join(player.id, kept.id, { guests: [], expectedPriceCents: 1000 });
+      const old = await event(2); const party = await service.join(player.id, old.id, { guests: ['Guest debt'], costAcknowledged: true, expectedPriceCents: 1000, guestPaymentAcknowledged: true });
+      const kept = await event(2); const existing = await service.join(player.id, kept.id, { guests: [], costAcknowledged: true, expectedPriceCents: 1000 });
       for (let i = 0; i < 2; i++) await strikes.permanent(adminUser.id, player.id, { note: `Administrative incident ${i}`, requestId: randomUUID() });
-      const allowed = await event(2); await service.join(player.id, allowed.id, { guests: [], expectedPriceCents: 1000 });
+      const allowed = await event(2); await service.join(player.id, allowed.id, { guests: [], costAcknowledged: true, expectedPriceCents: 1000 });
       await db.event.update({ where: { id: old.id }, data: { startsAt: new Date(Date.now() - 27 * 3600000), endsAt: new Date(Date.now() - 25 * 3600000) } });
       await payments.review(users[0].id, party[1].id, 'organizer', { paid: false });
       await db.strike.create({ data: { userId: player.id, signupId: existing[0].id, reason: 'NO_SHOW', expiresAt: new Date(Date.now() - 1000) } });
       await db.strike.create({ data: { userId: player.id, signupId: existing[0].id, reason: 'LATE_CANCELLATION', revokedAt: new Date() } });
       const report = await strikes.report(player.id); assert.equal(report.count, 3); assert.equal(report.blocked, true); assert.ok(report.items.some(item => item.signup?.guestName === 'Guest debt'));
-      const next = await event(2, 0); await assert.rejects(service.join(player.id, next.id, { guests: [], expectedPriceCents: 0 }), /Joining is blocked/);
-      const invitation = await db.eventInvitation.create({ data: { eventId: next.id, userId: player.id } }); await assert.rejects(invitations.respond(player.id, invitation.id, 'accept', { expectedPriceCents: 0 }), /Joining is blocked/);
+      const next = await event(2, 0); await assert.rejects(service.join(player.id, next.id, { guests: [], costAcknowledged: true, expectedPriceCents: 0 }), /Joining is blocked/);
+      const invitation = await db.eventInvitation.create({ data: { eventId: next.id, userId: player.id } }); await assert.rejects(invitations.respond(player.id, invitation.id, 'accept', { costAcknowledged: true, expectedPriceCents: 0 }), /Joining is blocked/);
       const before = await db.event.count(); await assert.rejects(new EventsController(db, service).create({ user: users[0] } as AuthRequest, { title: 'Blocked direct booking', status: 'DRAFT', locationId: location.id, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString(), capacity: 2, maxGuestsPerUser: 0, priceCents: 0, initialPlayerMode: 'BOOK', initialPlayerIds: [player.id] }), /Joining is blocked/); assert.equal(await db.event.count(), before);
-      const retry = await service.join(player.id, kept.id, { guests: [], expectedPriceCents: 1000 }); assert.equal(retry[0].id, existing[0].id);
+      const retry = await service.join(player.id, kept.id, { guests: [], costAcknowledged: true, expectedPriceCents: 1000 }); assert.equal(retry[0].id, existing[0].id);
       assert.equal((await db.signup.findUniqueOrThrow({ where: { id: existing[0].id } })).status, 'CONFIRMED');
       const roster = await service.roster(users[0].id, kept.id); assert.equal(roster[0].user.strikeCount, 3);
       await payments.review(player.id, party[1].id, 'player', { paid: true }); assert.equal((await strikes.report(player.id)).count, 3);
       await payments.review(users[0].id, party[1].id, 'organizer', { paid: true }); assert.equal((await strikes.report(player.id)).count, 2);
-      await service.join(player.id, next.id, { guests: [], expectedPriceCents: 0 });
+      await service.join(player.id, next.id, { guests: [], costAcknowledged: true, expectedPriceCents: 0 });
     });
     await t.test('free, voided and cancelled event seats are excluded from overdue reminders and payment strikes', async () => {
       const player = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'ExcludedFixture' } });
-      const free = await event(1, 0); await service.join(player.id, free.id, { guests: [], expectedPriceCents: 0 });
-      const cancelled = await event(1); await service.join(player.id, cancelled.id, { guests: [], expectedPriceCents: 1000 }); await management.transition(users[0].id, cancelled.id, 'cancel');
-      const voided = await event(1); const seats = await service.join(player.id, voided.id, { guests: [], expectedPriceCents: 1000 }); await db.paymentObligation.update({ where: { signupId: seats[0].id }, data: { status: 'VOID', organizerPaid: false, organizerReviewedAt: new Date(), organizerReviewedById: users[0].id } });
+      const free = await event(1, 0); await service.join(player.id, free.id, { guests: [], costAcknowledged: true, expectedPriceCents: 0 });
+      const cancelled = await event(1); await service.join(player.id, cancelled.id, { guests: [], costAcknowledged: true, expectedPriceCents: 1000 }); await management.transition(users[0].id, cancelled.id, 'cancel');
+      const voided = await event(1); const seats = await service.join(player.id, voided.id, { guests: [], costAcknowledged: true, expectedPriceCents: 1000 }); await db.paymentObligation.update({ where: { signupId: seats[0].id }, data: { status: 'VOID', organizerPaid: false, organizerReviewedAt: new Date(), organizerReviewedById: users[0].id } });
       await db.event.updateMany({ where: { id: { in: [free.id, cancelled.id, voided.id] } }, data: { startsAt: new Date(Date.now() - 27 * 3600000), endsAt: new Date(Date.now() - 25 * 3600000) } });
       assert.equal((await strikes.report(player.id)).count, 0);
       assert.equal((await notifications.inbox(player.id)).items.filter(item => item.kind === 'PAYMENT_REVIEW_REMINDER').length, 0);
@@ -867,7 +868,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       const user = await db.user.create({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Unsigned player' } });
       assert.equal((await waivers.status(user.id)).acceptance, null);
       const e = await event(2, 0);
-      await assert.rejects(service.join(user.id, e.id, { guests: [], expectedPriceCents: 0 }), /waiver/);
+      await assert.rejects(service.join(user.id, e.id, { guests: [], costAcknowledged: true, expectedPriceCents: 0 }), /waiver/);
       for (const agree of [false, null, 'true', undefined]) await assert.rejects(waivers.accept(user.id, { version: waiverVersion, agree }), /I agree/);
       await assert.rejects(waivers.accept(user.id, { version: 'outdated', agree: true }), /version changed/);
       await assert.rejects(waivers.accept(user.id, { version: waiverVersion, agree: true, userId: users[0].id }), /Unexpected field/);
@@ -879,31 +880,56 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       await db.user.update({ where: { id: user.id }, data: { nickname: 'New nickname' } });
       const again = await waivers.accept(user.id, { version: waiverVersion, agree: true }); assert.equal(again.acceptance?.acceptedAt.getTime(), saved.acceptedAt.getTime());
       assert.equal(await db.auditLog.count({ where: { actorId: user.id, action: 'PARTICIPATION_WAIVER_ACCEPTED' } }), 1);
-      await service.join(user.id, e.id, { guests: [], expectedPriceCents: 0 });
+      await service.join(user.id, e.id, { guests: [], costAcknowledged: true, expectedPriceCents: 0 });
     });
     await t.test('unsigned accounts cannot accept invitations or be booked by organizers, and legacy bookings remain usable', async () => {
       const user = await db.user.create({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Legacy unsigned' } });
       const kept = await event(2, 0); const bookingId = randomUUID();
       const seat = await db.signup.create({ data: { eventId: kept.id, userId: user.id, bookingId, guestNumber: 0, status: 'CONFIRMED', quotedPriceCents: 0 } });
-      const identical = await service.join(user.id, kept.id, { guests: [], expectedPriceCents: 0 }); assert.equal(identical[0].id, seat.id);
+      const identical = await service.join(user.id, kept.id, { guests: [], costAcknowledged: true, expectedPriceCents: 0 }); assert.equal(identical[0].id, seat.id);
       const next = await event(2, 0); const invite = await db.eventInvitation.create({ data: { userId: user.id, eventId: next.id } });
-      await assert.rejects(invitations.respond(user.id, invite.id, 'accept', { expectedPriceCents: 0 }), /waiver/);
+      await assert.rejects(invitations.respond(user.id, invite.id, 'accept', { costAcknowledged: true, expectedPriceCents: 0 }), /waiver/);
       assert.equal((await db.eventInvitation.findUniqueOrThrow({ where: { id: invite.id } })).status, 'PENDING');
       const before = await db.event.count();
       const input = { title: 'Unsigned booking', status: 'DRAFT', locationId: location.id, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString(), capacity: 2, maxGuestsPerUser: 0, priceCents: 0, initialPlayerMode: 'BOOK', initialPlayerIds: [user.id] };
       await assert.rejects(new EventsController(db, service).create({ user: users[0] } as AuthRequest, input), /waiver/); assert.equal(await db.event.count(), before);
       await service.cancel(user.id, kept.id, bookingId); assert.equal((await db.signup.findUniqueOrThrow({ where: { id: seat.id } })).status, 'CANCELLED');
-      await waivers.accept(user.id, { version: waiverVersion, agree: true }); await invitations.respond(user.id, invite.id, 'accept', { expectedPriceCents: 0 });
+      await waivers.accept(user.id, { version: waiverVersion, agree: true }); await invitations.respond(user.id, invite.id, 'accept', { costAcknowledged: true, expectedPriceCents: 0 });
       assert.equal((await db.eventInvitation.findUniqueOrThrow({ where: { id: invite.id } })).status, 'ACCEPTED');
     });
     await t.test('all account roles need their own waiver and cannot accept for another user through profile updates', async () => {
       const e = await event(4, 0);
       for (const role of ['PLAYER', 'ORGANIZER', 'ADMINISTRATOR'] as const) {
         const user = await db.user.create({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: role, role, accountNameSetAt: new Date() } });
-        await assert.rejects(service.join(user.id, e.id, { guests: [], expectedPriceCents: 0 }), /waiver/);
+        await assert.rejects(service.join(user.id, e.id, { guests: [], costAcknowledged: true, expectedPriceCents: 0 }), /waiver/);
         await assert.rejects(new ProfilesController(db).update({ user } as AuthRequest, { waiverAccepted: true }), /Unexpected field/);
-        await waivers.accept(user.id, { version: waiverVersion, agree: true }); await service.join(user.id, e.id, { guests: [], expectedPriceCents: 0 });
+        await waivers.accept(user.id, { version: waiverVersion, agree: true }); await service.join(user.id, e.id, { guests: [], costAcknowledged: true, expectedPriceCents: 0 });
       }
+    });
+    await t.test('paid cost acknowledgment is explicit, price-checked and audited once for the whole booking', async () => {
+      const player = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'CostFixture' } });
+      const other = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'CostOther' } });
+      const e = await event(2);
+      for (const costAcknowledged of [undefined, false, 'true']) await assert.rejects(service.join(player.id, e.id, { guests: ['Guest'], expectedPriceCents: 1000, guestPaymentAcknowledged: true, costAcknowledged }), /cost|Cost/);
+      assert.equal(await db.signup.count({ where: { eventId: e.id } }), 0);
+      const body = { guests: ['Guest'], expectedPriceCents: 1000, guestPaymentAcknowledged: true, costAcknowledged: true };
+      await service.join(player.id, e.id, body); await service.join(player.id, e.id, body);
+      const audits = await db.auditLog.findMany({ where: { eventId: e.id, action: 'PLAYER_EVENT_COST_ACKNOWLEDGED' } }); assert.equal(audits.length, 1);
+      const details = audits[0].details as { priceCents: number; partySize: number; totalCents: number; source: string }; assert.equal(details.priceCents, 1000); assert.equal(details.partySize, 2); assert.equal(details.totalCents, 2000); assert.equal(details.source, 'PLAYER_JOIN');
+      await db.event.update({ where: { id: e.id }, data: { priceCents: 1600 } });
+      await assert.rejects(service.join(other.id, e.id, { guests: [], expectedPriceCents: 1000, costAcknowledged: true }), /price changed/);
+      const free = await event(1, 0); await service.join(other.id, free.id, { guests: [], expectedPriceCents: 0 });
+      assert.equal(await db.auditLog.count({ where: { eventId: free.id, action: 'PLAYER_EVENT_COST_ACKNOWLEDGED' } }), 0);
+    });
+    await t.test('paid invitations require separate cost acknowledgment and record only one accepted-cost audit', async () => {
+      const player = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'InviteCost' } });
+      const e = await event(1); const invite = await db.eventInvitation.create({ data: { userId: player.id, eventId: e.id } });
+      await assert.rejects(invitations.respond(player.id, invite.id, 'accept', { expectedPriceCents: 1000 }), /cost/);
+      await assert.rejects(invitations.respond(player.id, invite.id, 'accept', { expectedPriceCents: 1000, costAcknowledged: false }), /cost/);
+      assert.equal((await db.eventInvitation.findUniqueOrThrow({ where: { id: invite.id } })).status, 'PENDING');
+      await invitations.respond(player.id, invite.id, 'accept', { expectedPriceCents: 1000, costAcknowledged: true });
+      await invitations.respond(player.id, invite.id, 'accept', { expectedPriceCents: 1000, costAcknowledged: true });
+      const audits = await db.auditLog.findMany({ where: { eventId: e.id, action: 'PLAYER_EVENT_COST_ACKNOWLEDGED' } }); assert.equal(audits.length, 1); assert.equal((audits[0].details as { source: string }).source, 'PLAYER_INVITATION');
     });
   } finally {
     await db.$disconnect();

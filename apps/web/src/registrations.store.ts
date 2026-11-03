@@ -46,7 +46,7 @@ export const RegistrationsStore = signalStore(
     return {
       load,
       reset() { revision++; focusedEventId = undefined; patchState(store, { seats: [], loading: false, busy: false, error: '', notice: '' }); },
-      join(eventId: string, guests: string[], expectedPriceCents: number, guestPaymentAcknowledged = false) { return mutate(`/api/events/${eventId}/signups`, { guests, expectedPriceCents, guestPaymentAcknowledged }, 'Booking saved. Check your confirmed or waitlisted status below.'); },
+      join(eventId: string, guests: string[], expectedPriceCents: number, guestPaymentAcknowledged = false, costAcknowledged = false) { return mutate(`/api/events/${eventId}/signups`, { guests, expectedPriceCents, guestPaymentAcknowledged, costAcknowledged }, 'Booking saved. Check your confirmed or waitlisted status below.'); },
       cancel(eventId: string, bookingId: string) { return mutate(`/api/events/${eventId}/signups/${bookingId}/cancel`, {}, 'Your whole party has been cancelled.'); }
     };
   })

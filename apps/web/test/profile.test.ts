@@ -17,6 +17,7 @@ import { DialogComponent } from '../src/app/dialog/dialog.component';
 import { PaymentReviewComponent } from '../src/app/payment-review/payment-review.component';
 import { HttpClient } from '@angular/common/http';
 import { Observable, Subject, of, throwError } from 'rxjs';
+import { EventInvitationsComponent } from '../src/app/event-invitations/event-invitations.component';
 import { SignupComponent } from '../src/app/signup/signup.component';
 import { Game } from '../src/models';
 import { MyGamesComponent } from '../src/app/my-games/my-games.component';
@@ -87,7 +88,8 @@ test('guest signup cannot submit without acknowledgment and resets it when anoth
   component.guestPaymentAcknowledged = true; component.add();
   assert.equal(component.guestPaymentAcknowledged, false);
   component.remove(1); component.guestPaymentAcknowledged = true; await component.join();
-  assert.deepEqual(calls[0], ['game', ['Guest'], 1000, true]);
+  assert.equal(calls.length, 0); await component.confirmCost();
+  assert.deepEqual(calls[0], ['game', ['Guest'], 1000, true, true]);
   assert.deepEqual(component.guests, []); assert.equal(component.guestPaymentAcknowledged, false);
 });
 
@@ -309,4 +311,30 @@ test('unsigned users cannot submit new joins but retain existing booking and can
   const component = runInInjectionContext(injector, () => new SignupComponent()); component.game = { id: 'game' } as Game;
   await component.join(); assert.equal(joins, 0); assert.equal(component.booking()?.bookingId, 'legacy');
   await component.cancel('legacy'); assert.equal(cancels, 1); injector.destroy();
+});
+
+
+test('paid joins wait for a second press, reject stale cost details and submit only once; free joins remain direct', async () => {
+  const calls: unknown[][] = []; let finish!: (value: boolean) => void;
+  const store = { join: (...args: unknown[]) => { calls.push(args); return new Promise<boolean>(resolve => { finish = resolve; }); } };
+  const injector = Injector.create({ providers: [{ provide: WaiverStore, useValue: { accepted: () => true } }, { provide: StrikesStore, useValue: { blocked: () => false } }, { provide: RegistrationsStore, useValue: store }] });
+  const component = runInInjectionContext(injector, () => new SignupComponent()); component.game = { id: 'game', title: 'Paid game', priceCents: 1200 } as Game;
+  await component.join(); assert.equal(calls.length, 0); assert.equal(component.costConfirmation()?.priceCents, 1200);
+  component.game = { ...component.game, priceCents: 1500 }; await component.confirmCost(); assert.equal(calls.length, 0); assert.equal(component.costConfirmation(), null); assert.match(component.acknowledgmentError(), /changed/);
+  await component.join(); const confirmation = component.confirmCost(); await component.confirmCost(); assert.equal(calls.length, 1); assert.deepEqual(calls[0], ['game', [], 1500, false, true]);
+  finish(true); await confirmation; assert.equal(component.costConfirmation(), null);
+  component.game = { ...component.game, priceCents: 0 }; const free = component.join(); assert.equal(calls.length, 2); assert.equal(calls[1][4], false); finish(true); await free;
+  injector.destroy();
+});
+
+test('paid invitations require a separate confirmation and reject a price changed while the dialog is open', async () => {
+  const calls: { url: string; body: any }[] = [];
+  const http = { get: () => of([]), post: (url: string, body: any) => { calls.push({ url, body }); return of({}); } };
+  const injector = Injector.create({ providers: [{ provide: WaiverStore, useValue: { accepted: () => true } }, { provide: StrikesStore, useValue: { blocked: () => false } }, { provide: HttpClient, useValue: http }] });
+  const component = runInInjectionContext(injector, () => new EventInvitationsComponent());
+  const invite = { id: 'invite', event: { id: 'game', title: 'Invited game', priceCents: 1000 } } as any; component.invitations.set([invite]);
+  await component.respond(invite, 'accept'); assert.equal(calls.length, 0); assert.ok(component.costConfirmation());
+  invite.event.priceCents = 1500; await component.confirmCost(); assert.equal(calls.length, 0); assert.match(component.error(), /changed/);
+  await component.respond(invite, 'accept'); await component.confirmCost(); assert.equal(calls.length, 1); assert.deepEqual(calls[0].body, { expectedPriceCents: 1500, costAcknowledged: true }); assert.equal(component.costConfirmation(), null);
+  injector.destroy();
 });
