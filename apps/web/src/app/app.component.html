@@ -61,10 +61,22 @@
           <h1 class="text-4xl md:text-5xl font-bold tracking-tight mt-3">More soccer.<br>Less organizing.</h1>
           <p class="mt-4 text-stone-600 max-w-lg">Find a pitch, grab a spot, and show up ready to play. Upcoming drop-in games around the Tri-Cities.</p> -->
           <section aria-labelledby="games-heading" class="mt-10">
-            <div class="flex justify-between items-center mb-5"><h2 id="games-heading" class="text-xl font-bold">Upcoming games</h2><button class="secondary" [disabled]="store.loading()" (click)="store.load()">Refresh</button></div>
+            <div class="flex justify-between items-center mb-5"><h2 id="games-heading" class="text-xl font-bold">Upcoming games</h2><button class="secondary" [disabled]="store.loading()" (click)="refreshGames()">Refresh</button></div>
+            <form class="panel mb-5" (ngSubmit)="applyFilters()" aria-label="Filter upcoming games">
+              <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4"><label>When<select name="period" [(ngModel)]="filters.period"><option value="all">All upcoming dates</option><option value="day">Specific day</option><option value="week">Week of selected date</option></select></label>@if (filters.period !== 'all') { <label>{{ filters.period === 'day' ? 'Day' : 'A date in the week' }}<input name="filterDate" type="date" [(ngModel)]="filters.date" required></label> }
+                <label>Location<select name="filterLocation" [(ngModel)]="filters.locationId"><option value="">All locations</option>@for (location of store.locations(); track location.id) { <option [value]="location.id">{{ location.name }}{{ location.city ? ' - ' + location.city : '' }}</option> }</select></label>
+                <label>City<select name="filterCity" [(ngModel)]="filters.city"><option value="">All cities</option>@for (city of cities(); track city) { <option [value]="city">{{ city }}</option> }</select></label>
+                <label>Organizer<select name="filterOrganizer" [(ngModel)]="filters.organizerId"><option value="">All organizers</option>@for (organizer of store.organizers(); track organizer.id) { <option [value]="organizer.id">{{ organizer.name }}</option> }</select></label>
+                <label>Search<input name="filterSearch" type="search" maxlength="80" [(ngModel)]="filters.search" placeholder="Game, venue or address"></label>
+              </div><div class="flex flex-wrap gap-4 mt-4"><label class="flex items-center gap-2"><input class="!w-auto !m-0" type="checkbox" name="freeOnly" [(ngModel)]="filters.freeOnly">Free games</label><label class="flex items-center gap-2"><input class="!w-auto !m-0" type="checkbox" name="spacesOnly" [(ngModel)]="filters.spacesOnly">Available places (no waitlist)</label></div>
+              <p class="text-xs text-stone-500 mt-3">Dates use each venue's timezone. Weeks run Monday through Sunday. City options come from Locations; venues without a city still appear under All cities.</p>
+              <div class="flex flex-wrap gap-3 mt-4"><button class="primary">Apply filters</button><button class="secondary" type="button" (click)="resetFilters()">Clear filters</button><button class="secondary" type="button" (click)="quickDate('day')">Today</button><button class="secondary" type="button" (click)="quickDate('week')">This week</button></div>
+              @if (store.filterError()) { <p role="alert" class="text-sm mt-3">{{ store.filterError() }}</p><button class="secondary mt-2" type="button" (click)="store.loadFilters()">Retry filter options</button> }
+            </form>
             @if (store.loading()) { <p role="status">Loading games...</p> }
             @else if (store.error()) { <div role="alert" class="notice error"><p>{{ store.error() }}</p><button class="underline mt-3" (click)="store.load()">Try again</button></div> }
             @else {
+              <p role="status" class="text-sm text-stone-500 mb-4">{{ store.events().length }} matching {{ store.events().length === 1 ? 'game' : 'games' }} (up to 100 shown).</p>
               <div class="grid lg:grid-cols-2 gap-5">
               @for (game of store.events(); track game.id) {
                 <article class="panel">
@@ -80,7 +92,7 @@
                   @if (auth.profile()) { <app-signup [game]="game" (changed)="store.load()" /> }
                   @else { <p class="text-sm text-stone-500 mt-4">Sign in to join this game.</p> }
                 </article>
-              } @empty { <div class="rounded-2xl border border-dashed border-stone-300 p-8 text-stone-600">No games scheduled yet. Published events will appear here.</div> }
+              } @empty { <div class="rounded-2xl border border-dashed border-stone-300 p-8 text-stone-600">No upcoming games match these filters. Try clearing or adjusting them.</div> }
               </div>
             }
           </section>

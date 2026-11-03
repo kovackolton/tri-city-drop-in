@@ -3,7 +3,7 @@
 @if (notice()) { <p role="status" class="notice mt-3">{{ notice() }}</p> }
 @if (data(); as teams) {
   @if (teams.editable) { <form class="mt-4 flex flex-wrap gap-3 items-end" (ngSubmit)="save()"><label>Number of teams<input name="teamCount" type="number" min="2" max="16" [(ngModel)]="teamCount" required></label><label class="flex items-center gap-2 pb-3"><input class="!w-auto !m-0" name="balancing" type="checkbox" [(ngModel)]="enabled">Enable rating-based auto-balancing</label><button class="secondary" [disabled]="busy()">Save team settings</button></form>
-    @if (teams.teamBalancingEnabled) { <button class="primary mt-4" [disabled]="busy() || !teams.players.length" (click)="confirming.set(true)">Auto-balance confirmed players</button> }
+    @if (teams.teamBalancingEnabled) { <button class="primary mt-4" [disabled]="busy() || !teams.players.length" (click)="openBalance(false)">Auto-balance confirmed players</button><button class="secondary mt-4 ml-3" [disabled]="busy() || teams.players.length < 2" (click)="openBalance(true)">Reshuffle &amp; rebalance</button> }
   }
   <p class="text-xs text-stone-500 mt-3">New signups and promoted players remain unassigned until you assign them or run balancing. Guests and unrated players use a neutral rating of 3/5 for balancing. Booking parties may play on different teams. Player ratings are not shown to other players.</p>
   <div class="grid sm:grid-cols-2 gap-4 mt-4">@for (number of [null, ...numbers()]; track number) {
@@ -12,5 +12,5 @@
     </section>
   }</div>
 } @else if (!error()) { <p role="status" class="mt-3">Loading teams...</p> }
-<app-dialog [open]="confirming()" title="Auto-balance teams" [busy]="busy()" (closed)="confirming.set(false)"><p class="text-sm">Replace current team assignments for all confirmed players using their self-ratings? Guests and unrated players use an estimate of 3/5. You can adjust the result manually.</p><button class="primary mt-4" [disabled]="busy()" (click)="balance()">Confirm auto-balance</button></app-dialog>
+<app-dialog [open]="confirming()" [title]="reshuffling() ? 'Reshuffle and rebalance teams' : 'Auto-balance teams'" [busy]="busy()" (closed)="confirming.set(false)"><p class="text-sm">{{ reshuffling() ? 'Create a fresh mix of confirmed players, still guided by self-ratings? This replaces current assignments and may produce similar teams when few alternatives exist.' : 'Replace current team assignments for all confirmed players using their self-ratings?' }} Guests and unrated players use an estimate of 3/5. You have the final say and can move players manually afterward.</p><button class="primary mt-4" [disabled]="busy()" (click)="balance()">{{ reshuffling() ? 'Confirm reshuffle' : 'Confirm auto-balance' }}</button></app-dialog>
 </section>

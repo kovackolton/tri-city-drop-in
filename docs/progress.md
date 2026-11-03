@@ -1,4 +1,9 @@
-# Current milestone: teams, initial players, organizer contact and review dialogs
+# Current milestone: filters, grouped history and team reshuffle
+
+Upcoming games supports venue-local day/week, location/city, organizer, search, free and available-place filters. My Games groups all attempts into one card per event, retaining earlier booking details and counting player cancellations separately from organizer/event cancellations and unknown legacy history. Teams adds a rating-aware reshuffle with explicit confirmation and manual organizer overrides. The local city/cancellation-source migration is applied. Builds, 34 unit tests, 40 PostgreSQL scenarios and 12 frontend logic tests passed; browser review remains manual. See [filters/history/reshuffle review](filters-history-reshuffle-review.md).
+
+## Previous milestone: teams, initial players, organizer contact and review dialogs
+
 
 Event creation supports team count/balancing, selecting existing accounts for invitations or immediate bookings, and explicitly public contact email/phone with C/T availability. Owners/admins manage confirmed team assignments and run optional self-rating balancing; guests/unrated players use an estimated 3/5 and private ratings remain hidden from peers. Invitations are accepted/declined in My Games. Draft reservations are provisional and cancellable. Payment and strike review use native overlay dialogs. The local migration is applied; frontend build, API compilation, 32 unit tests, 37 PostgreSQL scenarios and 23 frontend logic tests passed. Browser checks remain manual. See [teams and invitations review](teams-invitations-review.md).
 

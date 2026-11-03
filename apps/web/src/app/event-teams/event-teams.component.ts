@@ -14,6 +14,8 @@ export class EventTeamsComponent implements OnChanges {
   private readonly http = inject(HttpClient);
   readonly data = signal<TeamData | null>(null);
   readonly busy = signal(false); readonly error = signal(''); readonly notice = signal(''); readonly confirming = signal(false);
+  readonly reshuffling = signal(false);
+  openBalance(reshuffle: boolean) { this.reshuffling.set(reshuffle); this.confirming.set(true); }
   private loadRevision = 0;
   teamCount = 2; enabled = false;
   ngOnChanges() { void this.load(); }
@@ -33,5 +35,5 @@ export class EventTeamsComponent implements OnChanges {
   }
   save() { return this.act('settings', { teamCount: this.teamCount, teamBalancingEnabled: this.enabled }, 'Team settings saved.'); }
   async assign(id: string, number: string, select?: HTMLSelectElement) { await this.act('assign', { signupId: id, teamNumber: number === '' ? null : Number(number) }, 'Team assignment saved.'); if (select) select.value = String(this.data()?.players.find(player => player.id === id)?.teamNumber ?? ''); }
-  balance() { return this.act('balance', {}, 'Teams balanced. Review and adjust assignments as needed.'); }
+  balance() { return this.act(this.reshuffling() ? 'reshuffle' : 'balance', {}, this.reshuffling() ? 'Teams reshuffled using skill ratings. You have the final say: adjust assignments below.' : 'Teams balanced. Review and adjust assignments as needed.'); }
 }

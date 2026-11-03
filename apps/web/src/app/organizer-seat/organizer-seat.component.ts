@@ -8,7 +8,7 @@ import { PaymentReview } from '../payment-review/payment-review.component';
 export interface OrganizerSeat {
   id: string; bookingId: string; guestNumber: number; guestName: string | null; status: string; attendance: string; lateCancellation: boolean;
   guestPaymentAcknowledgedAt?: string | null; guestPaymentTermsVersion?: string | null;
-  user: { accountName: string; nickname: string | null; skillLevel: number | null; displayName: string; contactEmail: string; phone: string | null; avatarUrl?: string | null; avatarColor?: string }; event: { startsAt: string; endsAt: string; status: string }; payment: PaymentReview | null;
+  user: { eventCancellationCount?: number; accountName: string; nickname: string | null; skillLevel: number | null; displayName: string; contactEmail: string; phone: string | null; avatarUrl?: string | null; avatarColor?: string }; event: { startsAt: string; endsAt: string; status: string }; payment: PaymentReview | null;
   strikes: { id: string; reason: string; revokedAt: string | null; expiresAt: string | null }[];
 }
 @Component({

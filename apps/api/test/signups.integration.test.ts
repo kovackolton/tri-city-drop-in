@@ -615,6 +615,57 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).organizerContactPhone, null);
       const search = await invitations.search('Player'); assert.ok(search.every(player => !('email' in player) && !('phone' in player) && !('rating' in player)));
     });
+    await t.test('upcoming filters select date, city, venue, organizer, price and available seats before result limiting', async () => {
+      const events = new EventsController(db, service);
+      const venue = await locations.save({ name: 'Filter venue', address: '123 Filters Road', city: 'Filter City', timezone: 'America/Toronto' });
+      const start = new Date(Date.now() + 172800000);
+      const base = { title: 'Filter sample', locationId: venue.id, startsAt: start.toISOString(), endsAt: new Date(start.getTime() + 3600000).toISOString(), capacity: 2, maxGuestsPerUser: 1, priceCents: 0, status: 'PUBLISHED' };
+      const a = await events.create({ user: users[0] } as AuthRequest, base);
+      const b = await events.create({ user: users[11] } as AuthRequest, { ...base, title: 'Filter paid game', priceCents: 1000 });
+      const date = new Intl.DateTimeFormat('en-CA', { timeZone: venue.timezone }).format(start);
+      const filtered = await events.events({ period: 'day', date, city: 'filter city', locationId: venue.id, organizerId: users[0].id, freeOnly: 'true', search: 'sample' });
+      assert.equal(filtered.length, 1); assert.equal(filtered[0].id, a.id);
+      await service.join(users[19].id, a.id, { guests: [], expectedPriceCents: 0 });
+      await service.join(users[20].id, a.id, { guests: ['Guest'], expectedPriceCents: 0, guestPaymentAcknowledged: true });
+      assert.equal((await events.events({ locationId: venue.id, freeOnly: 'true', spacesOnly: 'true' })).length, 0);
+      assert.equal((await events.events({ locationId: venue.id, spacesOnly: 'true' }))[0].id, b.id);
+      const facets = await events.filters(); assert.ok(facets.locations.some(location => location.id === venue.id && location.city === 'Filter City'));
+      assert.ok(facets.organizers.some(organizer => organizer.id === users[0].id));
+      assert.ok(facets.organizers.every(organizer => !('email' in organizer) && !('phone' in organizer) && !('firebaseUid' in organizer)));
+    });
+    await t.test('My Games keeps complete per-event attempts and counts only player cancellations once per party', async () => {
+      const e = await event(4, 0);
+      const a = await service.join(users[21].id, e.id, { guests: ['Guest'], expectedPriceCents: 0, guestPaymentAcknowledged: true });
+      await service.cancel(users[21].id, e.id, a[0].bookingId); await service.cancel(users[21].id, e.id, a[0].bookingId);
+      const b = await service.join(users[21].id, e.id, { guests: [], expectedPriceCents: 0 }); await service.cancel(users[21].id, e.id, b[0].bookingId);
+      const c = await service.join(users[21].id, e.id, { guests: [], expectedPriceCents: 0 }); await service.cancel(users[0].id, e.id, c[0].bookingId, 'Organizer removal');
+      const d = await service.join(users[21].id, e.id, { guests: [], expectedPriceCents: 0 });
+      const mine = (await service.mine(users[21].id)).filter(seat => seat.eventId === e.id);
+      assert.equal(mine.filter(seat => seat.guestNumber === 0).length, 4); assert.ok(mine.every(seat => seat.playerCancellationCount === 2 && seat.bookingCount === 4));
+      assert.equal(mine.find(seat => seat.id === c[0].id)?.cancellationSource, 'ORGANIZER');
+      const roster = await service.roster(users[0].id, e.id); assert.ok(roster.every(seat => seat.user.eventCancellationCount === 2));
+      await management.transition(users[0].id, e.id, 'cancel');
+      const after = (await service.mine(users[21].id)).find(seat => seat.id === d[0].id)!;
+      assert.equal(after.cancellationSource, 'EVENT'); assert.equal(after.playerCancellationCount, 2);
+      await db.signup.updateMany({ where: { bookingId: a[0].bookingId }, data: { cancellationSource: null } });
+      const legacy = (await service.mine(users[21].id)).find(seat => seat.id === a[0].id)!;
+      assert.equal(legacy.playerCancellationCount, 1); assert.equal(legacy.legacyCancellationCount, 1);
+    });
+    await t.test('reshuffle uses the enabled balancing permission and organizers can make the final assignment', async () => {
+      const e = await event(6, 0); const ids = [1, 2, 3, 4, 5, 6];
+      for (const index of ids) await service.join(users[index].id, e.id, { guests: [], expectedPriceCents: 0 });
+      await assert.rejects(teams.balance(users[0].id, e.id, false, true), /Enable rating/);
+      await teams.settings(users[0].id, e.id, { teamCount: 2, teamBalancingEnabled: true });
+      await teams.balance(users[0].id, e.id);
+      await assert.rejects(teams.balance(users[7].id, e.id, false, true), /Event not found/);
+      await teams.balance(users[0].id, e.id, false, true);
+      const data = await teams.data(users[0].id, e.id); assert.equal(data.players.length, 6);
+      assert.equal(data.players.filter(player => player.teamNumber === 1).length, 3);
+      const player = data.players[0]; const target = player.teamNumber === 1 ? 2 : 1;
+      await teams.assign(users[0].id, e.id, { signupId: player.id, teamNumber: target });
+      assert.equal((await db.signup.findUniqueOrThrow({ where: { id: player.id } })).teamNumber, target);
+      assert.equal(await db.auditLog.count({ where: { eventId: e.id, action: 'TEAMS_RESHUFFLED' } }), 1);
+    });
   } finally {
     await db.$disconnect();
     // schema is generated here with a strict prefix; never drop public or a caller-provided schema.

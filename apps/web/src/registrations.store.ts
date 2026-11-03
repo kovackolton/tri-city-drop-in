@@ -7,7 +7,7 @@ import { EventGuidance, Location } from './models';
 import { PaymentReview } from './app/payment-review/payment-review.component';
 
 export interface Seat {
-  id: string; eventId: string; bookingId: string; guestNumber: number; guestName: string | null;
+  queuedAt?: string; cancelledAt?: string | null; cancellationSource?: 'PLAYER' | 'ORGANIZER' | 'EVENT' | null; playerCancellationCount?: number; legacyCancellationCount?: number; bookingCount?: number; id: string; eventId: string; bookingId: string; guestNumber: number; guestName: string | null;
   teamNumber?: number | null; status: 'CONFIRMED' | 'WAITLISTED' | 'CANCELLED'; quotedPriceCents: number; lateCancellation: boolean;
   payment: PaymentReview | null;
   attendance: string; guestPaymentAcknowledgedAt?: string | null; guestPaymentTermsVersion?: string | null;

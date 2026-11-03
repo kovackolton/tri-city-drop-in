@@ -5,10 +5,11 @@ import { Database } from './database';
 import { locationPhotoUrl, locationMapUrl } from './location-media';
 import { object, text, uuid } from './validation';
 export function locationInput(value: unknown) {
-  const b = object(value, ['name', 'address', 'timezone', 'photoUrl', 'photoCredit', 'mapEmbedUrl']);
+  const b = object(value, ['name', 'address', 'timezone', 'photoUrl', 'photoCredit', 'mapEmbedUrl', 'city']);
   const timezone = text(b.timezone, 'Timezone', 100);
   try { new Intl.DateTimeFormat('en', { timeZone: timezone }).format(); } catch { throw new BadRequestException('Use a valid IANA timezone.'); }
   const media = {
+    ...(b.city === undefined ? {} : { city: b.city === '' || b.city === null ? null : text(b.city, 'City', 80) }),
     ...(b.photoUrl === undefined ? {} : { photoUrl: locationPhotoUrl(b.photoUrl) }),
     ...(b.photoCredit === undefined ? {} : { photoCredit: b.photoCredit === '' || b.photoCredit === null ? null : text(b.photoCredit, 'Photo credit', 160) }),
     ...(b.mapEmbedUrl === undefined ? {} : { mapEmbedUrl: locationMapUrl(b.mapEmbedUrl) })
