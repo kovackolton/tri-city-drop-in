@@ -1,0 +1,1 @@
+ALTER TABLE "AuditLog" ALTER COLUMN "eventId" DROP NOT NULL;

@@ -5,7 +5,7 @@ import { firstValueFrom } from 'rxjs';
 import { message } from '../../auth.service';
 import { AvatarComponent } from '../avatar/avatar.component';
 import { DialogComponent } from '../dialog/dialog.component';
-interface TeamPlayer { id: string; displayName: string; accountName: string; isGuest: boolean; rating: number | null; teamNumber: number | null; avatarUrl: string | null; avatarColor: string; }
+interface TeamPlayer { id: string; displayName: string; accountName: string; isGuest: boolean; rating: number | null; adminRating: number | null; teamNumber: number | null; avatarUrl: string | null; avatarColor: string; }
 interface TeamData { teamCount: number; teamBalancingEnabled: boolean; editable: boolean; players: TeamPlayer[]; }
 @Component({ selector: 'app-event-teams', imports: [FormsModule, AvatarComponent, DialogComponent], templateUrl: './event-teams.component.html' })
 export class EventTeamsComponent implements OnChanges {

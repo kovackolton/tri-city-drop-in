@@ -57,6 +57,7 @@ model User {
   displayName String
   nickname    String?
   skillLevel  Int?
+  adminSkillLevel Int?
   accountNameSetAt DateTime? @db.Timestamptz(3)
   profileCompletedAt DateTime? @db.Timestamptz(3)
   avatarUrl   String?
@@ -213,8 +214,8 @@ model AuditLog {
   id        String @id @default(uuid()) @db.Uuid
   actorId   String @db.Uuid
   actor     User @relation(fields: [actorId], references: [id], onDelete: Restrict)
-  eventId   String @db.Uuid
-  event     Event @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  eventId   String? @db.Uuid
+  event     Event? @relation(fields: [eventId], references: [id], onDelete: Restrict)
   action    String
   details   Json
   createdAt DateTime @default(now()) @db.Timestamptz(3)

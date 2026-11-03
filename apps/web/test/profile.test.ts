@@ -6,10 +6,11 @@ import { googleEmbedUrl, googleDirectionsUrl } from '../src/location-media';
 import { LocationMapComponent } from '../src/app/location-map/location-map.component';
 import { DomSanitizer } from '@angular/platform-browser';
 import { avatarInitial, avatarPalette, contactEmailLink, contactPhoneLink } from '../src/avatar';
+import { AdminUsersComponent } from '../src/app/admin-users/admin-users.component';
 import { DialogComponent } from '../src/app/dialog/dialog.component';
 import { PaymentReviewComponent } from '../src/app/payment-review/payment-review.component';
 import { HttpClient } from '@angular/common/http';
-import { Subject, throwError } from 'rxjs';
+import { Observable, Subject, throwError } from 'rxjs';
 import { SignupComponent } from '../src/app/signup/signup.component';
 import { Game } from '../src/models';
 import { MyGamesComponent } from '../src/app/my-games/my-games.component';
@@ -136,5 +137,42 @@ test('upcoming filters persist across refresh and late results cannot replace ne
   assert.equal(store.events()[0].id, 'current');
   const refresh = store.load(); assert.equal(requests[2].params.city, 'Midland');
   requests[2].response.next([]); requests[2].response.complete(); await refresh;
+  injector.destroy();
+});
+
+
+test('merged Users saves independent ratings and keeps failed role changes open', async () => {
+  const response = new Subject<{ adminSkillLevel: number | null }>();
+  let calls = 0; let endpoint = ''; let payload: unknown;
+  const http = { patch: (url: string, body: unknown): Observable<unknown> => { calls++; endpoint = url; payload = body; return response; }, post: (url: string) => { endpoint = url; return throwError(() => ({ code: 'test-failure' })); } };
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: http }, { provide: AuthService, useValue: { profile: () => ({ id: 'admin', role: 'ADMINISTRATOR' }) } }] });
+  const component = runInInjectionContext(injector, () => new AdminUsersComponent());
+  const user = { id: 'player', accountName: 'Player', adminSkillLevel: null, skillLevel: 2 } as any;
+  component.users.set([user]); component.ratingDrafts[user.id] = 4;
+  const pending = component.saveRating(user); await component.saveRating(user);
+  assert.equal(calls, 1); assert.equal(component.users()[0].adminSkillLevel, null);
+  assert.equal(endpoint, '/api/admin/users/player/rating'); assert.deepEqual(payload, { adminSkillLevel: 4 });
+  response.next({ adminSkillLevel: 4 }); response.complete(); await pending;
+  assert.equal(component.users()[0].adminSkillLevel, 4); assert.equal(component.users()[0].skillLevel, 2);
+  http.patch = (url: string, body: unknown) => { endpoint = url; payload = body; return throwError(() => ({ code: 'test-failure' })); };
+  component.roleDrafts[user.id] = 'ADMINISTRATOR'; component.confirmRole({ ...user, role: 'PLAYER' }); await component.saveRole();
+  assert.equal(endpoint, '/api/admin/users/player/role'); assert.deepEqual(payload, { role: 'ADMINISTRATOR' }); assert.ok(component.error()); assert.ok(component.roleConfirmation()); assert.equal(component.busy(), false);
+  injector.destroy();
+});
+
+
+test('self role changes refresh current access and prevent duplicate submissions', async () => {
+  const response = new Subject<unknown>(); let calls = 0; let refreshed = 0;
+  let profile = { id: 'admin', role: 'ADMINISTRATOR' };
+  const injector = Injector.create({ providers: [
+    { provide: HttpClient, useValue: { patch: () => { calls++; return response; } } },
+    { provide: AuthService, useValue: { profile: () => profile, refreshProfile: async () => { refreshed++; profile = { ...profile, role: 'PLAYER' }; } } }
+  ] });
+  const component = runInInjectionContext(injector, () => new AdminUsersComponent());
+  const user = { id: 'admin', accountName: 'Admin', role: 'ADMINISTRATOR' } as any;
+  component.roleDrafts[user.id] = 'PLAYER'; component.confirmRole(user);
+  const pending = component.saveRole(); await component.saveRole(); assert.equal(calls, 1); assert.equal(refreshed, 0);
+  response.next({}); response.complete(); await pending;
+  assert.equal(refreshed, 1); assert.equal(component.roleConfirmation(), null); assert.equal(component.busy(), false);
   injector.destroy();
 });

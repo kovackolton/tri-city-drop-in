@@ -5,6 +5,10 @@ import { AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
 import { Database } from './database';
 import { integer, object, uuid } from './validation';
 import { appearance, appearanceSelect } from './profile-fields';
+export function combinedRating(self: number | null, admin: number | null): number {
+  if (self !== null && admin !== null) return (self + admin) / 2;
+  return self ?? admin ?? 3;
+}
 export function balanceTeams(players: { id: string; rating: number | null }[], count: number) {
   const teams = Array.from({ length: count }, (_, index) => ({ number: index + 1, ids: [] as string[], total: 0 }));
   for (const player of [...players].sort((a, b) => (b.rating ?? 3) - (a.rating ?? 3) || a.id.localeCompare(b.id))) {
@@ -36,7 +40,7 @@ export function reshuffleTeams(players: { id: string; rating: number | null; tea
     return { teams, spread: averages.length ? Math.max(...averages) - Math.min(...averages) : 0, pairs, unchanged };
   });
   const bestSpread = Math.min(...scored.map(candidate => candidate.spread));
-  // Allow up to one self-rating point beyond the best candidate's average spread to make room for new teammates.
+  // Allow up to one rating point beyond the best candidate's average spread to make room for new teammates.
   return scored.filter(candidate => candidate.spread <= bestSpread + 1 + Number.EPSILON).sort((a, b) => a.pairs - b.pairs || a.spread - b.spread || a.unchanged - b.unchanged)[0].teams;
 }
 @Injectable()
@@ -54,8 +58,8 @@ export class TeamsService {
     uuid(id);
     const event = await this.db.event.findFirst({ where: { id, deletedAt: null, ...(administrator ? {} : { organizerId: actorId }) } });
     if (!event) throw new NotFoundException('Event not found.');
-    const seats = await this.db.signup.findMany({ where: { eventId: id, status: 'CONFIRMED' }, select: { id: true, teamNumber: true, guestName: true, guestNumber: true, user: { select: { ...appearanceSelect, skillLevel: true } } }, orderBy: [{ queuedAt: 'asc' }, { guestNumber: 'asc' }, { id: 'asc' }] });
-    return { teamCount: event.teamCount, teamBalancingEnabled: event.teamBalancingEnabled, editable: ['DRAFT', 'PUBLISHED'].includes(event.status) && event.endsAt > new Date(), players: seats.map(seat => ({ id: seat.id, ...appearance(seat.user), displayName: seat.guestNumber ? seat.guestName : appearance(seat.user).displayName, avatarUrl: seat.guestNumber ? null : appearance(seat.user).avatarUrl, accountName: seat.user.displayName, isGuest: seat.guestNumber > 0, rating: seat.guestNumber ? null : seat.user.skillLevel, teamNumber: seat.teamNumber })) };
+    const seats = await this.db.signup.findMany({ where: { eventId: id, status: 'CONFIRMED' }, select: { id: true, teamNumber: true, guestName: true, guestNumber: true, user: { select: { ...appearanceSelect, adminSkillLevel: true, skillLevel: true } } }, orderBy: [{ queuedAt: 'asc' }, { guestNumber: 'asc' }, { id: 'asc' }] });
+    return { teamCount: event.teamCount, teamBalancingEnabled: event.teamBalancingEnabled, editable: ['DRAFT', 'PUBLISHED'].includes(event.status) && event.endsAt > new Date(), players: seats.map(seat => ({ id: seat.id, ...appearance(seat.user), displayName: seat.guestNumber ? seat.guestName : appearance(seat.user).displayName, avatarUrl: seat.guestNumber ? null : appearance(seat.user).avatarUrl, accountName: seat.user.displayName, isGuest: seat.guestNumber > 0, rating: seat.guestNumber ? null : seat.user.skillLevel, adminRating: seat.guestNumber ? null : seat.user.adminSkillLevel, teamNumber: seat.teamNumber })) };
   }
   async settings(actorId: string, id: string, value: unknown, administrator = false) {
     const b = object(value, ['teamCount', 'teamBalancingEnabled']);
@@ -88,12 +92,12 @@ export class TeamsService {
     return this.db.$transaction(async tx => {
       const event = await this.locked(tx, actorId, id, administrator);
       if (!event.teamBalancingEnabled) throw new ConflictException('Enable rating-based team balancing first.');
-      const seats = await tx.signup.findMany({ where: { eventId: id, status: 'CONFIRMED' }, select: { id: true, teamNumber: true, guestNumber: true, user: { select: { skillLevel: true } } } });
+      const seats = await tx.signup.findMany({ where: { eventId: id, status: 'CONFIRMED' }, select: { id: true, teamNumber: true, guestNumber: true, user: { select: { skillLevel: true, adminSkillLevel: true } } } });
       if (reshuffle && seats.length < 2) throw new ConflictException('At least two confirmed players are needed to reshuffle.');
-      const players = seats.map(seat => ({ id: seat.id, teamNumber: seat.teamNumber, rating: seat.guestNumber ? null : seat.user.skillLevel }));
+      const players = seats.map(seat => ({ id: seat.id, teamNumber: seat.teamNumber, rating: seat.guestNumber ? null : combinedRating(seat.user.skillLevel, seat.user.adminSkillLevel) }));
       const teams = reshuffle ? reshuffleTeams(players, event.teamCount) : balanceTeams(players, event.teamCount);
       for (const team of teams) if (team.ids.length) await tx.signup.updateMany({ where: { id: { in: team.ids } }, data: { teamNumber: team.number } });
-      await tx.auditLog.create({ data: { actorId, eventId: id, action: reshuffle ? 'TEAMS_RESHUFFLED' : 'TEAMS_AUTO_BALANCED', details: { neutralRating: 3, teams } } });
+      await tx.auditLog.create({ data: { actorId, eventId: id, action: reshuffle ? 'TEAMS_RESHUFFLED' : 'TEAMS_AUTO_BALANCED', details: { ratingMethod: 'MEAN_SELF_ADMIN_AVAILABLE', neutralRating: 3, teams } } });
       return teams.map(team => ({ number: team.number, count: team.ids.length }));
     }, { maxWait: 10000, timeout: 15000 });
   }

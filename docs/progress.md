@@ -1,4 +1,8 @@
-# Current milestone: filters, grouped history and team reshuffle
+# Current milestone: unified Users and combined rating balance
+
+Users now combines administrator ratings and full role selection (Player, Organizer or Administrator), with confirmations, audit records and in-app notifications. The separate Player ratings navigation is removed. Auto-balance and reshuffle equally average self/admin ratings, use the sole available rating, or fall back to 3/5 for unrated players and guests. Current-session access refreshes after self role changes. API and frontend builds, 35 API unit tests, 44 PostgreSQL scenarios and 14 frontend logic tests passed. Browser review remains manual. See [Users and ratings review](admin-ratings-review.md).
+
+## Previous milestone: filters, grouped history and team reshuffle
 
 Upcoming games supports venue-local day/week, location/city, organizer, search, free and available-place filters. My Games groups all attempts into one card per event, retaining earlier booking details and counting player cancellations separately from organizer/event cancellations and unknown legacy history. Teams adds a rating-aware reshuffle with explicit confirmation and manual organizer overrides. The local city/cancellation-source migration is applied. Builds, 34 unit tests, 40 PostgreSQL scenarios and 12 frontend logic tests passed; browser review remains manual. See [filters/history/reshuffle review](filters-history-reshuffle-review.md).
 

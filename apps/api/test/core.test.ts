@@ -6,7 +6,7 @@ import { User } from '@prisma/client';
 import { AdministratorGuard, AuthRequest, FirebaseGuard, OrganizerGuard, TokenVerifier, tokenFailure } from '../src/auth';
 import { Database } from '../src/database';
 import { eventFilters, matchesEventDate } from '../src/event-filters';
-import { balanceTeams, reshuffleTeams } from '../src/teams';
+import { balanceTeams, combinedRating, reshuffleTeams } from '../src/teams';
 import { eventOptionsInput, initialPlayersInput } from '../src/event-options';
 import { eventGuidanceInput } from '../src/event-guidance';
 import { eventInput, EventsController } from '../src/events';
@@ -254,4 +254,11 @@ test('reshuffling seeks new teammates while retaining rating-aware balance and e
   assert.ok(result.every(team => team.ids.some(id => Number(id) < 4) && team.ids.some(id => Number(id) >= 4)));
   const averages = result.map(team => team.total / team.ids.length); assert.ok(Math.abs(averages[0] - averages[1]) <= 1);
   assert.equal(players[0].teamNumber, 1);
+});
+
+
+test('balancing score averages available self and administrator ratings without rounding', () => {
+  assert.equal(combinedRating(1, 5), 3); assert.equal(combinedRating(2, 5), 3.5);
+  assert.equal(combinedRating(4, null), 4); assert.equal(combinedRating(null, 2), 2);
+  assert.equal(combinedRating(null, null), 3);
 });

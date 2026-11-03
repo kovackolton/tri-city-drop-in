@@ -666,6 +666,85 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.equal((await db.signup.findUniqueOrThrow({ where: { id: player.id } })).teamNumber, target);
       assert.equal(await db.auditLog.count({ where: { eventId: e.id, action: 'TEAMS_RESHUFFLED' } }), 1);
     });
+    await t.test('administrator ratings are optional, independently editable, audited and staff-only', async () => {
+      const adminUser = await db.user.create({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Rating admin', role: 'ADMINISTRATOR' } });
+      const target = await db.user.create({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'RatingFixture', skillLevel: 2, accountNameSetAt: new Date() } });
+      await assert.rejects(requests.rate(users[0].id, target.id, { adminSkillLevel: 4 }), /Administrator access/);
+      for (const invalid of [0, 6, 2.5, '4', undefined]) await assert.rejects(requests.rate(adminUser.id, target.id, { adminSkillLevel: invalid }), /integer/);
+      await assert.rejects(requests.rate(adminUser.id, target.id, { adminSkillLevel: 4, role: 'ADMINISTRATOR' }), /Unexpected field/);
+      await requests.rate(adminUser.id, target.id, { adminSkillLevel: 4 });
+      await requests.rate(adminUser.id, target.id, { adminSkillLevel: 4 });
+      assert.equal((await db.user.findUniqueOrThrow({ where: { id: target.id } })).skillLevel, 2);
+      assert.equal((await requests.users('RatingFixture')).items[0].adminSkillLevel, 4);
+      const found = (await invitations.search('RatingFixture'))[0]; assert.equal(found.skillLevel, 2); assert.equal(found.adminSkillLevel, 4);
+      const e = await event(4); await service.join(target.id, e.id, { guests: [], expectedPriceCents: 1000 });
+      const roster = await service.roster(users[0].id, e.id); assert.equal(roster[0].user.adminSkillLevel, 4);
+      const team = await teams.data(users[0].id, e.id); assert.equal(team.players[0].adminRating, 4); assert.equal(team.players[0].rating, 2);
+      const shared = await service.participants(target.id, e.id); assert.ok(shared.every(player => !('adminSkillLevel' in player) && !('adminRating' in player)));
+      const profile = new ProfilesController(db); const current = await db.user.findUniqueOrThrow({ where: { id: target.id } });
+      assert.ok(!('adminSkillLevel' in profile.me({ user: current } as AuthRequest)));
+      await assert.rejects(profile.update({ user: current } as AuthRequest, { adminSkillLevel: 5 }), /Unexpected field/);
+      assert.equal(await db.auditLog.count({ where: { action: 'ADMIN_PLAYER_RATING_UPDATED', details: { path: ['userId'], equals: target.id } } }), 1);
+      await requests.rate(adminUser.id, target.id, { adminSkillLevel: null });
+      assert.equal((await db.user.findUniqueOrThrow({ where: { id: target.id } })).adminSkillLevel, null);
+    });
+    await t.test('direct organizer grants need no request and settle pending requests without duplicate side effects', async () => {
+      const adminUser = await db.user.create({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Grant admin', role: 'ADMINISTRATOR' } });
+      const makePlayer = () => db.user.create({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'GrantFixture' } });
+      const target = await makePlayer();
+      await assert.rejects(requests.grantOrganizer(users[0].id, target.id), /Administrator access/);
+      await Promise.all([requests.grantOrganizer(adminUser.id, target.id), requests.grantOrganizer(adminUser.id, target.id)]);
+      assert.equal((await db.user.findUniqueOrThrow({ where: { id: target.id } })).role, 'ORGANIZER');
+      assert.equal(await db.organizerRequest.count({ where: { userId: target.id } }), 0);
+      assert.equal(await db.notification.count({ where: { userId: target.id, kind: 'ORGANIZER_ACCESS_GRANTED' } }), 1);
+      assert.equal(await db.auditLog.count({ where: { action: 'ADMIN_ORGANIZER_GRANTED', details: { path: ['userId'], equals: target.id } } }), 1);
+      const pendingUser = await makePlayer(); const request = await requests.request(pendingUser.id);
+      await requests.grantOrganizer(adminUser.id, pendingUser.id);
+      assert.equal((await requests.mine(pendingUser.id))?.status, 'GRANTED');
+      assert.equal(await db.notification.count({ where: { kind: 'ORGANIZER_REQUEST', readAt: null, payload: { path: ['requestId'], equals: request.id } } }), 0);
+      await requests.grantOrganizer(adminUser.id, adminUser.id);
+      assert.equal((await db.user.findUniqueOrThrow({ where: { id: adminUser.id } })).role, 'ADMINISTRATOR');
+    });
+    await t.test('role editor supports every role, validates input, retains event history and audits real changes', async () => {
+      const make = (role: 'PLAYER' | 'ADMINISTRATOR' = 'PLAYER') => db.user.create({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'RoleFixture', role } });
+      const adminUser = await make('ADMINISTRATOR'); const target = await make();
+      await assert.rejects(requests.setRole(users[0].id, target.id, { role: 'ADMINISTRATOR' }), /Administrator access/);
+      for (const role of [null, '', 'OWNER', 'player', 1]) await assert.rejects(requests.setRole(adminUser.id, target.id, { role }), /Choose/);
+      await assert.rejects(requests.setRole(adminUser.id, target.id, { role: 'ADMINISTRATOR', email: 'override' }), /Unexpected field/);
+      const pending = await requests.request(target.id);
+      await requests.setRole(adminUser.id, target.id, { role: 'ADMINISTRATOR' });
+      assert.equal((await requests.mine(target.id))?.status, 'GRANTED');
+      assert.equal(await db.notification.count({ where: { kind: 'ORGANIZER_REQUEST', readAt: null, payload: { path: ['requestId'], equals: pending.id } } }), 0);
+      const owned = await db.event.create({ data: { title: 'Role history', organizerId: target.id, locationId: location.id, capacity: 4, priceCents: 0, startsAt: new Date(Date.now() + 86400000), endsAt: new Date(Date.now() + 90000000) } });
+      for (const role of ['ORGANIZER', 'PLAYER', 'ADMINISTRATOR'] as const) {
+        await requests.setRole(adminUser.id, target.id, { role });
+        assert.equal((await db.user.findUniqueOrThrow({ where: { id: target.id } })).role, role);
+      }
+      await Promise.all([requests.setRole(adminUser.id, target.id, { role: 'ADMINISTRATOR' }), requests.setRole(adminUser.id, target.id, { role: 'ADMINISTRATOR' })]);
+      assert.equal((await db.event.findUniqueOrThrow({ where: { id: owned.id } })).organizerId, target.id);
+      assert.equal(await db.auditLog.count({ where: { action: 'ADMIN_USER_ROLE_CHANGED', details: { path: ['userId'], equals: target.id } } }), 4);
+      assert.equal(await db.notification.count({ where: { userId: target.id, kind: 'USER_ROLE_CHANGED' } }), 4);
+      await requests.setRole(adminUser.id, adminUser.id, { role: 'PLAYER' });
+      await assert.rejects(requests.setRole(adminUser.id, adminUser.id, { role: 'ADMINISTRATOR' }), /Administrator access/);
+    });
+    await t.test('balance and reshuffle use both ratings, single ratings and neutral guest estimates', async () => {
+      const e = await event(6); await teams.settings(users[0].id, e.id, { teamCount: 2, teamBalancingEnabled: true });
+      const ratings = [[5, 2], [null, 5], [1, null], [null, null]] as const;
+      for (const [index, rating] of ratings.entries()) {
+        const player = await db.user.create({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: `Combined ${index}`, skillLevel: rating[0], adminSkillLevel: rating[1] } });
+        await service.join(player.id, e.id, { guests: index === 0 ? ['Guest'] : [], expectedPriceCents: 1000, guestPaymentAcknowledged: true });
+      }
+      const seats = await db.signup.findMany({ where: { eventId: e.id }, include: { user: true } });
+      const expected = new Map(seats.map(seat => [seat.id, seat.guestNumber ? 3 : seat.user.skillLevel !== null && seat.user.adminSkillLevel !== null ? (seat.user.skillLevel + seat.user.adminSkillLevel) / 2 : seat.user.skillLevel ?? seat.user.adminSkillLevel ?? 3]));
+      for (const shuffle of [false, true]) {
+        await teams.balance(users[0].id, e.id, false, shuffle);
+        const audit = await db.auditLog.findFirstOrThrow({ where: { eventId: e.id, action: shuffle ? 'TEAMS_RESHUFFLED' : 'TEAMS_AUTO_BALANCED' } });
+        const details = audit.details as { ratingMethod: string; teams: { ids: string[]; total: number }[] };
+        assert.equal(details.ratingMethod, 'MEAN_SELF_ADMIN_AVAILABLE');
+        for (const team of details.teams) assert.equal(team.total, team.ids.reduce((sum, id) => sum + expected.get(id)!, 0));
+        assert.equal(details.teams.reduce((sum, team) => sum + team.total, 0), 15.5);
+      }
+    });
   } finally {
     await db.$disconnect();
     // schema is generated here with a strict prefix; never drop public or a caller-provided schema.

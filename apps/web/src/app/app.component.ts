@@ -48,6 +48,7 @@ export class AppComponent implements OnInit, OnDestroy {
         if (id) {
           void this.notifications.load(); void this.registrations.load();
           if (this.auth.profile()?.profileCompletedAt === null) this.navigate('profile');
+          else if ((this.page() === 'users' && this.auth.profile()?.role !== 'ADMINISTRATOR') || (this.page() === 'organizer' && this.auth.profile()?.role === 'PLAYER')) this.navigate('games');
           else if (this.page() === 'signin') this.navigate('games');
         }
       });
