@@ -44,3 +44,6 @@ input::placeholder, textarea::placeholder { color: var(--subtle); opacity: 1; }
 
 /* Keep focus visible on colored navigation and game banners as well. */
 aside :focus-visible, .game-header :focus-visible { outline-color: var(--focus-on-brand); }
+
+.strike-alert { border: 2px solid var(--warning-border); border-left-width: 7px; background: var(--warning-bg); color: var(--warning-text); padding: 1.15rem; border-radius: .8rem; }
+.strike-alert.blocked { border-color: var(--danger-text); }

@@ -4,9 +4,10 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { AuthService, message } from '../../auth.service';
 import { AvatarComponent } from '../avatar/avatar.component';
+import { StrikePanelComponent } from '../strike-panel/strike-panel.component';
 import { avatarColors } from '../../avatar';
 interface OrganizerRequest { id: string; status: 'PENDING' | 'GRANTED' | 'CLEARED'; }
-@Component({ selector: 'app-profile', imports: [FormsModule, AvatarComponent], templateUrl: './profile.component.html' })
+@Component({ selector: 'app-profile', imports: [FormsModule, AvatarComponent, StrikePanelComponent], templateUrl: './profile.component.html' })
 export class ProfileComponent implements OnInit {
   readonly auth = inject(AuthService);
   private readonly http = inject(HttpClient);

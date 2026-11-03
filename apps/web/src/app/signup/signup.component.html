@@ -5,15 +5,16 @@
         @if (!confirmCancel()) { <button class="secondary mt-3" [disabled]="store.busy() || store.loading()" (click)="confirmCancel.set(true)">Cancel booking</button> }
         @else { <p class="text-sm mt-3">Cancel your place and all guests? The event has a {{ game.cancellationCutoffHours }}-hour cancellation cutoff. Late cancellations are recorded for organizer review.</p><div class="flex gap-3 mt-3"><button class="primary" [disabled]="store.busy()" (click)="cancel(seat.bookingId)">Yes, cancel party</button><button class="secondary" [disabled]="store.busy()" (click)="confirmCancel.set(false)">Keep booking</button></div> }
       } @else {
+        @if (strikes.blocked()) { <p role="alert" class="strike-alert blocked mt-3"><strong>Joining blocked: {{ strikes.count() }} current strikes.</strong> Open My profile to review payment discrepancies from previous games and other strike reasons. Contact the organizer about unpaid seats or an administrator about permanent strikes. Existing bookings are kept.</p> }
         <form (ngSubmit)="join()">
           @for (guest of guests; track $index; let i = $index) { <div class="flex gap-2 items-end mt-3"><label class="flex-1">Guest {{ i + 1 }} name<input [name]="'guest-' + game.id + '-' + i" [(ngModel)]="guests[i]" required maxlength="80"></label><button type="button" class="secondary" (click)="remove(i)" [disabled]="store.busy()">Remove</button></div> }
           @if (guests.length) {
-            <label class="flex items-start gap-3 text-sm mt-4 rounded-xl border border-warning-border bg-warning p-3"><input class="!w-auto !mt-1" type="checkbox" [name]="'guest-payment-' + game.id" [(ngModel)]="guestPaymentAcknowledged" required [disabled]="store.busy()"><span>I acknowledge responsibility for paying for all my guests when a fee applies. Unpaid guest seats may result in organizer-reviewed strikes against my account.</span></label>
+            <label class="flex items-start gap-3 text-sm mt-4 rounded-xl border border-warning-border bg-warning p-3"><input class="!w-auto !mt-1" type="checkbox" [name]="'guest-payment-' + game.id" [(ngModel)]="guestPaymentAcknowledged" required [disabled]="store.busy()"><span>I acknowledge responsibility for paying for all my guests when a fee applies. Guest seats explicitly marked unpaid by the organizer receive strikes against my account after the 24-hour grace period.</span></label>
           }
           @if (acknowledgmentError()) { <p role="alert" class="text-sm text-warning-text mt-2">{{ acknowledgmentError() }}</p> }
           <div class="flex flex-wrap gap-3 mt-3">
             @if (guests.length < guestLimit()) { <button type="button" class="secondary" (click)="add()" [disabled]="store.busy() || store.loading()">Add guest</button> }
-            <button class="primary" [disabled]="store.busy() || store.loading() || !!store.error() || (guests.length > 0 && !guestPaymentAcknowledged)">{{ game.waitlisted > 0 || game.confirmed + guests.length + 1 > game.capacity ? 'Join waitlist' : 'Join game' }}</button>
+            <button class="primary" [disabled]="strikes.blocked() || store.busy() || store.loading() || !!store.error() || (guests.length > 0 && !guestPaymentAcknowledged)">{{ game.waitlisted > 0 || game.confirmed + guests.length + 1 > game.capacity ? 'Join waitlist' : 'Join game' }}</button>
           </div>
           <p class="text-xs text-muted mt-3">{{ guests.length + 1 }} player(s) · {{ game.priceCents === 0 ? 'Free' : (((guests.length + 1) * game.priceCents / 100 | currency:'USD':'USD ') + ' total if confirmed') }}. Parties stay together; a party ahead may be waiting for more space. Your place is final only after the server confirms it.</p>
         </form>

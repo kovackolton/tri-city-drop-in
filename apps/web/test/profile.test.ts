@@ -7,12 +7,13 @@ import { LocationMapComponent } from '../src/app/location-map/location-map.compo
 import { DomSanitizer } from '@angular/platform-browser';
 import { avatarInitial, avatarPalette, contactEmailLink, contactPhoneLink } from '../src/avatar';
 import { AdminUsersComponent } from '../src/app/admin-users/admin-users.component';
+import { StrikesStore } from '../src/strikes.store';
 import { RosterComponent } from '../src/app/roster/roster.component';
 import { OrganizerSeat } from '../src/app/organizer-seat/organizer-seat.component';
 import { DialogComponent } from '../src/app/dialog/dialog.component';
 import { PaymentReviewComponent } from '../src/app/payment-review/payment-review.component';
 import { HttpClient } from '@angular/common/http';
-import { Observable, Subject, throwError } from 'rxjs';
+import { Observable, Subject, of, throwError } from 'rxjs';
 import { SignupComponent } from '../src/app/signup/signup.component';
 import { Game } from '../src/models';
 import { MyGamesComponent } from '../src/app/my-games/my-games.component';
@@ -22,7 +23,7 @@ import { RegistrationsStore, Seat } from '../src/registrations.store';
 
 test('initial avatars handle blank names and Unicode without splitting surrogate pairs', () => {
   assert.equal(avatarInitial('  alex  '), 'A');
-  assert.equal(avatarInitial('Élodie'), 'É');
+  assert.equal(avatarInitial('\u00c9lodie'), '\u00c9');
   assert.equal(avatarInitial('\u{1F680} Player'), '\u{1F680}');
   assert.equal(avatarInitial(''), '?'); assert.equal(avatarInitial(null), '?');
 });
@@ -75,7 +76,7 @@ test('the map component never bypasses Angular security for an unapproved URL an
 test('guest signup cannot submit without acknowledgment and resets it when another guest is added', async () => {
   const calls: unknown[][] = [];
   const store = { join: async (...args: unknown[]) => { calls.push(args); return true; } };
-  const injector = Injector.create({ providers: [{ provide: RegistrationsStore, useValue: store }] });
+  const injector = Injector.create({ providers: [{ provide: StrikesStore, useValue: { blocked: () => false } }, { provide: RegistrationsStore, useValue: store }] });
   const component = runInInjectionContext(injector, () => new SignupComponent());
   component.game = { id: 'game', priceCents: 1000, maxGuestsPerUser: 3, capacity: 6 } as Game;
   component.guests = [' Guest ']; await component.join();
@@ -221,5 +222,56 @@ test('roster loads history on demand and ignores old event responses after chang
   const history = roster.openView('history'); assert.ok(requests[2].url.includes('/second/audit'));
   requests[2].response.next([{ id: 'history' }]); requests[2].response.complete(); await history;
   assert.equal(roster.audit()[0].id, 'history'); assert.equal(roster.auditLoading(), false);
+  injector.destroy();
+});
+
+
+test('three-strike signup guard prevents new requests but keeps an existing booking and cancellation available', async () => {
+  let joins = 0, cancels = 0;
+  const seat = { eventId: 'game', bookingId: 'kept', guestNumber: 0, status: 'CONFIRMED' };
+  const store = { seats: () => [seat], join: async () => { joins++; return true; }, cancel: async () => { cancels++; return true; } };
+  const injector = Injector.create({ providers: [{ provide: StrikesStore, useValue: { blocked: () => true, count: () => 3 } }, { provide: RegistrationsStore, useValue: store }] });
+  const component = runInInjectionContext(injector, () => new SignupComponent()); component.game = { id: 'game' } as Game;
+  await component.join(); assert.equal(joins, 0); assert.equal(component.booking()?.bookingId, 'kept');
+  await component.cancel('kept'); assert.equal(cancels, 1); injector.destroy();
+});
+
+test('strike state refreshes the joining limit and ignores responses after account reset', async () => {
+  const responses: Subject<any>[] = [];
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => ({ id: 'player' }) } }, { provide: HttpClient, useValue: { get: () => { const response = new Subject<any>(); responses.push(response); return response; } } }] });
+  const store = runInInjectionContext(injector, () => new StrikesStore());
+  const load = store.load(); responses[0].next({ count: 3, limit: 3, blocked: true, items: [] }); responses[0].complete(); await load;
+  assert.equal(store.count(), 3); assert.equal(store.blocked(), true);
+  const stale = store.load(); store.reset(); responses[1].next({ count: 4, blocked: true, items: [] }); responses[1].complete(); await stale;
+  assert.equal(store.report(), null); assert.equal(store.blocked(), false);
+  const clear = store.load(); responses[2].next({ count: 2, limit: 3, blocked: false, items: [] }); responses[2].complete(); await clear;
+  assert.equal(store.count(), 2); assert.equal(store.blocked(), false); injector.destroy();
+});
+
+test('admin permanent-strike retries retain an idempotency key and clear the reason only after success', async () => {
+  let report = { count: 0, limit: 3, blocked: false, items: [] };
+  const calls: { url: string; body: any }[] = []; let fail = true;
+  const http = { get: () => of(report), post: (url: string, body: unknown) => { calls.push({ url, body }); return fail ? throwError(() => ({ code: 'local-failure' })) : of({}); } };
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: http }, { provide: AuthService, useValue: { profile: () => ({ id: 'admin', role: 'ADMINISTRATOR' }) } }] });
+  const component = runInInjectionContext(injector, () => new AdminUsersComponent());
+  const user = { id: 'player', accountName: 'Player', strikeCount: 0 } as any; component.users.set([user]); await component.openStrikes(user);
+  component.strikeNote = 'Reviewed administrative incident'; await component.issuePermanent(); assert.ok(component.error()); assert.equal(component.strikeNote, 'Reviewed administrative incident');
+  await component.issuePermanent(); assert.equal(calls[0].body.requestId, calls[1].body.requestId);
+  fail = false; report = { ...report, count: 1 }; await component.issuePermanent();
+  assert.equal(calls[2].body.requestId, calls[0].body.requestId); assert.equal(component.strikeNote, ''); assert.equal(component.users()[0].strikeCount, 1);
+  injector.destroy();
+});
+
+
+test('reminder-targeted registration refreshes include older events and ignore a late untargeted response', async () => {
+  const requests: { options: any; response: Subject<any> }[] = [];
+  const injector = Injector.create({ providers: [RegistrationsStore, { provide: HttpClient, useValue: { get: (_: string, options: any) => { const response = new Subject<any>(); requests.push({ options, response }); return response; } } }] });
+  const store = injector.get(RegistrationsStore);
+  const old = store.load(); const targeted = store.load('older-event');
+  assert.equal(requests[1].options.params.includeEventId, 'older-event');
+  requests[1].response.next([{ id: 'target' }]); requests[1].response.complete(); await targeted;
+  requests[0].response.next([]); requests[0].response.complete(); await old; assert.equal(store.seats()[0].id, 'target');
+  const refresh = store.load(); assert.equal(requests[2].options.params.includeEventId, 'older-event'); requests[2].response.next([]); requests[2].response.complete(); await refresh;
+  store.reset(); const reset = store.load(); assert.equal(requests[3].options.params, undefined); requests[3].response.next([]); requests[3].response.complete(); await reset;
   injector.destroy();
 });

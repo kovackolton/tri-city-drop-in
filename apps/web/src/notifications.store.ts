@@ -2,7 +2,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { AuthService, message } from './auth.service';
-export interface InboxItem { id: string; kind: string; title: string; message: string; createdAt: string; readAt: string | null; }
+export interface InboxItem { id: string; eventId?: string | null; bookingId?: string | null; kind: string; title: string; message: string; createdAt: string; readAt: string | null; }
 @Injectable({ providedIn: 'root' })
 export class NotificationsStore {
   private readonly http = inject(HttpClient);
