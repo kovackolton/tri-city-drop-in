@@ -1,4 +1,12 @@
-# Current milestone: unified Users and combined rating balance
+# Current milestone: organizer workspace layout
+
+All events / Your events now uses compact themed event cards with grouped actions and an integrated Manage players area. Players, Teams and History are separate views. Search/status filters and one expanded player reduce roster clutter while retaining contact, payment, attendance, strikes and party overrides. Team settings/help and event equipment are collapsible. Build, strict frontend harness types and 17 frontend logic tests passed; browser review remains manual. See [workspace layout review](organizer-workspace-layout-review.md).
+
+## Previous milestone: editable themes and header shortcuts
+
+App colors live in `apps/web/src/theme.css`, with light/dark palettes shared across controls and component styles. The top-right theme toggle follows the device initially and persists an explicit browser choice. Signed-in users have a notification bell with unread badge and a settings cog linking to My profile. No new package or external service. Production build, strict theme-test types, 3 theme tests and 14 frontend logic tests passed. Browser review remains manual. See [theme review](theme-review.md).
+
+## Previous milestone: unified Users and combined rating balance
 
 Users now combines administrator ratings and full role selection (Player, Organizer or Administrator), with confirmations, audit records and in-app notifications. The separate Player ratings navigation is removed. Auto-balance and reshuffle equally average self/admin ratings, use the sole available rating, or fall back to 3/5 for unrated players and guests. Current-session access refreshes after self role changes. API and frontend builds, 35 API unit tests, 44 PostgreSQL scenarios and 14 frontend logic tests passed. Browser review remains manual. See [Users and ratings review](admin-ratings-review.md).
 

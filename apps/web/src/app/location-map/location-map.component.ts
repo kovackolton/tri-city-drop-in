@@ -7,7 +7,7 @@ import { googleDirectionsUrl, googleEmbedUrl } from '../../location-media';
     @if (safeUrl) { <iframe [src]="safeUrl" [title]="'Map showing ' + name" width="600" height="220" loading="lazy" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe> }
     <a [href]="directionsUrl" target="_blank" rel="noopener noreferrer">Get directions in Google Maps <span aria-hidden="true">&#8599;</span></a>
   </div>`,
-  styles: [':host { display: block; } iframe { display: block; width: 100%; min-width: 200px; height: 220px; border: 1px solid #dfe5dc; border-radius: .85rem; background: #f5f6f1; } a { display: inline-block; margin-top: .6rem; font-size: .75rem; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; color: #166047; }']
+  styles: [':host { display: block; } iframe { display: block; width: 100%; min-width: 200px; height: 220px; border: 1px solid var(--border); border-radius: .85rem; background: var(--surface-muted); } a { display: inline-block; margin-top: .6rem; font-size: .75rem; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; color: var(--accent); }']
 })
 export class LocationMapComponent implements OnChanges {
   @Input() name = '';

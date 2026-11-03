@@ -1,3 +1,5 @@
+import { ThemeService } from '../theme.service';
+import { IconComponent } from './icon/icon.component';
 import { OrganizerContactComponent } from './organizer-contact/organizer-contact.component';
 import { EventGuidanceComponent } from './event-guidance/event-guidance.component';
 import { LocationMapComponent } from './location-map/location-map.component';
@@ -20,11 +22,12 @@ import { NotificationsStore } from '../notifications.store';
 import { EventsStore, defaultGameFilters } from '../events.store';
 
 @Component({
-  selector: 'app-root', imports: [FormsModule, CurrencyPipe, ProfileComponent, AvatarComponent, OrganizerComponent, SignupComponent, MyGamesComponent, SignInComponent, LocationMapComponent, LocationThumbnailComponent, AdminUsersComponent, EventGuidanceComponent, OrganizerContactComponent],
+  selector: 'app-root', imports: [IconComponent, FormsModule, CurrencyPipe, ProfileComponent, AvatarComponent, OrganizerComponent, SignupComponent, MyGamesComponent, SignInComponent, LocationMapComponent, LocationThumbnailComponent, AdminUsersComponent, EventGuidanceComponent, OrganizerContactComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss'
 })
 export class AppComponent implements OnInit, OnDestroy {
+  readonly theme = inject(ThemeService);
   readonly notifications = inject(NotificationsStore);
   private poll?: ReturnType<typeof setInterval>;
   readonly store = inject(EventsStore);
