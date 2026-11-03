@@ -1,0 +1,11 @@
+<section id="waiver-section" tabindex="-1" class="panel mt-5" aria-label="Participation and strike rules waiver">
+  <div class="flex flex-wrap justify-between items-center gap-3"><div><h2 class="text-xl font-bold">Participation &amp; strike rules waiver</h2><p class="text-sm mt-2" [class.text-accent]="waiver.accepted()">{{ waiver.accepted() ? 'Electronically signed / joining requirement complete' : 'Electronic signature required before joining games' }}</p></div><button type="button" class="secondary" [attr.aria-expanded]="open()" aria-controls="waiver-details" (click)="open.set(!open())">{{ open() ? 'Hide waiver' : waiver.accepted() ? 'View signed waiver' : 'Review & e-sign waiver' }}</button></div>
+  @if (open()) { <div id="waiver-details" class="border-t border-divider pt-4 mt-4">
+    @if (waiver.loading()) { <p role="status">Loading the current waiver...</p> }
+    @if (waiver.status(); as status) { <p class="text-sm text-muted">Version {{ status.version }}. Review every rule before agreeing.</p><ol class="list-decimal pl-5 space-y-4 mt-4 text-sm">@for (clause of status.clauses; track $index) { <li class="pl-1">{{ clause }}</li> }</ol>
+      @if (status.acceptance; as acceptance) { <p role="status" class="notice mt-5">Signed as {{ acceptance.signedName }} ({{ acceptance.signedEmail }}) on {{ acceptance.acceptedAt | date:'medium' }}. Accepted version: {{ acceptance.version }}.</p> }
+      @else { <div class="strike-alert mt-5"><p class="font-bold">Electronic acknowledgment</p><p class="text-sm mt-2">By pressing I agree, I electronically sign this waiver for my signed-in account and agree to the participation, payment, guest responsibility and strike rules above. I understand that I cannot make new bookings until I agree.</p><button type="button" class="primary mt-4" [disabled]="waiver.signing() || waiver.loading()" (click)="waiver.agree()">{{ waiver.signing() ? 'Recording agreement...' : 'I agree' }}</button></div> }
+    }
+    @if (waiver.error()) { <p role="alert" class="notice error mt-4">{{ waiver.error() }}</p><button type="button" class="secondary mt-3" [disabled]="waiver.signing() || waiver.loading()" (click)="waiver.load()">Refresh waiver</button> }
+  </div> }
+</section>

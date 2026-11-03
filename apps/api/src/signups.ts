@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
 import { appearance, appearanceSelect } from './profile-fields';
 import { Database } from './database';
+import { waiverVersion, waiverHash } from './waiver';
 import { currentStrikes, refreshPaymentStrikes, strikeLimit } from './strike-policy';
 import { integer, object, text, uuid } from './validation';
 
@@ -50,6 +51,8 @@ export class SignupsService {
         throw new ConflictException('You already have a booking. Cancel it before changing your party.');
       }
       await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId}::uuid FOR UPDATE`;
+      const waiver = await tx.waiverAcceptance.findUnique({ where: { userId_version: { userId, version: waiverVersion } } });
+      if (!waiver || waiver.contentHash !== waiverHash) throw new ConflictException({ code: 'WAIVER_REQUIRED', message: 'Before joining a game, review and electronically sign the participation and strike rules waiver in My profile. Existing bookings are kept.' });
       const strikeCount = await tx.strike.count({ where: { ...currentStrikes(), userId } });
       if (strikeCount >= strikeLimit) throw new ConflictException({ code: 'JOIN_BLOCKED_STRIKES', strikeCount, message: 'Joining is blocked because you have 3 or more current strikes, including payment discrepancies, attendance incidents or administrator strikes. Open My profile to review the reasons and contact the organizer about payments. Existing bookings are kept.' });
       if (guests.length > event.maxGuestsPerUser || guests.length + 1 > event.capacity) throw new BadRequestException('Your party exceeds the guest allowance or event capacity.');

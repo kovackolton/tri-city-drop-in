@@ -77,6 +77,7 @@ model User {
   paymentReviews PaymentObligation[] @relation("PaymentReviewer")
   eventInvitations EventInvitation[]
   organizerRequests OrganizerRequest[] @relation("OrganizerRequester")
+  waiverAcceptances WaiverAcceptance[]
   reviewedOrganizerRequests OrganizerRequest[] @relation("OrganizerRequestReviewer")
 }
 
@@ -252,4 +253,17 @@ model EventInvitation {
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   @@unique([eventId, userId])
   @@index([userId, status])
+}
+
+model WaiverAcceptance {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  version String
+  contentHash String
+  contentText String
+  signedName String
+  signedEmail String
+  acceptedAt DateTime @default(now()) @db.Timestamptz(3)
+  @@unique([userId, version])
 }
