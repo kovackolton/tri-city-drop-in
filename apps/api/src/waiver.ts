@@ -4,9 +4,10 @@ import { Database } from './database';
 import { AuthRequest, FirebaseGuard } from './auth';
 import { object } from './validation';
 // Published text is immutable: change the version whenever these terms change.
-export const waiverVersion = 'participation-strikes-v1';
+export const waiverVersion = 'participation-strikes-v2';
 export const waiverTitle = 'Participation and strike rules waiver';
 export const waiverClauses = [
+  'I understand that the strike system helps organizers avoid the stress and uncertainty of collecting the funds that may be needed to reserve locations for play. Timely payments and clear payment reports help organizers plan and cover reservation costs when they apply.',
   'I accept the event price when booking and am responsible for payment for my seat and every guest seat I book. Payments are made in person. I must separately acknowledge guest payment responsibility when adding guests.',
   'After an event ends, I can report I paid or I have not paid for each applicable seat. If more than 24 hours pass without a player payment report, the app provides an in-app reminder, grouped by booking and including guests. Either answer completes that player report. Reminders are checked when the app refreshes; they are not external messages.',
   'Payment strikes have a 24-hour grace period after the event ends. After that period, each confirmed fee-bearing seat explicitly marked Not received by the organizer receives one payment strike against its booking account. Each unpaid guest seat counts separately. Free seats, voided obligations, waitlisted seats and cancelled seats/events do not receive payment strikes.',
@@ -16,7 +17,7 @@ export const waiverClauses = [
   'Administrators may issue permanent strikes at their discretion with a recorded reason I can see in My profile. Permanent strikes do not expire and do not clear when I pay for an event. Only an administrator can correct or revoke a permanent strike, with an audit reason. Every current strike has equal weight.',
   'At three or more current strikes, I cannot make any new game booking, including free games, waitlists, invitation acceptance and organizer-created bookings for me. My existing bookings remain in place, including existing waitlist entries, and I can still cancel them. Revoked or expired strikes do not count. Once my count falls below three, I can make new bookings if I have accepted the current waiver.',
   'My profile lists strike reasons and relevant event, guest-seat and payment-report details. Organizers and administrators can see current account strike counts in player management; administrators can also see them in Users. I can use My profile and organizer contact details to resolve a payment issue, and contact an administrator about permanent strikes.',
-  'By pressing I agree while signed in, I electronically sign this version of the participation and strike rules waiver for my account. The app records the exact text, version, content hash, account name/email snapshot and server acceptance time. Acceptance is required before any new booking; declining leaves browsing, payment review, profile access and existing bookings available. A future published version requires a new acceptance.'
+  'I acknowledge that these rules help organizers avoid uncertainty about funds needed for location reservations. By pressing I agree while signed in, I electronically sign this version of the participation and strike rules waiver for my account. The app records the exact text, version, content hash, account name/email snapshot and server acceptance time. Acceptance is required before any new booking; declining leaves browsing, payment review, profile access and existing bookings available. A future published version requires a new acceptance.'
 ] as const;
 export const waiverText = [waiverTitle, waiverVersion, ...waiverClauses].join('\n\n');
 export const waiverHash = createHash('sha256').update(waiverText).digest('hex');
