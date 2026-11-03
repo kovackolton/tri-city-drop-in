@@ -1,13 +1,46 @@
 @import "tailwindcss";
-:root { font-family: system-ui, sans-serif; color: #172c24; background: #f5f6f1; }
+@import "./theme.css";
+
+/* Semantic utilities: keep palette values in theme.css, not templates. */
+@theme inline {
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+  --color-accent: var(--accent);
+  --color-default: var(--border);
+  --color-divider: var(--divider);
+  --color-sidebar: var(--sidebar);
+  --color-on-sidebar: var(--on-sidebar);
+  --color-nav-active: var(--nav-active);
+  --color-brand-highlight: var(--brand-highlight);
+  --color-success: var(--success-bg);
+  --color-success-text: var(--success-text);
+  --color-success-border: var(--success-border);
+  --color-warning: var(--warning-bg);
+  --color-warning-text: var(--warning-text);
+  --color-warning-border: var(--warning-border);
+  --color-danger: var(--danger-text);
+  --color-badge: var(--badge-bg);
+  --color-badge-text: var(--badge-text);
+  --color-banner-muted: var(--banner-muted);
+}
+:root { font-family: system-ui, sans-serif; color: var(--text); background: var(--page); }
+body { min-width: 320px; background: var(--page); }
 button, a { -webkit-tap-highlight-color: transparent; }
-button:focus-visible, a:focus-visible { outline: 3px solid #d97706; outline-offset: 4px; }
+:where(button, a, input, select, textarea, summary):focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
 button { cursor: pointer; }
 button:disabled { opacity: .5; cursor: not-allowed; }
 label { display: block; font-size: .875rem; font-weight: 600; }
-input, select, textarea { display: block; width: 100%; margin-top: .375rem; padding: .65rem .8rem; border: 1px solid #cccfc6; border-radius: .6rem; background: white; font-weight: 400; }
-.panel { background: white; border: 1px solid #e4e5dd; border-radius: 1rem; padding: 1.5rem; }
-.primary { background: #143f32; color: white; border-radius: .7rem; padding: .65rem 1.15rem; font-size: .875rem; font-weight: 600; }
-.secondary { background: white; border: 1px solid #cccfc6; border-radius: .7rem; padding: .65rem 1.15rem; font-size: .875rem; }
-.notice { border: 1px solid #bbd7c4; background: #edf8ee; border-radius: .75rem; padding: 1rem; }
-.notice.error { border-color: #edcca8; background: #fff8eb; }
+input, select, textarea { display: block; width: 100%; margin-top: .375rem; padding: .65rem .8rem; border: 1px solid var(--input-border); border-radius: .6rem; background: var(--surface); color: var(--text); font-weight: 400; accent-color: var(--accent); }
+input::placeholder, textarea::placeholder { color: var(--subtle); opacity: 1; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 1rem; padding: 1.5rem; }
+.primary { background: var(--primary); color: var(--on-primary); border-radius: .7rem; padding: .65rem 1.15rem; font-size: .875rem; font-weight: 600; }
+.primary:hover:not(:disabled) { background: var(--primary-hover); }
+.secondary { background: var(--secondary-bg); color: var(--secondary-text); border: 1px solid var(--secondary-border); border-radius: .7rem; padding: .65rem 1.15rem; font-size: .875rem; }
+.secondary:hover:not(:disabled) { background: var(--secondary-hover); }
+.notice { color: var(--success-text); border: 1px solid var(--success-border); background: var(--success-bg); border-radius: .75rem; padding: 1rem; }
+.notice.error { color: var(--warning-text); border-color: var(--warning-border); background: var(--warning-bg); }
+
+/* Keep focus visible on colored navigation and game banners as well. */
+aside :focus-visible, .game-header :focus-visible { outline-color: var(--focus-on-brand); }

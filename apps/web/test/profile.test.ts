@@ -7,6 +7,8 @@ import { LocationMapComponent } from '../src/app/location-map/location-map.compo
 import { DomSanitizer } from '@angular/platform-browser';
 import { avatarInitial, avatarPalette, contactEmailLink, contactPhoneLink } from '../src/avatar';
 import { AdminUsersComponent } from '../src/app/admin-users/admin-users.component';
+import { RosterComponent } from '../src/app/roster/roster.component';
+import { OrganizerSeat } from '../src/app/organizer-seat/organizer-seat.component';
 import { DialogComponent } from '../src/app/dialog/dialog.component';
 import { PaymentReviewComponent } from '../src/app/payment-review/payment-review.component';
 import { HttpClient } from '@angular/common/http';
@@ -20,7 +22,7 @@ import { RegistrationsStore, Seat } from '../src/registrations.store';
 
 test('initial avatars handle blank names and Unicode without splitting surrogate pairs', () => {
   assert.equal(avatarInitial('  alex  '), 'A');
-  assert.equal(avatarInitial('Élodie'), 'É');
+  assert.equal(avatarInitial('Ã‰lodie'), 'Ã‰');
   assert.equal(avatarInitial('\u{1F680} Player'), '\u{1F680}');
   assert.equal(avatarInitial(''), '?'); assert.equal(avatarInitial(null), '?');
 });
@@ -174,5 +176,50 @@ test('self role changes refresh current access and prevent duplicate submissions
   const pending = component.saveRole(); await component.saveRole(); assert.equal(calls, 1); assert.equal(refreshed, 0);
   response.next({}); response.complete(); await pending;
   assert.equal(refreshed, 1); assert.equal(component.roleConfirmation(), null); assert.equal(component.busy(), false);
+  injector.destroy();
+});
+
+
+test('roster defaults to active seats, searches guests by booking account and keeps cancelled history available', () => {
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: {} }] });
+  const roster = runInInjectionContext(injector, () => new RosterComponent());
+  const seat = (id: string, status: string, guestNumber = 0) => ({ id, status, guestNumber, guestName: guestNumber ? 'Guest Alex' : null, user: { displayName: 'Captain', accountName: 'Morgan Smith' }, strikes: [] }) as unknown as OrganizerSeat;
+  roster.seats.set([seat('host', 'CONFIRMED'), seat('guest', 'CONFIRMED', 1), seat('waiting', 'WAITLISTED'), seat('old', 'CANCELLED')]);
+  assert.deepEqual(roster.counts(), { confirmed: 2, waitlisted: 1, cancelled: 1 });
+  assert.deepEqual(roster.filteredSeats().map(seat => seat.id), ['host', 'guest', 'waiting']);
+  roster.search = '  morgan '; assert.equal(roster.filteredSeats().length, 3);
+  roster.search = 'alex'; assert.deepEqual(roster.filteredSeats().map(seat => seat.id), ['guest']);
+  roster.search = ''; roster.statusFilter.set('CANCELLED'); assert.deepEqual(roster.filteredSeats().map(seat => seat.id), ['old']);
+  roster.statusFilter.set('all'); assert.equal(roster.filteredSeats().length, 4);
+  roster.togglePlayer('host'); roster.togglePlayer('guest'); assert.equal(roster.expandedSeat(), 'guest'); roster.togglePlayer('guest'); assert.equal(roster.expandedSeat(), '');
+  injector.destroy();
+});
+
+test('compact payment summaries distinguish unpaid, incomplete, conflicting, free and voided reviews', () => {
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: {} }] });
+  const roster = runInInjectionContext(injector, () => new RosterComponent());
+  const payment = { amountCents: 1000, status: 'UNPAID', playerPaid: null, organizerPaid: null };
+  const summary = (override: object) => roster.paymentSummary({ payment: { ...payment, ...override } } as OrganizerSeat);
+  assert.equal(summary({}), 'Payment review pending');
+  assert.equal(summary({ playerPaid: false, organizerPaid: false }), 'Unpaid');
+  assert.equal(summary({ playerPaid: true, organizerPaid: false }), 'Payment reports differ');
+  assert.equal(summary({ status: 'PAID', playerPaid: true, organizerPaid: true }), 'Payment received');
+  assert.equal(summary({ amountCents: 0, status: 'NOT_REQUIRED' }), 'Free');
+  assert.equal(summary({ status: 'VOID' }), 'Payment voided');
+  injector.destroy();
+});
+
+test('roster loads history on demand and ignores old event responses after changing events', async () => {
+  const requests: { url: string; response: Subject<any> }[] = [];
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: { get: (url: string) => { const response = new Subject<any>(); requests.push({ url, response }); return response; } } }] });
+  const roster = runInInjectionContext(injector, () => new RosterComponent());
+  roster.eventId = 'first'; roster.ngOnChanges(); assert.equal(requests.length, 1); assert.ok(requests[0].url.endsWith('/roster'));
+  roster.eventId = 'second'; roster.ngOnChanges();
+  requests[1].response.next([]); requests[1].response.complete();
+  requests[0].response.next([{ id: 'old-player' }]); requests[0].response.complete();
+  await new Promise(resolve => setTimeout(resolve, 0)); assert.equal(roster.seats().length, 0); assert.equal(roster.view(), 'players');
+  const history = roster.openView('history'); assert.ok(requests[2].url.includes('/second/audit'));
+  requests[2].response.next([{ id: 'history' }]); requests[2].response.complete(); await history;
+  assert.equal(roster.audit()[0].id, 'history'); assert.equal(roster.auditLoading(), false);
   injector.destroy();
 });

@@ -11,7 +11,7 @@ import { Component, Input } from '@angular/core';
     </div>
     @if (photoUrl && photoCredit && failedUrl !== photoUrl) { <figcaption>{{ photoCredit }}</figcaption> }
   </figure>`,
-  styles: [':host { display: inline-flex; flex-shrink: 0; } figure { margin: 0; } .thumbnail { display: flex; align-items: center; justify-content: center; border: 1px solid rgb(127 150 130 / 20%); border-radius: .85rem; overflow: hidden; background: #eef3e8; color: #52725c; } img { display: block; height: 100%; width: 100%; object-fit: cover; } figcaption { margin-top: .3rem; font-size: .6rem; line-height: 1.3; overflow-wrap: anywhere; opacity: .8; }']
+  styles: [':host { display: inline-flex; flex-shrink: 0; } figure { margin: 0; } .thumbnail { display: flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: .85rem; overflow: hidden; background: var(--thumbnail-bg); color: var(--thumbnail-text); } img { display: block; height: 100%; width: 100%; object-fit: cover; } figcaption { margin-top: .3rem; font-size: .6rem; line-height: 1.3; overflow-wrap: anywhere; opacity: .8; }']
 })
 export class LocationThumbnailComponent {
   @Input() name = '';

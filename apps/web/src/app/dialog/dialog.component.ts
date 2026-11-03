@@ -6,7 +6,7 @@ let nextDialogId = 0;
     <div class="dialog-header"><h2 [id]="headingId">{{ title }}</h2><button type="button" class="secondary" [disabled]="busy" (click)="closed.emit()" aria-label="Close dialog">Close</button></div>
     <ng-content />
   </dialog>`,
-  styles: ['dialog { position: fixed; inset: 0; margin: auto; width: min(42rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; border: 1px solid #d9e1d4; border-radius: 1rem; padding: 1.5rem; color: #172c24; background: white; box-shadow: 0 24px 80px #0004; } dialog:not([open]) { display: none; } dialog::backdrop { background: rgb(9 24 18 / 60%); } .dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; } h2 { font-size: 1.25rem; font-weight: 700; }']
+  styles: ['dialog { position: fixed; inset: 0; margin: auto; width: min(42rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; border: 1px solid var(--border); border-radius: 1rem; padding: 1.5rem; color: var(--text); background: var(--surface); box-shadow: 0 24px 80px var(--dialog-shadow); } dialog:not([open]) { display: none; } dialog::backdrop { background: var(--backdrop); } .dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; } h2 { font-size: 1.25rem; font-weight: 700; }']
 })
 export class DialogComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() open = false;

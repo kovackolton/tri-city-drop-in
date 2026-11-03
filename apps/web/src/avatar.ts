@@ -1,12 +1,12 @@
 export const avatarColors = [
-  { id: 'emerald', label: 'Forest', background: '#d1fae5', foreground: '#065f46' },
-  { id: 'teal', label: 'Teal', background: '#ccfbf1', foreground: '#115e59' },
-  { id: 'sky', label: 'Sky', background: '#e0f2fe', foreground: '#075985' },
-  { id: 'indigo', label: 'Indigo', background: '#e0e7ff', foreground: '#3730a3' },
-  { id: 'violet', label: 'Violet', background: '#ede9fe', foreground: '#5b21b6' },
-  { id: 'rose', label: 'Rose', background: '#ffe4e6', foreground: '#9f1239' },
-  { id: 'amber', label: 'Amber', background: '#fef3c7', foreground: '#92400e' },
-  { id: 'slate', label: 'Slate', background: '#e2e8f0', foreground: '#334155' }
+  { id: 'emerald', label: 'Forest', background: 'var(--avatar-emerald-bg)', foreground: 'var(--avatar-emerald-text)' },
+  { id: 'teal', label: 'Teal', background: 'var(--avatar-teal-bg)', foreground: 'var(--avatar-teal-text)' },
+  { id: 'sky', label: 'Sky', background: 'var(--avatar-sky-bg)', foreground: 'var(--avatar-sky-text)' },
+  { id: 'indigo', label: 'Indigo', background: 'var(--avatar-indigo-bg)', foreground: 'var(--avatar-indigo-text)' },
+  { id: 'violet', label: 'Violet', background: 'var(--avatar-violet-bg)', foreground: 'var(--avatar-violet-text)' },
+  { id: 'rose', label: 'Rose', background: 'var(--avatar-rose-bg)', foreground: 'var(--avatar-rose-text)' },
+  { id: 'amber', label: 'Amber', background: 'var(--avatar-amber-bg)', foreground: 'var(--avatar-amber-text)' },
+  { id: 'slate', label: 'Slate', background: 'var(--avatar-slate-bg)', foreground: 'var(--avatar-slate-text)' }
 ] as const;
 export function avatarInitial(name: string | null | undefined) { return Array.from(name?.trim() || '?')[0].toLocaleUpperCase(); }
 export function avatarPalette(color: string | null | undefined) { return avatarColors.find(option => option.id === color) ?? avatarColors[0]; }

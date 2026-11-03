@@ -1,21 +1,26 @@
 <div class="min-h-screen md:grid md:grid-cols-[240px_1fr]">
-    <aside class="bg-[#143f32] text-white p-7 md:min-h-screen">
-      <a href="/" class="text-xl font-black tracking-tight">TRI-CITY <span class="text-lime-300">&#8599;</span><span class="block text-xs tracking-[.25em] font-normal mt-1">DROP-IN SOCCER</span></a>
+    <aside class="bg-sidebar text-on-sidebar p-7 md:min-h-screen">
+      <a href="/" class="text-xl font-black tracking-tight">TRI-CITY <span class="text-brand-highlight">&#8599;</span><span class="block text-xs tracking-[.25em] font-normal mt-1">DROP-IN SOCCER</span></a>
       <nav aria-label="Main navigation" class="mt-8 space-y-2">
-        <button class="block w-full text-left rounded-xl p-3" [class.bg-emerald-800]="page() === 'games'" [attr.aria-current]="page() === 'games' ? 'page' : null" (click)="navigate('games')">Upcoming games</button>
-        @if (auth.profile()) { <button class="block w-full text-left rounded-xl p-3" [class.bg-emerald-800]="page() === 'notifications'" (click)="navigate('notifications')">Notifications ({{ notifications.unread() }})</button><button class="block w-full text-left rounded-xl p-3" [class.bg-emerald-800]="page() === 'mygames'" (click)="navigate('mygames')">My games</button><button class="block w-full text-left rounded-xl p-3" [class.bg-emerald-800]="page() === 'profile'" (click)="navigate('profile')">My profile</button> }
-        @if ((auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <button class="block w-full text-left rounded-xl p-3" [class.bg-emerald-800]="page() === 'organizer'" (click)="navigate('organizer')">Organizer workspace</button> }
-        @if (auth.profile()?.role === 'ADMINISTRATOR') { <button class="block w-full text-left rounded-xl p-3" [class.bg-emerald-800]="page() === 'users'" (click)="openUsers()">Users</button> }
+        <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'games'" [attr.aria-current]="page() === 'games' ? 'page' : null" (click)="navigate('games')">Upcoming games</button>
+        @if (auth.profile()) { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'notifications'" (click)="navigate('notifications')">Notifications ({{ notifications.unread() }})</button><button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'mygames'" (click)="navigate('mygames')">My games</button><button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'profile'" (click)="navigate('profile')">My profile</button> }
+        @if ((auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'organizer'" (click)="navigate('organizer')">Organizer workspace</button> }
+        @if (auth.profile()?.role === 'ADMINISTRATOR') { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'users'" (click)="openUsers()">Users</button> }
       </nav>
-      <!-- <p class="mt-10 text-sm text-emerald-100/70">Good games. New faces.<br>Everyone belongs on the pitch.</p> -->
+      <!-- <p class="mt-10 text-sm text-banner-muted">Good games. New faces.<br>Everyone belongs on the pitch.</p> -->
     </aside>
     <div>
-      <header class="flex flex-wrap gap-4 justify-between items-center border-b border-black/10 bg-white px-6 py-5 md:px-10">
-        <span class="text-sm text-stone-500">The Beautiful Game</span>
-        <div class="flex gap-3 items-center">
+      <header class="app-header flex flex-wrap gap-4 justify-between items-center border-b border-default bg-surface px-6 py-5 md:px-10">
+        <span class="text-sm text-muted">The Beautiful Game</span>
+        <div class="header-actions flex flex-wrap gap-3 items-center justify-end">
           @if (!auth.ready()) { <span role="status">Checking your session...</span> }
           @else if (auth.firebaseUser()) { <app-avatar [name]="auth.profile()?.displayName" [color]="auth.profile()?.avatarColor" [photoUrl]="auth.profile()?.useGooglePhoto !== false ? auth.profile()?.avatarUrl : null" [size]="32" /><span class="text-sm">{{ auth.profile()?.displayName || 'Signed in' }}</span>@if (auth.needsVerification()) { <button class="primary" (click)="navigate('signin')">Verify email</button> }<button class="secondary" [disabled]="auth.busy()" (click)="logout()">Sign out</button> }
           @else { <button class="primary" [disabled]="!auth.configured" (click)="navigate('signin')" [attr.aria-current]="page() === 'signin' ? 'page' : null">Sign in</button> }
+          @if (auth.profile()) {
+            <button type="button" class="icon-button" [class.selected]="page() === 'notifications'" [attr.aria-label]="'Notifications, ' + notifications.unread() + ' unread'" [attr.aria-current]="page() === 'notifications' ? 'page' : null" title="Notifications" (click)="navigate('notifications')"><app-icon name="bell" />@if (notifications.unread()) { <span class="unread-badge" aria-hidden="true">{{ notifications.unread() > 99 ? '99+' : notifications.unread() }}</span> }</button>
+            <button type="button" class="icon-button" [class.selected]="page() === 'profile'" [attr.aria-current]="page() === 'profile' ? 'page' : null" aria-label="Settings: My profile" title="Settings: My profile" (click)="navigate('profile')"><app-icon name="settings" /></button>
+          }
+          <button type="button" class="icon-button" [attr.aria-pressed]="theme.dark()" [attr.aria-label]="theme.dark() ? 'Switch to light mode' : 'Switch to dark mode'" [title]="theme.dark() ? 'Switch to light mode' : 'Switch to dark mode'" (click)="theme.toggle()"><app-icon [name]="theme.dark() ? 'sun' : 'moon'" /></button>
         </div>
       </header>
       <main class="max-w-6xl mx-auto p-6 md:p-10">
@@ -47,9 +52,9 @@
             @if (notifications.error()) { <p role="alert" class="notice error mt-5">{{ notifications.error() }}</p> }
             @if (notifications.loading()) { <p role="status" class="mt-4">Updating notifications...</p> }
             @for (item of notifications.items(); track item.id) {
-              <article class="panel mt-4" [class.border-emerald-600]="!item.readAt"><h2 class="font-bold">{{ item.title }} @if (!item.readAt) { <span class="text-sm text-emerald-700"> ? Unread</span> }</h2><p class="mt-2">{{ item.message }}</p>@if (item.kind === 'ORGANIZER_REQUEST' && auth.profile()?.role === 'ADMINISTRATOR') { <button class="primary mt-3" (click)="reviewOrganizerRequests()">Review request</button> }@if (item.kind === 'EVENT_INVITATION' || item.kind === 'ORGANIZER_BOOKED_PLAYER') { <button class="primary mt-3" (click)="navigate('mygames')">Open My games</button> }@if (item.kind === 'ORGANIZER_REQUEST_GRANTED' || item.kind === 'ORGANIZER_ACCESS_GRANTED' || item.kind === 'USER_ROLE_CHANGED') { <button class="primary mt-3" (click)="auth.refreshProfile()">Refresh access</button> }<p class="text-xs text-stone-500 mt-2">{{ time(item.createdAt, 'America/New_York') }}</p>@if (!item.readAt) { <button class="secondary mt-3" [disabled]="notifications.loading()" (click)="notifications.read(item.id)">Mark as read</button> }</article>
+              <article class="panel mt-4" [class.border-accent]="!item.readAt"><h2 class="font-bold">{{ item.title }} @if (!item.readAt) { <span class="text-sm text-accent"> ? Unread</span> }</h2><p class="mt-2">{{ item.message }}</p>@if (item.kind === 'ORGANIZER_REQUEST' && auth.profile()?.role === 'ADMINISTRATOR') { <button class="primary mt-3" (click)="reviewOrganizerRequests()">Review request</button> }@if (item.kind === 'EVENT_INVITATION' || item.kind === 'ORGANIZER_BOOKED_PLAYER') { <button class="primary mt-3" (click)="navigate('mygames')">Open My games</button> }@if (item.kind === 'ORGANIZER_REQUEST_GRANTED' || item.kind === 'ORGANIZER_ACCESS_GRANTED' || item.kind === 'USER_ROLE_CHANGED') { <button class="primary mt-3" (click)="auth.refreshProfile()">Refresh access</button> }<p class="text-xs text-muted mt-2">{{ time(item.createdAt, 'America/New_York') }}</p>@if (!item.readAt) { <button class="secondary mt-3" [disabled]="notifications.loading()" (click)="notifications.read(item.id)">Mark as read</button> }</article>
             } @empty { @if (!notifications.loading() && !notifications.error()) { <p class="mt-5">No notifications yet.</p> } }
-            <p class="text-sm text-stone-500 mt-5">Showing the latest 100 notifications. Updates refresh every 30 seconds while the app is open.</p>
+            <p class="text-sm text-muted mt-5">Showing the latest 100 notifications. Updates refresh every 30 seconds while the app is open.</p>
           </section>
         }
         @else if (page() === 'mygames'  && auth.profile()) { <app-my-games /> }
@@ -57,9 +62,9 @@
         @else if (page() === 'profile' && auth.profile()) {
           <app-profile (completed)="navigate('games')" />
         } @else {
-          <!-- <p class="text-xs font-bold tracking-[.2em] text-emerald-700">FIND YOUR NEXT GAME</p>
+          <!-- <p class="text-xs font-bold tracking-[.2em] text-accent">FIND YOUR NEXT GAME</p>
           <h1 class="text-4xl md:text-5xl font-bold tracking-tight mt-3">More soccer.<br>Less organizing.</h1>
-          <p class="mt-4 text-stone-600 max-w-lg">Find a pitch, grab a spot, and show up ready to play. Upcoming drop-in games around the Tri-Cities.</p> -->
+          <p class="mt-4 text-muted max-w-lg">Find a pitch, grab a spot, and show up ready to play. Upcoming drop-in games around the Tri-Cities.</p> -->
           <section aria-labelledby="games-heading" class="mt-10">
             <div class="flex justify-between items-center mb-5"><h2 id="games-heading" class="text-xl font-bold">Upcoming games</h2><button class="secondary" [disabled]="store.loading()" (click)="refreshGames()">Refresh</button></div>
             <form class="panel mb-5" (ngSubmit)="applyFilters()" aria-label="Filter upcoming games">
@@ -69,30 +74,34 @@
                 <label>Organizer<select name="filterOrganizer" [(ngModel)]="filters.organizerId"><option value="">All organizers</option>@for (organizer of store.organizers(); track organizer.id) { <option [value]="organizer.id">{{ organizer.name }}</option> }</select></label>
                 <label>Search<input name="filterSearch" type="search" maxlength="80" [(ngModel)]="filters.search" placeholder="Game, venue or address"></label>
               </div><div class="flex flex-wrap gap-4 mt-4"><label class="flex items-center gap-2"><input class="!w-auto !m-0" type="checkbox" name="freeOnly" [(ngModel)]="filters.freeOnly">Free games</label><label class="flex items-center gap-2"><input class="!w-auto !m-0" type="checkbox" name="spacesOnly" [(ngModel)]="filters.spacesOnly">Available places (no waitlist)</label></div>
-              <p class="text-xs text-stone-500 mt-3">Dates use each venue's timezone. Weeks run Monday through Sunday. City options come from Locations; venues without a city still appear under All cities.</p>
+              <p class="text-xs text-muted mt-3">Dates use each venue's timezone. Weeks run Monday through Sunday. City options come from Locations; venues without a city still appear under All cities.</p>
               <div class="flex flex-wrap gap-3 mt-4"><button class="primary">Apply filters</button><button class="secondary" type="button" (click)="resetFilters()">Clear filters</button><button class="secondary" type="button" (click)="quickDate('day')">Today</button><button class="secondary" type="button" (click)="quickDate('week')">This week</button></div>
               @if (store.filterError()) { <p role="alert" class="text-sm mt-3">{{ store.filterError() }}</p><button class="secondary mt-2" type="button" (click)="store.loadFilters()">Retry filter options</button> }
             </form>
             @if (store.loading()) { <p role="status">Loading games...</p> }
             @else if (store.error()) { <div role="alert" class="notice error"><p>{{ store.error() }}</p><button class="underline mt-3" (click)="store.load()">Try again</button></div> }
             @else {
-              <p role="status" class="text-sm text-stone-500 mb-4">{{ store.events().length }} matching {{ store.events().length === 1 ? 'game' : 'games' }} (up to 100 shown).</p>
+              <p role="status" class="text-sm text-muted mb-4">{{ store.events().length }} matching {{ store.events().length === 1 ? 'game' : 'games' }} (up to 100 shown).</p>
               <div class="grid lg:grid-cols-2 gap-5">
               @for (game of store.events(); track game.id) {
-                <article class="panel">
-                  <div class="flex justify-between gap-3"><p class="text-sm text-emerald-700 font-semibold">{{ time(game.startsAt, game.timezone) }}</p><span class="text-xs rounded-full bg-lime-100 px-3 py-1">{{ game.priceCents === 0 ? 'Free' : (game.priceCents / 100 | currency:'USD':'code') }}</span></div>
+                <article class="panel event-card">
+                  <header class="event-card-header">
+                  <div class="flex flex-wrap justify-between items-start gap-3"><p class="event-start text-sm font-semibold">{{ time(game.startsAt, game.timezone) }}</p><span class="text-xs rounded-full bg-badge text-badge-text px-3 py-1">{{ game.priceCents === 0 ? 'Free' : (game.priceCents / 100 | currency:'USD':'USD ') }}</span></div>
                   <div class="flex items-start gap-4 mt-5"><app-location-thumbnail [name]="game.location" [photoUrl]="game.photoUrl" [photoCredit]="game.photoCredit" /><div class="min-w-0"><h3 class="text-2xl font-bold break-words">{{ game.title }}</h3><p class="mt-2 font-medium">{{ game.location }}</p></div></div>
-                  <p class="text-sm text-stone-500 mt-4">{{ game.address }}</p>
+                  </header>
+                  <div class="event-card-body">
+                  <p class="text-sm text-muted">{{ game.address }}</p>
                   <app-location-map class="mt-3" [name]="game.location" [address]="game.address" [embedUrl]="game.mapEmbedUrl" />
                   <app-organizer-contact [name]="game.organizer?.displayName" [email]="game.organizerContactEmail" [phone]="game.organizerContactPhone" [callAllowed]="game.contactCallAllowed" [textAllowed]="game.contactTextAllowed" />
                   @if (game.description) { <p class="mt-3 text-sm whitespace-pre-line">{{ game.description }}</p> }
-                  <p class="text-xs text-stone-500 mt-3">Ends {{ time(game.endsAt, game.timezone) }} Â· Price per player</p>
-                  <div class="mt-6 border-t border-stone-100 pt-4 flex justify-between text-sm"><span>{{ game.confirmed }} / {{ game.capacity }} players</span><span>{{ game.waitlisted }} waiting</span></div>
+                  <p class="text-xs text-muted mt-3">Ends {{ time(game.endsAt, game.timezone) }} Ã‚Â· Price per player</p>
+                  <div class="mt-6 border-t border-divider pt-4 flex justify-between text-sm"><span>{{ game.confirmed }} / {{ game.capacity }} players</span><span>{{ game.waitlisted }} waiting</span></div>
                   <app-event-guidance class="block mt-4" [bibsProvided]="game.bibsProvided" [shirtColorCount]="game.shirtColorCount" [minPlayers]="game.minPlayers" [confirmed]="game.confirmed" />
                   @if (auth.profile()) { <app-signup [game]="game" (changed)="store.load()" /> }
-                  @else { <p class="text-sm text-stone-500 mt-4">Sign in to join this game.</p> }
+                  @else { <p class="text-sm text-muted mt-4">Sign in to join this game.</p> }
+                  </div>
                 </article>
-              } @empty { <div class="rounded-2xl border border-dashed border-stone-300 p-8 text-stone-600">No upcoming games match these filters. Try clearing or adjusting them.</div> }
+              } @empty { <div class="rounded-2xl border border-dashed border-default p-8 text-muted">No upcoming games match these filters. Try clearing or adjusting them.</div> }
               </div>
             }
           </section>
