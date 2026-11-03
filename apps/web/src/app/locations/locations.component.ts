@@ -15,6 +15,7 @@ export class LocationsComponent implements OnInit {
   readonly auth = inject(AuthService);
   private readonly http = inject(HttpClient);
   @Output() changed = new EventEmitter<void>();
+  readonly showLocationForm = signal(false);
   readonly locations = signal<Location[]>([]);
   readonly editing = signal(''); readonly deleting = signal(''); readonly checked = signal('');
   readonly busy = signal(false); readonly error = signal(''); readonly notice = signal('');
@@ -22,8 +23,8 @@ export class LocationsComponent implements OnInit {
   ngOnInit() { void this.load(); }
   fingerprint() { return JSON.stringify(this.form); }
   invalidate() { this.checked.set(''); this.notice.set(''); }
-  reset() { this.editing.set(''); this.form = { name: '', city: '', address: '', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, photoUrl: '', photoCredit: '', mapEmbedUrl: '' }; this.invalidate(); }
-  edit(location: Location) { this.editing.set(location.id); this.form = { name: location.name, city: location.city ?? '', address: location.address, timezone: location.timezone, photoUrl: location.photoUrl ?? '', photoCredit: location.photoCredit ?? '', mapEmbedUrl: location.mapEmbedUrl ?? '' }; this.invalidate(); }
+  reset() { this.showLocationForm.set(false); this.editing.set(''); this.form = { name: '', city: '', address: '', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, photoUrl: '', photoCredit: '', mapEmbedUrl: '' }; this.invalidate(); }
+  edit(location: Location) { this.showLocationForm.set(true); this.editing.set(location.id); this.form = { name: location.name, city: location.city ?? '', address: location.address, timezone: location.timezone, photoUrl: location.photoUrl ?? '', photoCredit: location.photoCredit ?? '', mapEmbedUrl: location.mapEmbedUrl ?? '' }; this.invalidate(); }
   async load() { try { this.locations.set(await firstValueFrom(this.http.get<Location[]>('/api/locations'))); } catch (e) { this.error.set(message(e)); } }
   async check() {
     if (this.busy()) return;

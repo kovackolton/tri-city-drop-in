@@ -1,7 +1,9 @@
 <h2 class="text-2xl font-bold mt-6">Locations</h2><p class="mt-2 text-muted">Manage pitches separately from events. Check for an existing location before saving.</p>
     @if (error()) { <p role="alert" class="notice error mt-4">{{ error() }}</p> }
     @if (notice()) { <p role="status" class="notice mt-4">{{ notice() }}</p> }
-    <form class="panel mt-5 space-y-4 max-w-xl" (ngSubmit)="save()"><h3 class="font-bold">{{ editing() ? 'Edit location' : 'Add location' }}</h3>
+    <div class="mt-5"><button type="button" class="primary" [disabled]="busy()" [attr.aria-expanded]="showLocationForm()" aria-controls="organizer-location-form" (click)="showLocationForm.set(!showLocationForm())">{{ showLocationForm() ? 'Hide location form' : editing() ? 'Continue editing location' : 'Add location' }}</button></div>
+    @if (showLocationForm()) {
+    <form id="organizer-location-form" class="panel mt-5 space-y-4 max-w-xl" (ngSubmit)="save()"><h3 class="font-bold">{{ editing() ? 'Edit location' : 'Add location' }}</h3>
       <label>Pitch name<input name="name" [(ngModel)]="form.name" (ngModelChange)="invalidate()" required maxlength="160"></label>
       <label>Address<input name="address" [(ngModel)]="form.address" (ngModelChange)="invalidate()" required maxlength="400"></label>
       <label>City (optional)<input name="city" [(ngModel)]="form.city" (ngModelChange)="invalidate()" maxlength="80" autocomplete="address-level2"></label><p class="text-xs text-muted">Add a city to make this venue available in the Upcoming games city filter.</p>
@@ -15,6 +17,7 @@
       </fieldset>
       <div class="flex flex-wrap gap-3"><button type="button" class="secondary" [disabled]="busy()" (click)="check()">Check for duplicates</button><button class="primary" [disabled]="busy() || checked() !== fingerprint()">Save location</button>@if (editing()) { <button type="button" class="secondary" (click)="reset()">Cancel edit</button> }</div>
     </form>
+    }
     <div class="grid md:grid-cols-2 gap-4 mt-6">@for (location of locations(); track location.id) { <article class="panel"><div class="flex items-start gap-3"><app-location-thumbnail [name]="location.name" [photoUrl]="location.photoUrl" [photoCredit]="location.photoCredit" [size]="56" /><h3 class="font-bold">{{ location.name }}</h3></div><p>{{ location.address }}</p>@if (location.city) { <p class="text-sm text-muted">{{ location.city }}</p> }<p class="text-xs text-muted mt-2">{{ location.timezone }}</p><app-location-map class="mt-3" [name]="location.name" [address]="location.address" [embedUrl]="location.mapEmbedUrl" />
       @if (auth.profile()?.role === 'ADMINISTRATOR') { <div class="flex gap-3 mt-4"><button class="secondary" [disabled]="busy()" (click)="edit(location)">Edit</button><button class="secondary" [disabled]="busy()" (click)="deleting.set(location.id)">Delete</button></div>@if (deleting() === location.id) { <p class="text-sm mt-3">Delete this location? Locations referenced by events must be reassigned first.</p><div class="flex gap-3 mt-2"><button class="primary" [disabled]="busy()" (click)="remove(location.id)">Confirm delete</button><button class="secondary" (click)="deleting.set('')">Keep location</button></div> } }
     </article> } @empty { <p>No locations yet.</p> }</div>
