@@ -7,6 +7,9 @@ import { LocationMapComponent } from '../src/app/location-map/location-map.compo
 import { DomSanitizer } from '@angular/platform-browser';
 import { avatarInitial, avatarPalette, contactEmailLink, contactPhoneLink } from '../src/avatar';
 import { AdminUsersComponent } from '../src/app/admin-users/admin-users.component';
+import { WaiverPanelComponent } from '../src/app/waiver-panel/waiver-panel.component';
+import { StrikePanelComponent } from '../src/app/strike-panel/strike-panel.component';
+import { WaiverStore } from '../src/waiver.store';
 import { StrikesStore } from '../src/strikes.store';
 import { RosterComponent } from '../src/app/roster/roster.component';
 import { OrganizerSeat } from '../src/app/organizer-seat/organizer-seat.component';
@@ -76,7 +79,7 @@ test('the map component never bypasses Angular security for an unapproved URL an
 test('guest signup cannot submit without acknowledgment and resets it when another guest is added', async () => {
   const calls: unknown[][] = [];
   const store = { join: async (...args: unknown[]) => { calls.push(args); return true; } };
-  const injector = Injector.create({ providers: [{ provide: StrikesStore, useValue: { blocked: () => false } }, { provide: RegistrationsStore, useValue: store }] });
+  const injector = Injector.create({ providers: [{ provide: WaiverStore, useValue: { accepted: () => true } }, { provide: StrikesStore, useValue: { blocked: () => false } }, { provide: RegistrationsStore, useValue: store }] });
   const component = runInInjectionContext(injector, () => new SignupComponent());
   component.game = { id: 'game', priceCents: 1000, maxGuestsPerUser: 3, capacity: 6 } as Game;
   component.guests = [' Guest ']; await component.join();
@@ -230,7 +233,7 @@ test('three-strike signup guard prevents new requests but keeps an existing book
   let joins = 0, cancels = 0;
   const seat = { eventId: 'game', bookingId: 'kept', guestNumber: 0, status: 'CONFIRMED' };
   const store = { seats: () => [seat], join: async () => { joins++; return true; }, cancel: async () => { cancels++; return true; } };
-  const injector = Injector.create({ providers: [{ provide: StrikesStore, useValue: { blocked: () => true, count: () => 3 } }, { provide: RegistrationsStore, useValue: store }] });
+  const injector = Injector.create({ providers: [{ provide: WaiverStore, useValue: { accepted: () => true } }, { provide: StrikesStore, useValue: { blocked: () => true, count: () => 3 } }, { provide: RegistrationsStore, useValue: store }] });
   const component = runInInjectionContext(injector, () => new SignupComponent()); component.game = { id: 'game' } as Game;
   await component.join(); assert.equal(joins, 0); assert.equal(component.booking()?.bookingId, 'kept');
   await component.cancel('kept'); assert.equal(cancels, 1); injector.destroy();
@@ -274,4 +277,36 @@ test('reminder-targeted registration refreshes include older events and ignore a
   const refresh = store.load(); assert.equal(requests[2].options.params.includeEventId, 'older-event'); requests[2].response.next([]); requests[2].response.complete(); await refresh;
   store.reset(); const reset = store.load(); assert.equal(requests[3].options.params, undefined); requests[3].response.next([]); requests[3].response.complete(); await reset;
   injector.destroy();
+});
+
+
+test('waiver signing requires an explicit server-confirmed agreement and ignores late responses after reset', async () => {
+  const document = { version: 'v1', title: 'Rules', clauses: ['Review these rules'], contentHash: 'hash', acceptance: null };
+  const calls: unknown[] = []; const responses: Subject<any>[] = [];
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => ({ id: 'player' }) } }, { provide: HttpClient, useValue: { get: () => of(document), post: (_: string, body: unknown) => { calls.push(body); const response = new Subject<any>(); responses.push(response); return response; } } }] });
+  const store = runInInjectionContext(injector, () => new WaiverStore()); await store.load(); assert.equal(store.accepted(), false);
+  const agreement = store.agree(); await store.agree(); assert.equal(calls.length, 1); assert.deepEqual(calls[0], { version: 'v1', agree: true }); assert.equal(store.accepted(), false);
+  responses[0].next({ ...document, acceptance: { id: 'signed', version: 'v1', signedName: 'Player', signedEmail: 'test@example.invalid', acceptedAt: new Date().toISOString() } }); responses[0].complete(); await agreement; assert.equal(store.accepted(), true);
+  store.reset(); await store.load(); const stale = store.agree(); store.reset(); responses[1].next({ ...document, acceptance: { version: 'v1' } }); responses[1].complete(); await stale;
+  assert.equal(store.status(), null); assert.equal(store.accepted(), false); injector.destroy();
+});
+
+test('profile sections start collapsed and a repeated navigation request reopens a manually closed section', () => {
+  const injector = Injector.create({ providers: [{ provide: WaiverStore, useValue: {} }, { provide: StrikesStore, useValue: {} }] });
+  const waiver = runInInjectionContext(injector, () => new WaiverPanelComponent());
+  const strikes = runInInjectionContext(injector, () => new StrikePanelComponent());
+  for (const panel of [waiver, strikes]) {
+    assert.equal(panel.open(), false); panel.openRequest = 1; panel.ngOnChanges(); assert.equal(panel.open(), true);
+    panel.open.set(false); panel.openRequest = 2; panel.ngOnChanges(); assert.equal(panel.open(), true);
+  }
+  injector.destroy();
+});
+
+test('unsigned users cannot submit new joins but retain existing booking and cancellation access', async () => {
+  let joins = 0, cancels = 0;
+  const store = { seats: () => [{ eventId: 'game', bookingId: 'legacy', guestNumber: 0, status: 'CONFIRMED' }], join: async () => { joins++; return true; }, cancel: async () => { cancels++; return true; } };
+  const injector = Injector.create({ providers: [{ provide: WaiverStore, useValue: { accepted: () => false } }, { provide: StrikesStore, useValue: { blocked: () => false } }, { provide: RegistrationsStore, useValue: store }] });
+  const component = runInInjectionContext(injector, () => new SignupComponent()); component.game = { id: 'game' } as Game;
+  await component.join(); assert.equal(joins, 0); assert.equal(component.booking()?.bookingId, 'legacy');
+  await component.cancel('legacy'); assert.equal(cancels, 1); injector.destroy();
 });

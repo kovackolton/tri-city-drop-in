@@ -1,4 +1,8 @@
-# Current milestone: overdue payment reminders and strike restrictions
+# Current milestone: waiver and profile sections
+
+Strike banners are limited to My profile / My games and target a collapsible strike section. A collapsible My profile waiver renders the server's complete versioned participation/strike rules and records explicit I agree acceptance with an immutable text/hash/identity/time snapshot. Unsigned users get targeted banners on Upcoming games / My games and cannot make new bookings through any path or role; existing bookings and payment access remain. Local migration applied without backfilling signatures. API and frontend builds, 35 API unit tests, 54 PostgreSQL scenarios and 24 frontend logic tests passed. Browser review remains manual. See [waiver/profile sections review](waiver-profile-sections-review.md).
+
+## Previous milestone: overdue payment reminders and strike restrictions
 
 In-app payment review reminders cover unreviewed paid seats/guests after 24 hours. Automatic payment strikes require an explicit organizer-unpaid review after grace; player reports are informational and organizer-confirmed payment clears the strike. Three current strikes block new booking paths while retaining existing bookings. Prominent access banners, profile strike/event/payment history and staff counts are added, with administrator-only reasoned permanent strikes/corrections on Users. Local migration applied. Build, API compilation, 35 API unit tests, 51 PostgreSQL scenarios, 21 frontend logic tests and 3 theme tests passed; browser review remains manual. See [payment reminders and strike review](payment-reminders-strikes-review.md).
 
