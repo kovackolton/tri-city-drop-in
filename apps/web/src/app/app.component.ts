@@ -1,3 +1,4 @@
+import { StrikesStore } from '../strikes.store';
 import { ThemeService } from '../theme.service';
 import { IconComponent } from './icon/icon.component';
 import { OrganizerContactComponent } from './organizer-contact/organizer-contact.component';
@@ -27,6 +28,8 @@ import { EventsStore, defaultGameFilters } from '../events.store';
   styleUrl: './app.component.scss'
 })
 export class AppComponent implements OnInit, OnDestroy {
+  readonly strikes = inject(StrikesStore);
+  readonly paymentEventId = signal('');
   readonly theme = inject(ThemeService);
   readonly notifications = inject(NotificationsStore);
   private poll?: ReturnType<typeof setInterval>;
@@ -47,9 +50,9 @@ export class AppComponent implements OnInit, OnDestroy {
       const id = this.auth.profile()?.id;
       untracked(() => {
         this.registrations.reset();
-        this.notifications.reset();
+        this.notifications.reset(); this.strikes.reset();
         if (id) {
-          void this.notifications.load(); void this.registrations.load();
+          void this.notifications.load(); void this.strikes.load(); void this.registrations.load();
           if (this.auth.profile()?.profileCompletedAt === null) this.navigate('profile');
           else if ((this.page() === 'users' && this.auth.profile()?.role !== 'ADMINISTRATOR') || (this.page() === 'organizer' && this.auth.profile()?.role === 'PLAYER')) this.navigate('games');
           else if (this.page() === 'signin') this.navigate('games');
@@ -57,9 +60,13 @@ export class AppComponent implements OnInit, OnDestroy {
       });
     });
   }
-  ngOnInit() { void this.store.load(); void this.store.loadFilters(); this.poll = setInterval(() => { void this.notifications.load(); }, 30000); }
+  ngOnInit() { void this.store.load(); void this.store.loadFilters(); this.poll = setInterval(() => { void this.notifications.load(); void this.strikes.load(); }, 30000); }
   ngOnDestroy() { if (this.poll) clearInterval(this.poll); }
   navigate(page: 'games' | 'mygames' | 'profile' | 'organizer' | 'notifications' | 'signin' | 'users') { this.page.set(page); if (page === 'notifications') void this.notifications.load(); if (page === 'games') { void this.store.load(); void this.store.loadFilters(); if (this.auth.profile()) void this.registrations.load(); } if (page === 'mygames') void this.registrations.load(); }
+  async reviewPayment(eventId: string | null | undefined) {
+    this.paymentEventId.set(eventId ?? ''); this.page.set('mygames'); await this.registrations.load(eventId ?? undefined);
+    requestAnimationFrame(() => { const card = document.getElementById('my-game-' + eventId); card?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); card?.focus({ preventScroll: true }); });
+  }
   reviewOrganizerRequests() { this.userRequestsOnly.set(true); this.navigate('users'); }
   openUsers() { this.userRequestsOnly.set(false); this.navigate('users'); }
   async logout() { await this.auth.logout(); this.page.set('games'); }

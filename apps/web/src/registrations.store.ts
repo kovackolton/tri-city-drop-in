@@ -18,15 +18,17 @@ export const RegistrationsStore = signalStore(
   { providedIn: 'root' },
   withState({ seats: [] as Seat[], loading: false, busy: false, error: '', notice: '' }),
   withMethods((store, http = inject(HttpClient)) => {
-    let revision = 0;
-    async function load() {
-      const current = revision;
+    let revision = 0, loadVersion = 0;
+    let focusedEventId: string | undefined;
+    async function load(includeEventId = focusedEventId) {
+      focusedEventId = includeEventId;
+      const current = revision, version = ++loadVersion;
       patchState(store, { loading: true, error: '' });
       try {
-        const seats = await firstValueFrom(http.get<Seat[]>('/api/me/signups'));
-        if (current === revision) patchState(store, { seats });
-      } catch (error) { if (current === revision) patchState(store, { error: message(error) }); }
-      finally { if (current === revision) patchState(store, { loading: false }); }
+        const seats = await firstValueFrom(http.get<Seat[]>('/api/me/signups', includeEventId ? { params: { includeEventId } } : {}));
+        if (current === revision && version === loadVersion) patchState(store, { seats });
+      } catch (error) { if (current === revision && version === loadVersion) patchState(store, { error: message(error) }); }
+      finally { if (current === revision && version === loadVersion) patchState(store, { loading: false }); }
     }
     async function mutate(path: string, body: unknown, notice: string) {
       if (store.busy()) return false;
@@ -43,7 +45,7 @@ export const RegistrationsStore = signalStore(
     }
     return {
       load,
-      reset() { revision++; patchState(store, { seats: [], loading: false, busy: false, error: '', notice: '' }); },
+      reset() { revision++; focusedEventId = undefined; patchState(store, { seats: [], loading: false, busy: false, error: '', notice: '' }); },
       join(eventId: string, guests: string[], expectedPriceCents: number, guestPaymentAcknowledged = false) { return mutate(`/api/events/${eventId}/signups`, { guests, expectedPriceCents, guestPaymentAcknowledged }, 'Booking saved. Check your confirmed or waitlisted status below.'); },
       cancel(eventId: string, bookingId: string) { return mutate(`/api/events/${eventId}/signups/${bookingId}/cancel`, {}, 'Your whole party has been cancelled.'); }
     };

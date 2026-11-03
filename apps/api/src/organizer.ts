@@ -2,6 +2,7 @@ import { BadRequestException, Body, ConflictException, Controller, Get, Inject, 
 import { Prisma } from '@prisma/client';
 import { AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
 import { Database } from './database';
+import { paymentGraceMs } from './strike-policy';
 import { object, text, uuid } from './validation';
 
 const reasons = ['LATE_CANCELLATION', 'NO_SHOW', 'MISSED_PAYMENT'] as const;
@@ -45,13 +46,14 @@ export class OrganizerService {
       if (seat.event.endsAt > new Date()) throw new ConflictException('Strike review opens after the event ends.');
       if (reason === 'LATE_CANCELLATION' && !(seat.status === 'CANCELLED' && seat.lateCancellation)) throw new ConflictException('This booking was not a late player cancellation.');
       if (reason === 'NO_SHOW' && !(seat.status === 'CONFIRMED' && seat.attendance === 'ABSENT')) throw new ConflictException('Mark the confirmed player absent before issuing a no-show strike.');
-      if (reason === 'MISSED_PAYMENT' && !(seat.status === 'CONFIRMED' && seat.payment && seat.payment.amountCents > 0 && seat.payment.status === 'UNPAID' && seat.payment.playerPaid === false && seat.payment.organizerPaid === false)) throw new ConflictException('Both payment reviews must agree unpaid before a missed-payment strike.');
+      if (reason === 'MISSED_PAYMENT' && !(seat.status === 'CONFIRMED' && seat.payment && seat.payment.amountCents > 0 && seat.payment.status === 'UNPAID' && seat.payment.organizerPaid === false && seat.event.endsAt.getTime() + paymentGraceMs <= Date.now())) throw new ConflictException('An organizer must mark payment not received and the 24-hour grace period must end before a payment strike.');
+      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${seat.userId}::uuid FOR UPDATE`;
       const existing = seat.strikes.find(s => s.reason === reason);
       if (existing) {
         if (existing.revokedAt) throw new ConflictException('This incident was already revoked and cannot be reissued.');
         return existing;
       }
-      const strike = await tx.strike.create({ data: { userId: seat.userId, signupId, reason, issuedById: actorId } });
+      const strike = await tx.strike.create({ data: { userId: seat.userId, signupId, reason, note, issuedById: actorId } });
       await tx.auditLog.create({ data: { actorId, eventId: seat.eventId, action: 'STRIKE_ISSUED', details: { signupId, strikeId: strike.id, reason, note } } });
       await tx.notification.create({ data: { userId: seat.userId, kind: 'STRIKE_ISSUED', dedupeKey: `strike:${strike.id}`, payload: { eventId: seat.eventId, title: seat.event.title, signupId, guest: seat.guestNumber > 0 } } });
       return strike;
@@ -65,6 +67,7 @@ export class OrganizerService {
       const strike = seat.strikes.find(s => s.id === strikeId);
       if (!strike) throw new NotFoundException('Strike not found.');
       if (strike.revokedAt) return strike;
+      if (strike.reason === 'MISSED_PAYMENT' && seat.payment?.organizerPaid !== true) throw new ConflictException('Mark payment received to clear this payment strike. Player reports do not clear it.');
       const updated = await tx.strike.update({ where: { id: strikeId }, data: { revokedAt: new Date() } });
       await tx.auditLog.create({ data: { actorId, eventId: seat.eventId, action: 'STRIKE_REVOKED', details: { signupId, strikeId, note } } });
       return updated;

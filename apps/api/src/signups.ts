@@ -1,9 +1,10 @@
-import { BadRequestException, Body, ConflictException, Controller, Get, Inject, Injectable, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Get, Inject, Injectable, NotFoundException, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Event, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
 import { appearance, appearanceSelect } from './profile-fields';
 import { Database } from './database';
+import { currentStrikes, refreshPaymentStrikes, strikeLimit } from './strike-policy';
 import { integer, object, text, uuid } from './validation';
 
 export function signupInput(value: unknown) {
@@ -33,6 +34,7 @@ export class SignupsService {
   async join(userId: string, eventId: string, value: unknown) {
     uuid(eventId);
     const { guests, price } = signupInput(value);
+    await refreshPaymentStrikes(this.db, [userId]);
     return this.db.$transaction(async tx => {
       const event = await this.lockedEvent(tx, eventId);
       return this.bookParty(tx, event, userId, guests, price);
@@ -47,6 +49,9 @@ export class SignupsService {
         if (existing[0].quotedPriceCents === price && JSON.stringify(existing.slice(1).map(s => s.guestName)) === JSON.stringify(guests)) return existing;
         throw new ConflictException('You already have a booking. Cancel it before changing your party.');
       }
+      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId}::uuid FOR UPDATE`;
+      const strikeCount = await tx.strike.count({ where: { ...currentStrikes(), userId } });
+      if (strikeCount >= strikeLimit) throw new ConflictException({ code: 'JOIN_BLOCKED_STRIKES', strikeCount, message: 'Joining is blocked because you have 3 or more current strikes, including payment discrepancies, attendance incidents or administrator strikes. Open My profile to review the reasons and contact the organizer about payments. Existing bookings are kept.' });
       if (guests.length > event.maxGuestsPerUser || guests.length + 1 > event.capacity) throw new BadRequestException('Your party exceeds the guest allowance or event capacity.');
       if (price !== event.priceCents) throw new ConflictException('The event price changed. Refresh and review the price before joining.');
       const confirmed = await tx.signup.count({ where: { eventId, status: 'CONFIRMED' } });
@@ -112,11 +117,13 @@ export class SignupsService {
       available -= seats.length;
     }
   }
-  async mine(userId: string) {
+  async mine(userId: string, includeEventId?: string) {
+    if (includeEventId !== undefined) uuid(includeEventId);
     // Select distinct recent events, then retain every complete booking attempt for those events.
     const events = await this.db.signup.groupBy({ by: ['eventId'], where: { userId, guestNumber: 0 }, _max: { queuedAt: true }, orderBy: [{ _max: { queuedAt: 'desc' } }, { eventId: 'asc' }], take: 100 });
-    const history = await this.db.signup.groupBy({ by: ['eventId', 'status', 'cancellationSource'], where: { userId, guestNumber: 0, eventId: { in: events.map(event => event.eventId) } }, _count: true });
-    const seats = await this.db.signup.findMany({ where: { userId, eventId: { in: events.map(event => event.eventId) } }, include: { strikes: { select: { id: true, reason: true, createdAt: true, revokedAt: true, expiresAt: true } }, payment: true, event: { select: { id: true, title: true, description: true, capacity: true, teamCount: true, teamBalancingEnabled: true, organizerContactEmail: true, organizerContactPhone: true, contactCallAllowed: true, contactTextAllowed: true, bibsProvided: true, shirtColorCount: true, minPlayers: true, _count: { select: { signups: { where: { status: 'CONFIRMED' } } } }, startsAt: true, endsAt: true, status: true, cancellationCutoffHours: true, location: true, organizer: { select: appearanceSelect } } } }, orderBy: [{ queuedAt: 'desc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
+    const eventIds = [...new Set([...events.map(event => event.eventId), ...(includeEventId ? [includeEventId] : [])])];
+    const history = await this.db.signup.groupBy({ by: ['eventId', 'status', 'cancellationSource'], where: { userId, guestNumber: 0, eventId: { in: eventIds } }, _count: true });
+    const seats = await this.db.signup.findMany({ where: { userId, eventId: { in: eventIds } }, include: { strikes: { select: { id: true, reason: true, createdAt: true, revokedAt: true, expiresAt: true } }, payment: true, event: { select: { id: true, title: true, description: true, capacity: true, teamCount: true, teamBalancingEnabled: true, organizerContactEmail: true, organizerContactPhone: true, contactCallAllowed: true, contactTextAllowed: true, bibsProvided: true, shirtColorCount: true, minPlayers: true, _count: { select: { signups: { where: { status: 'CONFIRMED' } } } }, startsAt: true, endsAt: true, status: true, cancellationCutoffHours: true, location: true, organizer: { select: appearanceSelect } } } }, orderBy: [{ queuedAt: 'desc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
     return seats.map(seat => { const { _count, ...event } = seat.event; const records = history.filter(record => record.eventId === seat.eventId); return { ...seat, bookingCount: records.reduce((sum, record) => sum + record._count, 0), playerCancellationCount: records.filter(record => record.status === 'CANCELLED' && record.cancellationSource === 'PLAYER').reduce((sum, record) => sum + record._count, 0), legacyCancellationCount: records.filter(record => record.status === 'CANCELLED' && record.cancellationSource === null).reduce((sum, record) => sum + record._count, 0), event: { ...event, confirmed: _count.signups, organizer: appearance(event.organizer) } }; });
   }
   async participants(userId: string, eventId: string) {
@@ -133,16 +140,20 @@ export class SignupsService {
   async roster(userId: string, eventId: string, administrator = false) {
     uuid(eventId);
     if (!await this.db.event.findFirst({ where: { id: eventId, ...(administrator ? {} : { organizerId: userId }) } })) throw new NotFoundException('Event not found.');
+    const accounts = await this.db.signup.findMany({ where: { eventId }, select: { userId: true }, distinct: ['userId'] });
+    const userIds = accounts.map(seat => seat.userId);
+    await refreshPaymentStrikes(this.db, userIds);
+    const counts = await this.db.strike.groupBy({ by: ['userId'], where: { ...currentStrikes(), userId: { in: userIds } }, _count: true });
     const seats = await this.db.signup.findMany({ where: { eventId }, select: { userId: true, cancellationSource: true, teamNumber: true, guestPaymentAcknowledgedAt: true, guestPaymentTermsVersion: true, attendance: true, lateCancellation: true, strikes: { select: { id: true, reason: true, revokedAt: true, expiresAt: true } }, id: true, bookingId: true, guestNumber: true, guestName: true, status: true, queuedAt: true, event: { select: { startsAt: true, endsAt: true, status: true } }, user: { select: { ...appearanceSelect, adminSkillLevel: true, skillLevel: true, email: true, contactEmail: true, phone: true } }, payment: { select: { amountCents: true, status: true, playerPaid: true, playerReviewedAt: true, organizerPaid: true, organizerReviewedAt: true } } }, orderBy: [{ queuedAt: 'asc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
     const cancellations = await this.db.signup.groupBy({ by: ['userId'], where: { eventId, guestNumber: 0, status: 'CANCELLED', cancellationSource: 'PLAYER' }, _count: true });
-    return seats.map(seat => ({ ...seat, user: { ...appearance(seat.user), eventCancellationCount: cancellations.find(record => record.userId === seat.userId)?._count ?? 0, accountName: seat.user.displayName, nickname: seat.user.nickname, skillLevel: seat.user.skillLevel, adminSkillLevel: seat.user.adminSkillLevel, contactEmail: seat.user.contactEmail ?? seat.user.email, phone: seat.user.phone } }));
+    return seats.map(seat => ({ ...seat, user: { ...appearance(seat.user), strikeCount: counts.find(record => record.userId === seat.userId)?._count ?? 0, eventCancellationCount: cancellations.find(record => record.userId === seat.userId)?._count ?? 0, accountName: seat.user.displayName, nickname: seat.user.nickname, skillLevel: seat.user.skillLevel, adminSkillLevel: seat.user.adminSkillLevel, contactEmail: seat.user.contactEmail ?? seat.user.email, phone: seat.user.phone } }));
   }
 }
 
 @Controller('api') @UseGuards(FirebaseGuard)
 export class SignupsController {
   constructor(@Inject(SignupsService) private readonly signups: SignupsService) {}
-  @Get('me/signups') mine(@Req() req: AuthRequest) { return this.signups.mine(req.user.id); }
+  @Get('me/signups') mine(@Req() req: AuthRequest, @Query('includeEventId') includeEventId?: string) { return this.signups.mine(req.user.id, includeEventId); }
   @Get('events/:id/players') players(@Req() req: AuthRequest, @Param('id') id: string) { return this.signups.participants(req.user.id, id); }
   @Post('events/:id/signups') join(@Req() req: AuthRequest, @Param('id') id: string, @Body() value: unknown) { return this.signups.join(req.user.id, id, value); }
   @Post('events/:id/signups/:bookingId/cancel') cancel(@Req() req: AuthRequest, @Param('id') id: string, @Param('bookingId') bookingId: string) { return this.signups.cancel(req.user.id, id, bookingId); }

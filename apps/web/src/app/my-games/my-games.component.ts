@@ -2,7 +2,7 @@ import { OrganizerContactComponent } from '../organizer-contact/organizer-contac
 import { EventGuidanceComponent } from '../event-guidance/event-guidance.component';
 import { LocationMapComponent } from '../location-map/location-map.component';
 import { LocationThumbnailComponent } from '../location-thumbnail/location-thumbnail.component';
-import { Component, inject, signal } from '@angular/core';
+import { Component, Input, OnChanges, inject, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { RegistrationsStore, Seat } from '../../registrations.store';
 import { eventTime } from '../../models';
@@ -16,7 +16,9 @@ import { PlayersComponent } from '../players/players.component';
   templateUrl: './my-games.component.html',
   styleUrl: './my-games.component.scss'
 })
-export class MyGamesComponent {
+export class MyGamesComponent implements OnChanges {
+  @Input() revealHistory = false;
+  ngOnChanges() { if (this.revealHistory) this.showPast.set(true); }
   readonly auth = inject(AuthService);
   readonly store = inject(RegistrationsStore);
   readonly confirming = signal('');

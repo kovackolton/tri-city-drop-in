@@ -5,6 +5,7 @@ import { notifyInvitations } from './event-invitation-notices';
 import { SignupsService } from './signups';
 import { appearance, appearanceSelect } from './profile-fields';
 import { eventGuidanceInput } from './event-guidance';
+import { refreshPaymentStrikes } from './strike-policy';
 import { Database } from './database';
 import { AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
 import { instant, integer, object, text, uuid } from './validation';
@@ -59,11 +60,13 @@ export class EventsController {
   async create(@Req() req: AuthRequest, @Body() value: unknown) {
     const data = eventInput(value);
     const initial = initialPlayersInput(value as Record<string, unknown>);
+    if (initial.mode === 'BOOK') await refreshPaymentStrikes(this.db, initial.ids);
     if (!await this.db.location.findUnique({ where: { id: data.locationId } })) throw new BadRequestException('Location does not exist.');
     return this.db.$transaction(async tx => {
       if (initial.ids.length !== await tx.user.count({ where: { id: { in: initial.ids } } })) throw new BadRequestException('A selected player no longer exists. Refresh the selection.');
       const event = await tx.event.create({ data: { ...data, organizerId: req.user.id } });
       await tx.auditLog.create({ data: { actorId: req.user.id, eventId: event.id, action: 'EVENT_CREATED', details: { initialPlayerMode: initial.mode, initialPlayerIds: initial.ids, teamCount: data.teamCount, teamBalancingEnabled: data.teamBalancingEnabled, status: data.status, priceCents: data.priceCents, bibsProvided: data.bibsProvided, shirtColorCount: data.shirtColorCount, minPlayers: data.minPlayers } } });
+      if (initial.mode === 'BOOK') for (const userId of [...initial.ids].sort()) await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId}::uuid FOR UPDATE`;
       if (initial.mode === 'INVITE' && initial.ids.length) {
         await tx.eventInvitation.createMany({ data: initial.ids.map(userId => ({ eventId: event.id, userId })) });
         await notifyInvitations(tx, event);

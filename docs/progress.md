@@ -1,4 +1,8 @@
-# Current milestone: organizer workspace layout
+# Current milestone: overdue payment reminders and strike restrictions
+
+In-app payment review reminders cover unreviewed paid seats/guests after 24 hours. Automatic payment strikes require an explicit organizer-unpaid review after grace; player reports are informational and organizer-confirmed payment clears the strike. Three current strikes block new booking paths while retaining existing bookings. Prominent access banners, profile strike/event/payment history and staff counts are added, with administrator-only reasoned permanent strikes/corrections on Users. Local migration applied. Build, API compilation, 35 API unit tests, 51 PostgreSQL scenarios, 21 frontend logic tests and 3 theme tests passed; browser review remains manual. See [payment reminders and strike review](payment-reminders-strikes-review.md).
+
+## Previous milestone: organizer workspace layout
 
 All events / Your events now uses compact themed event cards with grouped actions and an integrated Manage players area. Players, Teams and History are separate views. Search/status filters and one expanded player reduce roster clutter while retaining contact, payment, attendance, strikes and party overrides. Team settings/help and event equipment are collapsible. Build, strict frontend harness types and 17 frontend logic tests passed; browser review remains manual. See [workspace layout review](organizer-workspace-layout-review.md).
 

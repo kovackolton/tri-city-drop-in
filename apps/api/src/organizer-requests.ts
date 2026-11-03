@@ -2,6 +2,7 @@ import { BadRequestException, Body, Patch, ConflictException, ForbiddenException
 import { AdministratorGuard, AuthRequest, FirebaseGuard } from './auth';
 import { Database } from './database';
 import { appearanceSelect, appearance } from './profile-fields';
+import { currentStrikes, refreshPaymentStrikes } from './strike-policy';
 import { randomUUID } from 'node:crypto';
 import { integer, object, uuid } from './validation';
 
@@ -37,7 +38,10 @@ export class OrganizerRequestsService {
       this.db.organizerRequest.count({ where: { status: 'PENDING' } })
     ]);
     const page = users.slice(0, 50);
-    return { pendingCount, nextCursor: users.length > 50 ? page[49].id : null, items: page.map(user => ({ id: user.id, ...appearance(user), accountName: user.displayName, nickname: user.nickname, email: user.email, contactEmail: user.contactEmail ?? user.email, phone: user.phone, role: user.role, skillLevel: user.skillLevel, adminSkillLevel: user.adminSkillLevel, organizerRequest: user.organizerRequests[0] ?? null })) };
+    const ids = page.map(user => user.id);
+    await refreshPaymentStrikes(this.db, ids);
+    const strikes = await this.db.strike.groupBy({ by: ['userId'], where: { ...currentStrikes(), userId: { in: ids } }, _count: true });
+    return { pendingCount, nextCursor: users.length > 50 ? page[49].id : null, items: page.map(user => ({ id: user.id, ...appearance(user), accountName: user.displayName, nickname: user.nickname, email: user.email, contactEmail: user.contactEmail ?? user.email, phone: user.phone, role: user.role, strikeCount: strikes.find(row => row.userId === user.id)?._count ?? 0, skillLevel: user.skillLevel, adminSkillLevel: user.adminSkillLevel, organizerRequest: user.organizerRequests[0] ?? null })) };
   }
   async rate(actorId: string, id: string, value: unknown) {
     uuid(id);

@@ -4,13 +4,51 @@ import { DatePipe } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { AuthService, message } from '../../auth.service';
+import { StrikeReport } from '../../strikes.store';
+import { DialogComponent } from '../dialog/dialog.component';
 import { AvatarComponent } from '../avatar/avatar.component';
 type UserRole = 'PLAYER' | 'ORGANIZER' | 'ADMINISTRATOR';
-interface AdminUser { id: string; displayName: string; accountName: string; nickname: string | null; email: string; contactEmail: string; phone: string | null; role: UserRole; skillLevel: number | null; adminSkillLevel: number | null; avatarUrl: string | null; avatarColor: string; organizerRequest: { id: string; requestedAt: string } | null; }
+interface AdminUser { id: string; displayName: string; accountName: string; nickname: string | null; email: string; contactEmail: string; phone: string | null; role: UserRole; strikeCount: number; skillLevel: number | null; adminSkillLevel: number | null; avatarUrl: string | null; avatarColor: string; organizerRequest: { id: string; requestedAt: string } | null; }
 interface UserPage { items: AdminUser[]; nextCursor: string | null; pendingCount: number; }
-@Component({ selector: 'app-admin-users', imports: [FormsModule, AvatarComponent, DatePipe], templateUrl: './admin-users.component.html' })
+@Component({ selector: 'app-admin-users', imports: [FormsModule, AvatarComponent, DatePipe, DialogComponent], templateUrl: './admin-users.component.html' })
 export class AdminUsersComponent implements OnChanges {
   @Input() requestsOnly = false;
+  readonly strikeUser = signal<AdminUser | null>(null);
+  readonly strikeReport = signal<StrikeReport | null>(null);
+  readonly strikeLoading = signal(false);
+  strikeNote = ''; private strikeRequestId = '';
+  async openStrikes(user: AdminUser) {
+    if (this.busy() || this.loading()) return;
+    this.strikeUser.set(user); this.strikeReport.set(null); this.strikeNote = ''; this.strikeRequestId = crypto.randomUUID(); this.error.set('');
+    await this.loadStrikeReport();
+  }
+  private async loadStrikeReport() {
+    const user = this.strikeUser(); if (!user) return;
+    this.strikeLoading.set(true);
+    try {
+      const report = await firstValueFrom(this.http.get<StrikeReport>(`/api/admin/users/${user.id}/strikes`));
+      if (this.strikeUser()?.id === user.id) { this.strikeReport.set(report); this.users.update(users => users.map(item => item.id === user.id ? { ...item, strikeCount: report.count } : item)); }
+    } catch (error) { this.error.set(message(error)); }
+    finally { this.strikeLoading.set(false); }
+  }
+  async issuePermanent() {
+    const user = this.strikeUser(); if (!user || this.busy() || this.strikeLoading() || !this.strikeNote.trim()) return;
+    this.busy.set(true); this.error.set('');
+    try {
+      await firstValueFrom(this.http.post(`/api/admin/users/${user.id}/strikes`, { note: this.strikeNote, requestId: this.strikeRequestId }));
+      this.strikeNote = ''; this.strikeRequestId = crypto.randomUUID(); await this.loadStrikeReport(); this.notice.set('Permanent strike recorded. The player has been notified.');
+    } catch (error) { this.error.set(message(error)); }
+    finally { this.busy.set(false); }
+  }
+  async revokePermanent(id: string) {
+    const user = this.strikeUser(); if (!user || this.busy() || this.strikeLoading() || !this.strikeNote.trim()) return;
+    this.busy.set(true); this.error.set('');
+    try {
+      await firstValueFrom(this.http.post(`/api/admin/users/${user.id}/strikes/${id}/revoke`, { note: this.strikeNote }));
+      this.strikeNote = ''; await this.loadStrikeReport(); this.notice.set('Permanent strike cleared. The original reason remains in history.');
+    } catch (error) { this.error.set(message(error)); }
+    finally { this.busy.set(false); }
+  }
   ratingDrafts: Record<string, number | null> = {};
   roleDrafts: Record<string, UserRole> = {};
   readonly auth = inject(AuthService);

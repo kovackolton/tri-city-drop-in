@@ -1,9 +1,15 @@
 import { Controller, Get, Inject, Injectable, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthRequest, FirebaseGuard } from './auth';
 import { Database } from './database';
+import { paymentGraceMs, refreshPaymentStrikes } from './strike-policy';
 import { uuid } from './validation';
 
 const descriptions: Record<string, string> = {
+  PAYMENT_REVIEW_REMINDER: 'It has been over 24 hours since this event ended. Please mark whether you paid for your seat and any guests. Your report helps you and the organizer resolve differences; the organizer confirms payment received.',
+  PAYMENT_STRIKE: 'The organizer marked a seat unpaid after the 24-hour grace period. This counts toward the 3-strike joining limit. Open My profile for details and contact the organizer to resolve it. Your own payment report does not clear the strike.',
+  ADMIN_PERMANENT_STRIKE: 'An administrator issued a permanent strike. It counts toward the 3-strike joining limit and does not expire. View the reason in My profile.',
+  STRIKE_CLEARED: 'A strike has been cleared. Open My profile for your current count.',
+
   USER_ROLE_CHANGED: 'An administrator changed your account role. Refresh access to update your workspace.',
   EVENT_INVITATION: 'You are invited to this game. Open My games to review the price and accept or decline.',
   ORGANIZER_BOOKED_PLAYER: 'An organizer booked a seat for you. Check My games for confirmed/waitlisted status, price and cancellation. Draft bookings are provisional until publication.',
@@ -23,7 +29,19 @@ export class NotificationsService {
   constructor(@Inject(Database) private readonly db: Database) {}
   // In-app reminders are generated on inbox refresh. No worker or external delivery provider is needed.
   async inbox(userId: string) {
+    await refreshPaymentStrikes(this.db, [userId]);
     const now = new Date();
+    const overdue = { userId, status: 'CONFIRMED' as const, event: { deletedAt: null, status: { in: ['PUBLISHED', 'COMPLETED'] as ('PUBLISHED' | 'COMPLETED')[] }, endsAt: { lt: new Date(now.getTime() - paymentGraceMs) } }, payment: { amountCents: { gt: 0 }, status: { not: 'VOID' as const }, playerPaid: null } };
+    const pending = await this.db.signup.findMany({ where: overdue, select: { eventId: true, bookingId: true }, distinct: ['bookingId'] });
+    const reminderKeys: string[] = [];
+    for (const booking of pending) await this.db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${booking.eventId}::uuid FOR UPDATE`;
+      const seat = await tx.signup.findFirst({ where: { ...overdue, bookingId: booking.bookingId }, include: { event: true } });
+      if (!seat) return;
+      const dedupeKey = `payment-review:${booking.bookingId}`; reminderKeys.push(dedupeKey);
+      await tx.notification.upsert({ where: { dedupeKey }, update: {}, create: { userId, kind: 'PAYMENT_REVIEW_REMINDER', dedupeKey, payload: { eventId: seat.eventId, bookingId: seat.bookingId, title: `Please review payment: ${seat.event.title}` } } });
+    });
+    await this.db.notification.updateMany({ where: { userId, kind: 'PAYMENT_REVIEW_REMINDER', readAt: null, dedupeKey: { notIn: reminderKeys } }, data: { readAt: now } });
     // Also cover administrators appointed after a request was submitted.
     const viewer = await this.db.user.findUnique({ where: { id: userId }, select: { role: true } });
     if (viewer?.role === 'ADMINISTRATOR') {
@@ -52,8 +70,8 @@ export class NotificationsService {
     const ids = rows.map(row => (row.payload as { eventId?: string }).eventId).filter((id): id is string => !!id && /^[0-9a-f-]{36}$/i.test(id));
     const events = await this.db.event.findMany({ where: { id: { in: ids } }, select: { id: true, title: true } });
     return { unread, items: rows.map(row => {
-      const payload = row.payload as { eventId?: string; title?: string };
-      return { id: row.id, kind: row.kind, title: payload.title ?? events.find(e => e.id === payload.eventId)?.title ?? 'Game update', message: descriptions[row.kind] ?? 'There is an update about your game.', createdAt: row.createdAt, readAt: row.readAt };
+      const payload = row.payload as { eventId?: string; bookingId?: string; title?: string; note?: string };
+      return { id: row.id, eventId: payload.eventId ?? null, bookingId: payload.bookingId ?? null, kind: row.kind, title: payload.title ?? events.find(e => e.id === payload.eventId)?.title ?? 'Game update', message: descriptions[row.kind] ?? 'There is an update about your game.', createdAt: row.createdAt, readAt: row.readAt };
     }) };
   }
   async read(userId: string, id?: string) {

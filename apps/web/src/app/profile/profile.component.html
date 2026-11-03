@@ -1,5 +1,6 @@
 <h1 class="text-3xl font-bold">{{ auth.profile()?.profileCompletedAt ? 'My profile' : 'Set up your player profile' }}</h1>
 <p class="mt-2 text-muted">Choose how you appear on the pitch and how your organizers can reach you.</p>
+<app-strike-panel />
 <form #profileForm="ngForm" (ngSubmit)="save(profileForm)" class="max-w-2xl mt-6 space-y-5">
   <section class="panel">
     <div class="flex items-center gap-4"><app-avatar [name]="playerName()" [color]="avatarColor" [photoUrl]="useGooglePhoto ? auth.profile()?.avatarUrl : null" [size]="72" /><div><h2 class="text-lg font-bold">Your player profile</h2><p class="text-sm text-muted break-all">{{ auth.profile()?.email }}</p><p class="text-xs mt-1 text-accent">{{ auth.profile()?.role === 'ADMINISTRATOR' ? 'Administrator' : auth.profile()?.role === 'ORGANIZER' ? 'Organizer' : 'Player' }}</p></div></div>

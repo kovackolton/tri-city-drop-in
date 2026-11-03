@@ -3,6 +3,7 @@ import { AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
 import { Database } from './database';
 import { SignupsService } from './signups';
 import { integer, object, uuid } from './validation';
+import { refreshPaymentStrikes } from './strike-policy';
 import { appearance, appearanceSelect } from './profile-fields';
 @Injectable()
 export class EventInvitationsService {
@@ -18,6 +19,7 @@ export class EventInvitationsService {
   async respond(userId: string, id: string, action: 'accept' | 'decline', value?: unknown) {
     uuid(id);
     const price = action === 'accept' ? integer(object(value, ['expectedPriceCents']).expectedPriceCents, 'Expected price', 0, 2147483647) : 0;
+    if (action === 'accept') await refreshPaymentStrikes(this.db, [userId]);
     return this.db.$transaction(async tx => {
       const first = await tx.eventInvitation.findFirst({ where: { id, userId } });
       if (!first) throw new NotFoundException('Invitation not found.');

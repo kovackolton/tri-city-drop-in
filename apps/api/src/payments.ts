@@ -2,6 +2,7 @@ import { BadRequestException, Body, ConflictException, Controller, Inject, Injec
 import { Prisma } from '@prisma/client';
 import { AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
 import { Database } from './database';
+import { syncEventPaymentStrikes } from './strike-policy';
 import { object, uuid } from './validation';
 
 export function paymentReviewInput(value: unknown) {
@@ -28,19 +29,21 @@ export class PaymentsService {
       const payment = signup.payment;
       if (!payment || payment.amountCents === 0 || payment.status === 'VOID') throw new ConflictException('This seat does not require a payment review.');
       const oldPaid = side === 'player' ? payment.playerPaid : payment.organizerPaid;
-      if (oldPaid === paid) return payment; // Identical retries preserve the timestamp and audit history.
+      if (oldPaid === paid) { if (side === 'organizer') await syncEventPaymentStrikes(tx, signup.eventId); return payment; } // Identical retries preserve the timestamp and audit history.
       const now = new Date();
       const updated = await tx.paymentObligation.update({ where: { id: payment.id }, data: side === 'player'
         ? { playerPaid: paid, playerReviewedAt: now }
         : { organizerPaid: paid, organizerReviewedAt: now, organizerReviewedById: actorId, status: paid ? 'PAID' : 'UNPAID' } });
-      if (updated.playerPaid !== false || updated.organizerPaid !== false) {
+      if (side === 'organizer' && updated.organizerPaid === true) {
         const strikes = await tx.strike.findMany({ where: { signupId, reason: 'MISSED_PAYMENT', revokedAt: null } });
         for (const strike of strikes) {
           await tx.strike.update({ where: { id: strike.id }, data: { revokedAt: now } });
-          await tx.auditLog.create({ data: { actorId, eventId: signup.eventId, action: 'STRIKE_REVOKED', details: { signupId, strikeId: strike.id, note: 'Payment review corrected; unpaid agreement no longer holds.' } } });
+          await tx.notification.create({ data: { userId: signup.userId, kind: 'STRIKE_CLEARED', dedupeKey: `strike-cleared:${strike.id}:${now.getTime()}`, payload: { eventId: signup.eventId, title: `Payment strike cleared: ${signup.event.title}` } } });
+          await tx.auditLog.create({ data: { actorId, eventId: signup.eventId, action: 'STRIKE_REVOKED', details: { signupId, strikeId: strike.id, note: 'Organizer confirmed payment received.' } } });
         }
       }
       await tx.auditLog.create({ data: { actorId, eventId: signup.eventId, action: side === 'player' ? 'PLAYER_PAYMENT_REVIEW' : 'ORGANIZER_PAYMENT_REVIEW', details: { signupId, paymentId: payment.id, previousPaid: oldPaid, paid } } });
+      if (side === 'organizer') await syncEventPaymentStrikes(tx, signup.eventId);
       return updated;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, maxWait: 10000, timeout: 15000 });
   }

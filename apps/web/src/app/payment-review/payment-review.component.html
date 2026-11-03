@@ -11,7 +11,7 @@
         <button class="secondary mt-3" [disabled]="busy()" (click)="openReview()">{{ side === 'organizer' ? 'Review payment received' : 'Review payment' }}</button>
         <app-dialog [open]="showReview()" title="Payment review" [busy]="busy()" (closed)="showReview.set(false)">
           <p class="font-semibold">{{ playerName || 'Selected seat' }}</p><p class="text-sm mt-2">{{ payment.amountCents / 100 | currency:'USD':'USD ' }} per seat</p>
-          <p class="text-sm text-muted mt-3">{{ side === 'player' ? 'Record whether you paid for this seat.' : 'Record whether you received payment for this seat.' }} Each review is independent and can be corrected later.</p>
+          <p class="text-sm text-muted mt-3">{{ side === 'player' ? 'Record whether you paid for this seat.' : 'Record whether you received payment for this seat.' }} Your own report is visible to the organizer. Only organizer-confirmed payment clears payment strikes. After 24 hours, an organizer-marked unpaid seat receives a strike even if the player reports paid.</p>
           @if (disagrees()) { <p class="notice mt-3 text-sm">Player and organizer reports currently differ.</p> }
           <div class="flex flex-wrap gap-3 mt-5"><button class="primary" [disabled]="busy()" (click)="review(true)">{{ side === 'player' ? 'I paid' : 'Payment received' }}</button><button class="secondary" [disabled]="busy()" (click)="review(false)">{{ side === 'player' ? 'I have not paid' : 'Not received' }}</button></div>
           @if (error()) { <p role="alert" class="notice error mt-3">{{ error() }}</p> }

@@ -180,8 +180,12 @@ model Strike {
   id        String @id @default(uuid()) @db.Uuid
   userId    String @db.Uuid
   user      User @relation("StrikeSubject", fields: [userId], references: [id], onDelete: Restrict)
-  signupId  String @db.Uuid
-  signup    Signup @relation(fields: [signupId], references: [id], onDelete: Restrict)
+  signupId  String? @db.Uuid
+  signup    Signup? @relation(fields: [signupId], references: [id], onDelete: Restrict)
+  permanent Boolean @default(false)
+  automatic Boolean @default(false)
+  note String?
+  adminRequestId String? @unique @db.Uuid
   reason    String
   issuedById String? @db.Uuid
   issuedBy  User? @relation("StrikeIssuer", fields: [issuedById], references: [id], onDelete: Restrict)
