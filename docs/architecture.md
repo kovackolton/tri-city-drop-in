@@ -1,5 +1,7 @@
 # Architecture and database draft
 
+Deployment now follows the [GCP and GitHub Actions deployment guide](gcp-deployment-guide.md). This document retains historical milestone proposals; current feature reviews supersede older strike/payment-policy descriptions below.
+
 ## Stack
 
 Angular 21 with Tailwind 4 and NgRx Signal Store; RxJS for HTTP streams. NestJS 11 with Prisma 6 and PostgreSQL 16. Node 22 containers. Versions are a baseline, not a claim to use the newest major releases. The lockfile should be generated and committed after installation is verified.
@@ -52,6 +54,6 @@ Payment obligations, independent post-event reviews and manual organizer strikes
 
 Create notification outbox rows in the same transaction as a promotion or event change. A worker will claim committed rows, send, and retry with backoff. Delivery needs idempotency and must handle provider acceptance followed by a worker crash. Notification types: promotion, event cancellation/change and reminder. Reminder scheduling must use dedupe keys and recheck the event and signup before sending.
 
-Production plan: separate Cloud Run services for API and web, Cloud SQL PostgreSQL, Artifact Registry, Secret Manager, least-privilege service accounts, Cloud Tasks for delivery, and Cloud Scheduler for reminders. Firebase remains the authentication service. Select region and project before provisioning. Use Cloud SQL connection integration and managed secrets; run migrations as a job with a separate privileged database identity.
+Current deployment plan: one public Cloud Run service containing the API, Angular assets and server-rendered event previews; Cloud SQL PostgreSQL; Artifact Registry; Secret Manager; dedicated runtime/migration/deployment identities; and GitHub Actions using Workload Identity Federation. Firebase remains the authentication service. Use Cloud SQL socket integration and managed secrets; run migrations as a separate job with a schema-owning database identity. See the [step-by-step deployment guide](gcp-deployment-guide.md) for provisioning, CI/CD, bootstrap, verification and rollback.
 
-The supplied nginx configuration uses Compose service DNS (`api`), so it is for local Docker only. Before Cloud Run deployment, configure same-origin `/api` routing through a load balancer or provide the deployed API origin to the frontend and restrict CORS. No production deployment configuration is claimed in this milestone.
+The supplied nginx configuration uses Compose service DNS (`api`) and remains for local Docker only. `Dockerfile.cloudrun` provides same-origin routing directly, so the initial deployment needs neither that nginx configuration nor a load balancer. The combined image has been tested locally; account provisioning and the guide's GitHub workflow remain deployment steps. Current in-app notifications/reminders are refresh-driven. Cloud Tasks/Scheduler and external delivery workers are future options if background delivery is added, not prerequisites for the current app.
