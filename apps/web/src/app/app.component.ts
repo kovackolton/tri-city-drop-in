@@ -3,6 +3,7 @@ import { EventGuidanceComponent } from './event-guidance/event-guidance.componen
 import { LocationMapComponent } from './location-map/location-map.component';
 import { LocationThumbnailComponent } from './location-thumbnail/location-thumbnail.component';
 import { Component, effect, inject, OnInit, OnDestroy, signal, untracked } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { CurrencyPipe } from '@angular/common';
 import { AuthService } from '../auth.service';
 import { OrganizerComponent } from './organizer/organizer.component';
@@ -16,10 +17,10 @@ import { AvatarComponent } from './avatar/avatar.component';
 import { MyGamesComponent } from './my-games/my-games.component';
 
 import { NotificationsStore } from '../notifications.store';
-import { EventsStore } from '../events.store';
+import { EventsStore, defaultGameFilters } from '../events.store';
 
 @Component({
-  selector: 'app-root', imports: [CurrencyPipe, ProfileComponent, AvatarComponent, OrganizerComponent, SignupComponent, MyGamesComponent, SignInComponent, LocationMapComponent, LocationThumbnailComponent, AdminUsersComponent, EventGuidanceComponent, OrganizerContactComponent],
+  selector: 'app-root', imports: [FormsModule, CurrencyPipe, ProfileComponent, AvatarComponent, OrganizerComponent, SignupComponent, MyGamesComponent, SignInComponent, LocationMapComponent, LocationThumbnailComponent, AdminUsersComponent, EventGuidanceComponent, OrganizerContactComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss'
 })
@@ -32,6 +33,12 @@ export class AppComponent implements OnInit, OnDestroy {
   readonly page = signal<'games' | 'mygames' | 'profile' | 'organizer' | 'notifications' | 'signin' | 'users'>('games');
   readonly userRequestsOnly = signal(false);
   readonly time = eventTime;
+  filters = defaultGameFilters();
+  cities() { return [...new Set(this.store.locations().map(location => location.city).filter((city): city is string => !!city))].sort((a, b) => a.localeCompare(b)); }
+  applyFilters() { void this.store.load(this.filters); }
+  resetFilters() { this.filters = defaultGameFilters(); this.applyFilters(); }
+  refreshGames() { void this.store.load(); void this.store.loadFilters(); }
+  quickDate(period: 'day' | 'week') { this.filters = { ...this.filters, period, date: defaultGameFilters().date }; this.applyFilters(); }
   constructor() {
     effect(() => {
       const id = this.auth.profile()?.id;
@@ -46,9 +53,9 @@ export class AppComponent implements OnInit, OnDestroy {
       });
     });
   }
-  ngOnInit() { void this.store.load(); this.poll = setInterval(() => { void this.notifications.load(); }, 30000); }
+  ngOnInit() { void this.store.load(); void this.store.loadFilters(); this.poll = setInterval(() => { void this.notifications.load(); }, 30000); }
   ngOnDestroy() { if (this.poll) clearInterval(this.poll); }
-  navigate(page: 'games' | 'mygames' | 'profile' | 'organizer' | 'notifications' | 'signin' | 'users') { this.page.set(page); if (page === 'notifications') void this.notifications.load(); if (page === 'games') { void this.store.load(); if (this.auth.profile()) void this.registrations.load(); } if (page === 'mygames') void this.registrations.load(); }
+  navigate(page: 'games' | 'mygames' | 'profile' | 'organizer' | 'notifications' | 'signin' | 'users') { this.page.set(page); if (page === 'notifications') void this.notifications.load(); if (page === 'games') { void this.store.load(); void this.store.loadFilters(); if (this.auth.profile()) void this.registrations.load(); } if (page === 'mygames') void this.registrations.load(); }
   reviewOrganizerRequests() { this.userRequestsOnly.set(true); this.navigate('users'); }
   openUsers() { this.userRequestsOnly.set(false); this.navigate('users'); }
   async logout() { await this.auth.logout(); this.page.set('games'); }

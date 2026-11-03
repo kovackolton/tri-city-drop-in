@@ -1,4 +1,5 @@
 import { Body, ConflictException, Controller, Get, Inject, Injectable, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { randomInt } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
 import { Database } from './database';
@@ -11,6 +12,32 @@ export function balanceTeams(players: { id: string; rating: number | null }[], c
     team.ids.push(player.id); team.total += player.rating ?? 3;
   }
   return teams;
+}
+// Compare prior teammate pairs, rather than just team labels, to avoid a cosmetic shuffle.
+export function reshuffleTeams(players: { id: string; rating: number | null; teamNumber: number | null }[], count: number, draw: (upper: number) => number = randomInt) {
+  const ratings = new Map(players.map(player => [player.id, player.rating ?? 3]));
+  const prior = new Map(players.map(player => [player.id, player.teamNumber]));
+  const candidates = [balanceTeams(players, count)];
+  for (let attempt = 0; attempt < 120; attempt++) {
+    const shuffled = [...players];
+    for (let i = shuffled.length - 1; i > 0; i--) { const j = draw(i + 1); [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]; }
+    const teams = Array.from({ length: count }, (_, i) => ({ number: i + 1, ids: [] as string[], total: 0 }));
+    shuffled.forEach((player, index) => { const team = teams[index % count]; team.ids.push(player.id); team.total += ratings.get(player.id)!; });
+    candidates.push(teams);
+  }
+  const scored = candidates.map(teams => {
+    const averages = teams.filter(team => team.ids.length).map(team => team.total / team.ids.length);
+    let pairs = 0, unchanged = 0;
+    for (const team of teams) {
+      const groups = new Map<number, number>();
+      for (const id of team.ids) { const old = prior.get(id); if (old != null) groups.set(old, (groups.get(old) ?? 0) + 1); if (old === team.number) unchanged++; }
+      for (const size of groups.values()) pairs += size * (size - 1) / 2;
+    }
+    return { teams, spread: averages.length ? Math.max(...averages) - Math.min(...averages) : 0, pairs, unchanged };
+  });
+  const bestSpread = Math.min(...scored.map(candidate => candidate.spread));
+  // Allow up to one self-rating point beyond the best candidate's average spread to make room for new teammates.
+  return scored.filter(candidate => candidate.spread <= bestSpread + 1 + Number.EPSILON).sort((a, b) => a.pairs - b.pairs || a.spread - b.spread || a.unchanged - b.unchanged)[0].teams;
 }
 @Injectable()
 export class TeamsService {
@@ -57,14 +84,16 @@ export class TeamsService {
       return updated;
     });
   }
-  async balance(actorId: string, id: string, administrator = false) {
+  async balance(actorId: string, id: string, administrator = false, reshuffle = false) {
     return this.db.$transaction(async tx => {
       const event = await this.locked(tx, actorId, id, administrator);
       if (!event.teamBalancingEnabled) throw new ConflictException('Enable rating-based team balancing first.');
-      const seats = await tx.signup.findMany({ where: { eventId: id, status: 'CONFIRMED' }, select: { id: true, guestNumber: true, user: { select: { skillLevel: true } } } });
-      const teams = balanceTeams(seats.map(seat => ({ id: seat.id, rating: seat.guestNumber ? null : seat.user.skillLevel })), event.teamCount);
+      const seats = await tx.signup.findMany({ where: { eventId: id, status: 'CONFIRMED' }, select: { id: true, teamNumber: true, guestNumber: true, user: { select: { skillLevel: true } } } });
+      if (reshuffle && seats.length < 2) throw new ConflictException('At least two confirmed players are needed to reshuffle.');
+      const players = seats.map(seat => ({ id: seat.id, teamNumber: seat.teamNumber, rating: seat.guestNumber ? null : seat.user.skillLevel }));
+      const teams = reshuffle ? reshuffleTeams(players, event.teamCount) : balanceTeams(players, event.teamCount);
       for (const team of teams) if (team.ids.length) await tx.signup.updateMany({ where: { id: { in: team.ids } }, data: { teamNumber: team.number } });
-      await tx.auditLog.create({ data: { actorId, eventId: id, action: 'TEAMS_AUTO_BALANCED', details: { neutralRating: 3, teams } } });
+      await tx.auditLog.create({ data: { actorId, eventId: id, action: reshuffle ? 'TEAMS_RESHUFFLED' : 'TEAMS_AUTO_BALANCED', details: { neutralRating: 3, teams } } });
       return teams.map(team => ({ number: team.number, count: team.ids.length }));
     }, { maxWait: 10000, timeout: 15000 });
   }
@@ -75,5 +104,6 @@ export class TeamsController {
   @Get() data(@Req() req: AuthRequest, @Param('id') id: string) { return this.service.data(req.user.id, id, req.user.role === 'ADMINISTRATOR'); }
   @Post('settings') settings(@Req() req: AuthRequest, @Param('id') id: string, @Body() b: unknown) { return this.service.settings(req.user.id, id, b, req.user.role === 'ADMINISTRATOR'); }
   @Post('assign') assign(@Req() req: AuthRequest, @Param('id') id: string, @Body() b: unknown) { return this.service.assign(req.user.id, id, b, req.user.role === 'ADMINISTRATOR'); }
+  @Post('reshuffle') reshuffle(@Req() req: AuthRequest, @Param('id') id: string) { return this.service.balance(req.user.id, id, req.user.role === 'ADMINISTRATOR', true); }
   @Post('balance') balance(@Req() req: AuthRequest, @Param('id') id: string) { return this.service.balance(req.user.id, id, req.user.role === 'ADMINISTRATOR'); }
 }

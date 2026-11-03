@@ -5,7 +5,8 @@ import { ExecutionContext, ForbiddenException, UnauthorizedException, ServiceUna
 import { User } from '@prisma/client';
 import { AdministratorGuard, AuthRequest, FirebaseGuard, OrganizerGuard, TokenVerifier, tokenFailure } from '../src/auth';
 import { Database } from '../src/database';
-import { balanceTeams } from '../src/teams';
+import { eventFilters, matchesEventDate } from '../src/event-filters';
+import { balanceTeams, reshuffleTeams } from '../src/teams';
 import { eventOptionsInput, initialPlayersInput } from '../src/event-options';
 import { eventGuidanceInput } from '../src/event-guidance';
 import { eventInput, EventsController } from '../src/events';
@@ -233,4 +234,24 @@ test('initial player lists validate identity, mode, uniqueness and bounds', () =
   const id = valid().locationId;
   assert.deepEqual(initialPlayersInput({ initialPlayerIds: [id], initialPlayerMode: 'BOOK' }), { ids: [id], mode: 'BOOK' });
   for (const input of [{ initialPlayerIds: [id, id] }, { initialPlayerIds: ['not an id'] }, { initialPlayerIds: Array(101).fill(id) }, { initialPlayerMode: 'OTHER' }]) assert.throws(() => initialPlayersInput(input));
+});
+
+
+test('event date filters follow venue calendars and Monday-to-Sunday weeks across UTC boundaries', () => {
+  const day = eventFilters({ period: 'day', date: '2027-01-03' });
+  assert.equal(matchesEventDate(new Date('2027-01-04T01:00:00Z'), 'America/Toronto', day), true);
+  assert.equal(matchesEventDate(new Date('2027-01-04T01:00:00Z'), 'UTC', day), false);
+  const week = eventFilters({ period: 'week', date: '2027-01-03' });
+  assert.equal(matchesEventDate(new Date('2026-12-28T17:00:00Z'), 'America/Toronto', week), true);
+  assert.equal(matchesEventDate(new Date('2027-01-04T05:00:00Z'), 'America/Toronto', week), false);
+  for (const value of [{ period: 'day' }, { period: 'month' }, { date: '2027-02-30' }, { freeOnly: 'yes' }, { organizerId: 'not-a-uuid' }, { city: ['Midland'] }]) assert.throws(() => eventFilters(value));
+});
+test('reshuffling seeks new teammates while retaining rating-aware balance and even team sizes', () => {
+  let seed = 12345; const draw = (upper: number) => { seed = (seed * 1664525 + 1013904223) >>> 0; return Math.floor(seed / 4294967296 * upper); };
+  const players = Array.from({ length: 8 }, (_, i) => ({ id: String(i), rating: [5, 4, 3, 2, 5, 4, 3, 2][i], teamNumber: i < 4 ? 1 : 2 }));
+  const result = reshuffleTeams(players, 2, draw);
+  assert.equal(new Set(result.flatMap(team => team.ids)).size, 8); assert.ok(result.every(team => team.ids.length === 4));
+  assert.ok(result.every(team => team.ids.some(id => Number(id) < 4) && team.ids.some(id => Number(id) >= 4)));
+  const averages = result.map(team => team.total / team.ids.length); assert.ok(Math.abs(averages[0] - averages[1]) <= 1);
+  assert.equal(players[0].teamNumber, 1);
 });

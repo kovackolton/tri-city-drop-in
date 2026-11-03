@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Inject, Param, Post, Req, UseGuards, BadRequestException } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Post, Query, Req, UseGuards, BadRequestException } from '@nestjs/common';
+import { eventFilters, matchesEventDate } from './event-filters';
 import { eventOptionsInput, initialPlayersInput } from './event-options';
 import { notifyInvitations } from './event-invitation-notices';
 import { SignupsService } from './signups';
@@ -26,17 +27,26 @@ export function eventInput(value: unknown) {
 export class EventsController {
   constructor(@Inject(Database) private readonly db: Database, @Inject(SignupsService) private readonly signups: SignupsService = new SignupsService(db)) {}
   @Get('health') health() { return { status: 'ok' }; }
-  @Get('events') async events() {
+  @Get('events') async events(@Query() query: Record<string, unknown> = {}) {
+    const filters = eventFilters(query);
     const events = await this.db.event.findMany({
-      where: { deletedAt: null, status: 'PUBLISHED', startsAt: { gte: new Date() } }, orderBy: { startsAt: 'asc' }, take: 100,
+      where: { deletedAt: null, status: 'PUBLISHED', startsAt: { gte: new Date() }, ...(filters.locationId ? { locationId: filters.locationId } : {}), ...(filters.organizerId ? { organizerId: filters.organizerId } : {}), ...(filters.city ? { location: { city: { equals: filters.city, mode: 'insensitive' } } } : {}), ...(filters.freeOnly ? { priceCents: 0 } : {}), ...(filters.search ? { OR: [{ title: { contains: filters.search, mode: 'insensitive' } }, { location: { name: { contains: filters.search, mode: 'insensitive' } } }, { location: { address: { contains: filters.search, mode: 'insensitive' } } }] } : {}) }, orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
       include: { organizer: { select: appearanceSelect }, location: true, signups: { where: { status: { in: ['CONFIRMED', 'WAITLISTED'] } }, select: { status: true } } }
     });
-    return events.map(({ signups, ...e }) => ({
-      organizer: appearance(e.organizer), teamCount: e.teamCount, teamBalancingEnabled: e.teamBalancingEnabled, organizerContactEmail: e.organizerContactEmail, organizerContactPhone: e.organizerContactPhone, contactCallAllowed: e.contactCallAllowed, contactTextAllowed: e.contactTextAllowed, id: e.id, title: e.title, description: e.description, startsAt: e.startsAt, endsAt: e.endsAt,
+    return events.filter(event => matchesEventDate(event.startsAt, event.location.timezone, filters)).map(({ signups, ...e }) => ({
+      locationId: e.locationId, city: e.location.city, organizerId: e.organizerId, organizer: appearance(e.organizer), teamCount: e.teamCount, teamBalancingEnabled: e.teamBalancingEnabled, organizerContactEmail: e.organizerContactEmail, organizerContactPhone: e.organizerContactPhone, contactCallAllowed: e.contactCallAllowed, contactTextAllowed: e.contactTextAllowed, id: e.id, title: e.title, description: e.description, startsAt: e.startsAt, endsAt: e.endsAt,
       priceCents: e.priceCents, currency: e.currency, timezone: e.location.timezone, maxGuestsPerUser: e.maxGuestsPerUser, cancellationCutoffHours: e.cancellationCutoffHours,
       bibsProvided: e.bibsProvided, shirtColorCount: e.shirtColorCount, minPlayers: e.minPlayers, capacity: e.capacity, location: e.location.name, address: e.location.address, photoUrl: e.location.photoUrl, photoCredit: e.location.photoCredit, mapEmbedUrl: e.location.mapEmbedUrl,
       confirmed: signups.filter(s => s.status === 'CONFIRMED').length, waitlisted: signups.filter(s => s.status === 'WAITLISTED').length
-    }));
+    })).filter(event => !filters.spacesOnly || event.confirmed < event.capacity && event.waitlisted === 0).slice(0, 100);
+  }
+  @Get('events/filters') async filters() {
+    const active = { deletedAt: null, status: 'PUBLISHED' as const, startsAt: { gte: new Date() } };
+    const [locations, users] = await this.db.$transaction([
+      this.db.location.findMany({ where: { events: { some: active } }, select: { id: true, name: true, city: true }, orderBy: { name: 'asc' } }),
+      this.db.user.findMany({ where: { events: { some: active } }, select: { id: true, displayName: true, nickname: true }, orderBy: { displayName: 'asc' } })
+    ]);
+    return { locations, organizers: users.map(user => ({ id: user.id, name: user.nickname ?? user.displayName })) };
   }
   @Get('organizer/events') @UseGuards(FirebaseGuard, OrganizerGuard)
   async ownEvents(@Req() req: AuthRequest) {

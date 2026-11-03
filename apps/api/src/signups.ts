@@ -72,7 +72,7 @@ export class SignupsService {
       if (seats.every(s => s.status === 'CANCELLED')) return { status: 'CANCELLED', lateCancellation: seats[0].lateCancellation };
       const now = new Date();
       const lateCancellation = event.status === 'PUBLISHED' && organizerReason === undefined && seats[0].status === 'CONFIRMED' && now.getTime() >= event.startsAt.getTime() - event.cancellationCutoffHours * 3600000;
-      await tx.signup.updateMany({ where: { eventId, bookingId }, data: { status: 'CANCELLED', teamNumber: null, cancelledAt: now, lateCancellation } });
+      await tx.signup.updateMany({ where: { eventId, bookingId }, data: { status: 'CANCELLED', cancellationSource: organizerReason === undefined ? 'PLAYER' : 'ORGANIZER', teamNumber: null, cancelledAt: now, lateCancellation } });
       await tx.paymentObligation.updateMany({ where: { signupId: { in: seats.map(s => s.id) } }, data: { status: 'VOID' } });
       if (organizerReason !== undefined) {
         await tx.auditLog.create({ data: { actorId: userId, eventId, action: 'ORGANIZER_REMOVED_PARTY', details: { bookingId, reason: organizerReason } } });
@@ -113,10 +113,11 @@ export class SignupsService {
     }
   }
   async mine(userId: string) {
-    // Limit by whole bookings so pagination never cuts off a party's guests.
-    const hosts = await this.db.signup.findMany({ where: { userId, guestNumber: 0 }, select: { bookingId: true }, orderBy: [{ queuedAt: 'desc' }, { id: 'desc' }], take: 100 });
-    const seats = await this.db.signup.findMany({ where: { userId, bookingId: { in: hosts.map(h => h.bookingId) } }, include: { strikes: { select: { id: true, reason: true, createdAt: true, revokedAt: true, expiresAt: true } }, payment: true, event: { select: { id: true, title: true, description: true, capacity: true, teamCount: true, teamBalancingEnabled: true, organizerContactEmail: true, organizerContactPhone: true, contactCallAllowed: true, contactTextAllowed: true, bibsProvided: true, shirtColorCount: true, minPlayers: true, _count: { select: { signups: { where: { status: 'CONFIRMED' } } } }, startsAt: true, endsAt: true, status: true, cancellationCutoffHours: true, location: true, organizer: { select: appearanceSelect } } } }, orderBy: [{ queuedAt: 'desc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
-    return seats.map(seat => { const { _count, ...event } = seat.event; return { ...seat, event: { ...event, confirmed: _count.signups, organizer: appearance(event.organizer) } }; });
+    // Select distinct recent events, then retain every complete booking attempt for those events.
+    const events = await this.db.signup.groupBy({ by: ['eventId'], where: { userId, guestNumber: 0 }, _max: { queuedAt: true }, orderBy: [{ _max: { queuedAt: 'desc' } }, { eventId: 'asc' }], take: 100 });
+    const history = await this.db.signup.groupBy({ by: ['eventId', 'status', 'cancellationSource'], where: { userId, guestNumber: 0, eventId: { in: events.map(event => event.eventId) } }, _count: true });
+    const seats = await this.db.signup.findMany({ where: { userId, eventId: { in: events.map(event => event.eventId) } }, include: { strikes: { select: { id: true, reason: true, createdAt: true, revokedAt: true, expiresAt: true } }, payment: true, event: { select: { id: true, title: true, description: true, capacity: true, teamCount: true, teamBalancingEnabled: true, organizerContactEmail: true, organizerContactPhone: true, contactCallAllowed: true, contactTextAllowed: true, bibsProvided: true, shirtColorCount: true, minPlayers: true, _count: { select: { signups: { where: { status: 'CONFIRMED' } } } }, startsAt: true, endsAt: true, status: true, cancellationCutoffHours: true, location: true, organizer: { select: appearanceSelect } } } }, orderBy: [{ queuedAt: 'desc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
+    return seats.map(seat => { const { _count, ...event } = seat.event; const records = history.filter(record => record.eventId === seat.eventId); return { ...seat, bookingCount: records.reduce((sum, record) => sum + record._count, 0), playerCancellationCount: records.filter(record => record.status === 'CANCELLED' && record.cancellationSource === 'PLAYER').reduce((sum, record) => sum + record._count, 0), legacyCancellationCount: records.filter(record => record.status === 'CANCELLED' && record.cancellationSource === null).reduce((sum, record) => sum + record._count, 0), event: { ...event, confirmed: _count.signups, organizer: appearance(event.organizer) } }; });
   }
   async participants(userId: string, eventId: string) {
     uuid(eventId);
@@ -132,8 +133,9 @@ export class SignupsService {
   async roster(userId: string, eventId: string, administrator = false) {
     uuid(eventId);
     if (!await this.db.event.findFirst({ where: { id: eventId, ...(administrator ? {} : { organizerId: userId }) } })) throw new NotFoundException('Event not found.');
-    const seats = await this.db.signup.findMany({ where: { eventId }, select: { teamNumber: true, guestPaymentAcknowledgedAt: true, guestPaymentTermsVersion: true, attendance: true, lateCancellation: true, strikes: { select: { id: true, reason: true, revokedAt: true, expiresAt: true } }, id: true, bookingId: true, guestNumber: true, guestName: true, status: true, queuedAt: true, event: { select: { startsAt: true, endsAt: true, status: true } }, user: { select: { ...appearanceSelect, skillLevel: true, email: true, contactEmail: true, phone: true } }, payment: { select: { amountCents: true, status: true, playerPaid: true, playerReviewedAt: true, organizerPaid: true, organizerReviewedAt: true } } }, orderBy: [{ queuedAt: 'asc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
-    return seats.map(seat => ({ ...seat, user: { ...appearance(seat.user), accountName: seat.user.displayName, nickname: seat.user.nickname, skillLevel: seat.user.skillLevel, contactEmail: seat.user.contactEmail ?? seat.user.email, phone: seat.user.phone } }));
+    const seats = await this.db.signup.findMany({ where: { eventId }, select: { userId: true, cancellationSource: true, teamNumber: true, guestPaymentAcknowledgedAt: true, guestPaymentTermsVersion: true, attendance: true, lateCancellation: true, strikes: { select: { id: true, reason: true, revokedAt: true, expiresAt: true } }, id: true, bookingId: true, guestNumber: true, guestName: true, status: true, queuedAt: true, event: { select: { startsAt: true, endsAt: true, status: true } }, user: { select: { ...appearanceSelect, skillLevel: true, email: true, contactEmail: true, phone: true } }, payment: { select: { amountCents: true, status: true, playerPaid: true, playerReviewedAt: true, organizerPaid: true, organizerReviewedAt: true } } }, orderBy: [{ queuedAt: 'asc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
+    const cancellations = await this.db.signup.groupBy({ by: ['userId'], where: { eventId, guestNumber: 0, status: 'CANCELLED', cancellationSource: 'PLAYER' }, _count: true });
+    return seats.map(seat => ({ ...seat, user: { ...appearance(seat.user), eventCancellationCount: cancellations.find(record => record.userId === seat.userId)?._count ?? 0, accountName: seat.user.displayName, nickname: seat.user.nickname, skillLevel: seat.user.skillLevel, contactEmail: seat.user.contactEmail ?? seat.user.email, phone: seat.user.phone } }));
   }
 }
 

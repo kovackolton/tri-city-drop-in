@@ -14,6 +14,7 @@ import { SignupComponent } from '../src/app/signup/signup.component';
 import { Game } from '../src/models';
 import { MyGamesComponent } from '../src/app/my-games/my-games.component';
 import { AuthService } from '../src/auth.service';
+import { EventsStore, defaultGameFilters } from '../src/events.store';
 import { RegistrationsStore, Seat } from '../src/registrations.store';
 
 test('initial avatars handle blank names and Unicode without splitting surrogate pairs', () => {
@@ -40,7 +41,7 @@ test('My Games date tiles use the pitch timezone rather than the device calendar
 
 test('My Games keeps ongoing games visible and sorts collapsed history separately from upcoming games', () => {
   const now = Date.now();
-  const booking = (id: string, start: number, end: number, guestNumber = 0) => ({ id, guestNumber, event: { startsAt: new Date(now + start).toISOString(), endsAt: new Date(now + end).toISOString() } }) as Seat;
+  const booking = (id: string, start: number, end: number, guestNumber = 0) => ({ id, eventId: id, bookingId: id, guestNumber, event: { startsAt: new Date(now + start).toISOString(), endsAt: new Date(now + end).toISOString() } }) as Seat;
   const seats = [booking('future-later', 7200000, 10800000), booking('oldest', -14400000, -10800000), booking('ongoing', -3600000, 3600000), booking('recent', -7200000, -3600000), booking('guest', -7200000, -3600000, 1)];
   const injector = Injector.create({ providers: [{ provide: AuthService, useValue: {} }, { provide: RegistrationsStore, useValue: { seats: () => seats } }] });
   const component = runInInjectionContext(injector, () => new MyGamesComponent());
@@ -108,4 +109,32 @@ test('payment review stays in its modal on failure, prevents duplicate submissio
   http.post = () => throwError(() => ({ code: 'local-failure' })) as any;
   component.openReview(); await component.review(false);
   assert.equal(component.showReview(), true); assert.ok(component.error()); assert.equal(component.busy(), false);
+});
+
+
+test('My Games renders one card per event, prefers the active booking and keeps earlier attempts accessible', () => {
+  const now = Date.now();
+  const booking = (id: string, status: string, age: number) => ({ id, eventId: 'same-event', bookingId: id, guestNumber: 0, status, queuedAt: new Date(now + age).toISOString(), event: { startsAt: new Date(now + 3600000).toISOString(), endsAt: new Date(now + 7200000).toISOString() } }) as Seat;
+  const seats = [booking('first', 'CANCELLED', -5000), booking('latest-cancel', 'CANCELLED', -1000), booking('active', 'CONFIRMED', -2000)];
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: {} }, { provide: RegistrationsStore, useValue: { seats: () => seats } }] });
+  const component = runInInjectionContext(injector, () => new MyGamesComponent());
+  assert.equal(component.gameGroups()[0].games.length, 1); assert.equal(component.gameGroups()[0].games[0].id, 'active');
+  assert.deepEqual(component.previousBookings(seats[2]).map(seat => seat.id), ['latest-cancel', 'first']);
+  seats[2].status = 'CANCELLED'; assert.equal(component.gameGroups()[0].games[0].id, 'latest-cancel');
+});
+
+
+test('upcoming filters persist across refresh and late results cannot replace newer filters', async () => {
+  const requests: { url: string; params: Record<string, string>; response: Subject<any> }[] = [];
+  const injector = Injector.create({ providers: [EventsStore, { provide: HttpClient, useValue: { get: (url: string, options: { params: Record<string, string> }) => { const response = new Subject<any>(); requests.push({ url, params: options.params, response }); return response; } } }] });
+  const store = injector.get(EventsStore);
+  const old = store.load({ ...defaultGameFilters(), period: 'day', date: '2027-01-03' });
+  const current = store.load({ ...defaultGameFilters(), city: 'Midland', search: ' soccer ', freeOnly: true });
+  assert.equal(requests[0].params.date, '2027-01-03'); assert.equal(requests[1].params.search, 'soccer'); assert.equal(requests[1].params.freeOnly, 'true');
+  requests[1].response.next([{ id: 'current' }]); requests[1].response.complete(); await current;
+  requests[0].response.next([{ id: 'old' }]); requests[0].response.complete(); await old;
+  assert.equal(store.events()[0].id, 'current');
+  const refresh = store.load(); assert.equal(requests[2].params.city, 'Midland');
+  requests[2].response.next([]); requests[2].response.complete(); await refresh;
+  injector.destroy();
 });
