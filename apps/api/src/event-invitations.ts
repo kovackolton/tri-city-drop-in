@@ -1,7 +1,7 @@
 import { BadRequestException, Body, ConflictException, Controller, Get, Inject, Injectable, NotFoundException, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
 import { Database } from './database';
-import { SignupsService } from './signups';
+import { costAcknowledgment, SignupsService } from './signups';
 import { integer, object, uuid } from './validation';
 import { refreshPaymentStrikes } from './strike-policy';
 import { appearance, appearanceSelect } from './profile-fields';
@@ -18,7 +18,9 @@ export class EventInvitationsService {
   }
   async respond(userId: string, id: string, action: 'accept' | 'decline', value?: unknown) {
     uuid(id);
-    const price = action === 'accept' ? integer(object(value, ['expectedPriceCents']).expectedPriceCents, 'Expected price', 0, 2147483647) : 0;
+    const input = action === 'accept' ? object(value, ['expectedPriceCents', 'costAcknowledged']) : {};
+    const price = action === 'accept' ? integer(input.expectedPriceCents, 'Expected price', 0, 2147483647) : 0;
+    if (action === 'accept') costAcknowledgment(input.costAcknowledged, price);
     if (action === 'accept') await refreshPaymentStrikes(this.db, [userId]);
     return this.db.$transaction(async tx => {
       const first = await tx.eventInvitation.findFirst({ where: { id, userId } });
@@ -32,7 +34,7 @@ export class EventInvitationsService {
       let bookingId: string | null = null;
       if (action === 'accept') {
         if (event.deletedAt || event.status !== 'PUBLISHED' || event.startsAt <= new Date()) throw new ConflictException('This event is no longer open for registration.');
-        const seats = await this.signups.bookParty(tx, event, userId, [], price); bookingId = seats[0].bookingId;
+        const seats = await this.signups.bookParty(tx, event, userId, [], price, 'PLAYER_INVITATION'); bookingId = seats[0].bookingId;
       }
       const updated = await tx.eventInvitation.update({ where: { id }, data: { status: target, bookingId } });
       await tx.notification.updateMany({ where: { userId, dedupeKey: `event-invitation:${id}`, readAt: null }, data: { readAt: new Date() } });

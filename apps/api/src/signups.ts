@@ -8,12 +8,18 @@ import { waiverVersion, waiverHash } from './waiver';
 import { currentStrikes, refreshPaymentStrikes, strikeLimit } from './strike-policy';
 import { integer, object, text, uuid } from './validation';
 
+export function costAcknowledgment(value: unknown, price: number) {
+  if (value !== undefined && typeof value !== 'boolean') throw new BadRequestException('Cost acknowledgment must be a boolean.');
+  if (price > 0 && value !== true) throw new BadRequestException('Acknowledge the event cost before joining.');
+}
 export function signupInput(value: unknown) {
-  const b = object(value, ['guests', 'expectedPriceCents', 'guestPaymentAcknowledged']);
+  const b = object(value, ['guests', 'expectedPriceCents', 'guestPaymentAcknowledged', 'costAcknowledged']);
   if (!Array.isArray(b.guests) || b.guests.length > 20) throw new BadRequestException('Provide up to 20 guest names.');
   if (b.guests.length && b.guestPaymentAcknowledged !== true) throw new BadRequestException('Acknowledge responsibility for guest payments before booking guests.');
   if (b.guestPaymentAcknowledged !== undefined && typeof b.guestPaymentAcknowledged !== 'boolean') throw new BadRequestException('Guest payment acknowledgment must be a boolean.');
-  return { guests: b.guests.map(name => text(name, 'Guest name', 80)), price: integer(b.expectedPriceCents, 'Expected price', 0, 2147483647) };
+  const price = integer(b.expectedPriceCents, 'Expected price', 0, 2147483647);
+  costAcknowledgment(b.costAcknowledged, price);
+  return { guests: b.guests.map(name => text(name, 'Guest name', 80)), price };
 }
 
 @Injectable()
@@ -38,12 +44,12 @@ export class SignupsService {
     await refreshPaymentStrikes(this.db, [userId]);
     return this.db.$transaction(async tx => {
       const event = await this.lockedEvent(tx, eventId);
-      return this.bookParty(tx, event, userId, guests, price);
+      return this.bookParty(tx, event, userId, guests, price, 'PLAYER_JOIN');
 
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, maxWait: 10000, timeout: 15000 });
   }
   // Caller holds the event lock (or has just created the event in this transaction).
-  async bookParty(tx: Prisma.TransactionClient, event: Event, userId: string, guests: string[], price: number) {
+  async bookParty(tx: Prisma.TransactionClient, event: Event, userId: string, guests: string[], price: number, costSource?: 'PLAYER_JOIN' | 'PLAYER_INVITATION') {
     const eventId = event.id;
       const existing = await tx.signup.findMany({ where: { eventId, userId, status: { in: ['CONFIRMED', 'WAITLISTED'] } }, orderBy: { guestNumber: 'asc' } });
       if (existing.length) {
@@ -68,6 +74,7 @@ export class SignupsService {
       })) });
       const seats = await tx.signup.findMany({ where: { bookingId }, orderBy: { guestNumber: 'asc' } });
       if (status === 'CONFIRMED') await this.charge(tx, event, seats);
+      if (price > 0 && costSource) await tx.auditLog.create({ data: { actorId: userId, eventId, action: 'PLAYER_EVENT_COST_ACKNOWLEDGED', details: { bookingId, priceCents: price, currency: event.currency, partySize: seats.length, totalCents: price * seats.length, source: costSource, termsVersion: 'event-cost-v1' } } });
       return seats;
   }
   async cancel(userId: string, eventId: string, bookingId: string, organizerReason?: string, administrator = false) {

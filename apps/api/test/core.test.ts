@@ -194,7 +194,7 @@ test('profile names are immutable, nicknames and self-rated skills are validated
 test('guest bookings require explicit payment responsibility even for free and waitlisted parties', () => {
   for (const guestPaymentAcknowledged of [undefined, false, 'true', 1]) assert.throws(() => signupInput({ guests: ['Guest'], expectedPriceCents: 0, guestPaymentAcknowledged }));
   assert.equal(signupInput({ guests: ['Guest'], expectedPriceCents: 0, guestPaymentAcknowledged: true }).guests.length, 1);
-  assert.equal(signupInput({ guests: [], expectedPriceCents: 1000 }).guests.length, 0);
+  assert.equal(signupInput({ guests: [], expectedPriceCents: 1000, costAcknowledged: true }).guests.length, 0);
 });
 
 
@@ -261,4 +261,11 @@ test('balancing score averages available self and administrator ratings without 
   assert.equal(combinedRating(1, 5), 3); assert.equal(combinedRating(2, 5), 3.5);
   assert.equal(combinedRating(4, null), 4); assert.equal(combinedRating(null, 2), 2);
   assert.equal(combinedRating(null, null), 3);
+});
+
+
+test('paid signup requires explicit cost acknowledgment while free signup does not', () => {
+  for (const costAcknowledged of [undefined, false, 'true', 1]) assert.throws(() => signupInput({ guests: [], expectedPriceCents: 1200, costAcknowledged }), /cost|Cost/);
+  assert.equal(signupInput({ guests: [], expectedPriceCents: 1200, costAcknowledged: true }).price, 1200);
+  assert.equal(signupInput({ guests: [], expectedPriceCents: 0 }).price, 0);
 });
