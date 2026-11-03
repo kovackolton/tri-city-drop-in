@@ -1,0 +1,24 @@
+node_modules
+**/node_modules
+**/dist
+.git
+**/.env
+**/.env.*
+!**/.env.example
+.npm-cache
+**/.test-build
+.angular
+
+# Keep runtime configuration and local credentials out of container builds.
+.npmrc
+**/.npmrc
+**/*.pem
+**/*.key
+**/*.p12
+**/*service-account*.json
+**/*service_account*.json
+**/*firebase-adminsdk*.json
+**/*credentials*.json
+
+# The combined image receives public client config at runtime.
+apps/web/public/config.json

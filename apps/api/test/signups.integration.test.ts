@@ -5,6 +5,10 @@ import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { Prisma, PrismaClient } from '@prisma/client';
+import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { EventSharingService, EventSharingController } from '../src/event-sharing';
+import { configureWebHosting } from '../src/web-hosting';
 import { Database } from '../src/database';
 import { WaiverService, waiverVersion, waiverHash, waiverText } from '../src/waiver';
 import { StrikesService } from '../src/strikes';
@@ -930,6 +934,33 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       await invitations.respond(player.id, invite.id, 'accept', { expectedPriceCents: 1000, costAcknowledged: true });
       await invitations.respond(player.id, invite.id, 'accept', { expectedPriceCents: 1000, costAcknowledged: true });
       const audits = await db.auditLog.findMany({ where: { eventId: e.id, action: 'PLAYER_EVENT_COST_ACKNOWLEDGED' } }); assert.equal(audits.length, 1); assert.equal((audits[0].details as { source: string }).source, 'PLAYER_INVITATION');
+    });
+    await t.test('public event share HTML and JSON work without authentication, follow live availability and hide private/draft data', async () => {
+      const oldOrigin = process.env.PUBLIC_SITE_ORIGIN, oldDist = process.env.WEB_DIST_PATH, oldConfig = process.env.PUBLIC_FIREBASE_CONFIG;
+      process.env.PUBLIC_SITE_ORIGIN = 'https://soccer.example.test'; process.env.WEB_DIST_PATH = resolve('../web/dist/web/browser');
+      process.env.PUBLIC_FIREBASE_CONFIG = JSON.stringify({ apiKey: 'public-key', authDomain: 'example.test', projectId: 'test-project', appId: 'test-app', private_key: 'never-expose' });
+      const app = await NestFactory.create<NestExpressApplication>({ module: class ShareTestModule {}, controllers: [EventSharingController], providers: [{ provide: Database, useValue: db }, EventSharingService] }, { logger: false });
+      configureWebHosting(app);
+      try {
+        await app.listen(0, '127.0.0.1'); const base = await app.getUrl();
+        const e = await event(3, 1200); await db.event.update({ where: { id: e.id }, data: { title: 'Friday <soccer> & friends' } });
+        await join(1, e.id, ['Guest'], 1200); await join(2, e.id, ['Queued guest'], 1200);
+        const response = await fetch(`${base}/games/${e.id}`); assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'no-store');
+        const text = await response.text(); assert.ok(text.includes('property="og:title"')); assert.ok(text.includes('Friday &lt;soccer&gt; &amp; friends')); assert.ok(text.includes('Waitlist open / 2 waiting')); assert.ok(text.includes('USD 12.00 per player')); assert.ok(text.includes('/share/soccer-ball.png'));
+        const shared = await (await fetch(`${base}/api/public/games/${e.id}`)).json() as { game: { confirmed: number; waitlisted: number }; share: { availability: string } };
+        assert.equal(shared.game.confirmed, 2); assert.equal(shared.game.waitlisted, 2); assert.match(shared.share.availability, /Waitlist/);
+        const serialized = JSON.stringify(shared); for (const forbidden of ['guestName', 'firebaseUid', 'organizerContactEmail', 'organizerContactPhone', 'playerPaid', 'userId']) assert.ok(!serialized.includes(forbidden));
+        const image = await fetch(`${base}/share/soccer-ball.png`); assert.equal(image.headers.get('content-type'), 'image/png'); const bytes = Buffer.from(await image.arrayBuffer()); assert.equal(bytes.readUInt32BE(16), 1200); assert.equal(bytes.readUInt32BE(20), 630);
+        const root = await fetch(`${base}/`); assert.equal(root.status, 200); assert.ok((await root.text()).includes('<app-root>'));
+        const configResponse = await fetch(`${base}/config.json`); assert.equal(configResponse.headers.get('cache-control'), 'no-store'); assert.ok(!JSON.stringify(await configResponse.json()).includes('never-expose'));
+        await db.signup.updateMany({ where: { eventId: e.id, status: 'WAITLISTED' }, data: { status: 'CANCELLED', cancellationSource: 'ORGANIZER' } });
+        const refreshed = await (await fetch(`${base}/api/public/games/${e.id}`)).json() as { share: { availability: string } }; assert.equal(refreshed.share.availability, '1 spot available');
+        await db.event.update({ where: { id: e.id }, data: { status: 'CANCELLED' } }); const cancelled = await (await fetch(`${base}/games/${e.id}`)).text(); assert.ok(cancelled.includes('Cancelled')); assert.ok(!cancelled.includes(`/?event=${e.id}`)); assert.equal((await fetch(`${base}/api/public/games/${e.id}`)).status, 404);
+        await db.event.update({ where: { id: e.id }, data: { status: 'DRAFT', title: 'Private draft title' } }); const draft = await fetch(`${base}/games/${e.id}`); assert.equal(draft.status, 404); assert.ok(!(await draft.text()).includes('Private draft title'));
+      } finally {
+        await app.close();
+        for (const [key, value] of [['PUBLIC_SITE_ORIGIN', oldOrigin], ['WEB_DIST_PATH', oldDist], ['PUBLIC_FIREBASE_CONFIG', oldConfig]]) { if (value === undefined) delete process.env[key!]; else process.env[key!] = value; }
+      }
     });
   } finally {
     await db.$disconnect();

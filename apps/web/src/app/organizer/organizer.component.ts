@@ -1,3 +1,4 @@
+import { EventShareComponent } from '../event-share/event-share.component';
 import { EventGuidanceComponent } from '../event-guidance/event-guidance.component';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -10,7 +11,7 @@ import { RosterComponent } from '../roster/roster.component';
 import { LocationsComponent } from '../locations/locations.component';
 
 @Component({
-  selector: 'app-organizer', imports: [FormsModule, CurrencyPipe, RosterComponent, LocationsComponent, EventGuidanceComponent],
+  selector: 'app-organizer', imports: [EventShareComponent, FormsModule, CurrencyPipe, RosterComponent, LocationsComponent, EventGuidanceComponent],
   templateUrl: './organizer.component.html',
   styleUrl: './organizer.component.scss'
 })
@@ -83,6 +84,7 @@ export class OrganizerComponent implements OnInit {
     this.event = { title: game.title, description: game.description ?? '', locationId: game.location.id, startsAt: this.localTime(game.startsAt), endsAt: this.localTime(game.endsAt), capacity: game.capacity, price: (game.priceCents / 100).toFixed(2), maxGuestsPerUser: game.maxGuestsPerUser, cancellationCutoffHours: game.cancellationCutoffHours, status: game.status, bibsProvided: game.bibsProvided ?? false, shirtColorCount: game.shirtColorCount ?? 2, minPlayers: game.minPlayers ?? null, teamCount: game.teamCount ?? 2, teamBalancingEnabled: game.teamBalancingEnabled ?? false, organizerContactEmail: game.organizerContactEmail ?? '', organizerContactPhone: game.organizerContactPhone ?? '', contactCallAllowed: game.contactCallAllowed ?? false, contactTextAllowed: game.contactTextAllowed ?? false };
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
+  canShare(game: ManagedEvent) { return game.status === 'PUBLISHED' && Date.parse(game.startsAt) > Date.now(); }
   canCancel(game: ManagedEvent) { return ['DRAFT', 'PUBLISHED'].includes(game.status) && new Date(game.startsAt) > new Date(); }
   canComplete(game: ManagedEvent) { return game.status === 'PUBLISHED' && new Date(game.endsAt) <= new Date(); }
   async transition(id: string, action: 'cancel' | 'complete') { await this.act(() => firstValueFrom(this.http.post(`/api/organizer/events/${id}/${action}`, {})), action === 'cancel' ? 'Event cancelled; players notified in the app.' : 'Event completed.'); this.cancelling.set(''); }

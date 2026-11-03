@@ -4,9 +4,3 @@
 .icon-button.selected { color: var(--accent); border-color: var(--accent); background: var(--success-bg); }
 .unread-badge { position: absolute; top: -6px; right: -7px; min-width: 20px; height: 20px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--primary); color: var(--on-primary); border: 2px solid var(--surface); font-size: .6rem; line-height: 1; font-weight: 700; }
 @media (max-width: 480px) { .app-header { padding: 1rem; } .header-actions { gap: .5rem; } }
-
-.event-card { padding: 0; overflow: hidden; }
-.event-card-header { padding: 1.5rem; background: var(--card-banner); color: var(--on-banner); }
-.event-card-header .event-start { color: var(--banner-muted); }
-.event-card-body { padding: 1.5rem; background: var(--surface); }
-@media (max-width: 480px) { .event-card-header, .event-card-body { padding: 1.1rem; } }

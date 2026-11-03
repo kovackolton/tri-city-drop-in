@@ -20,6 +20,7 @@ services:
       DATABASE_URL: postgresql://tricity:local-development-only@db:5432/dropin
       PORT: 8080
       WEB_ORIGIN: http://localhost:4200
+      PUBLIC_SITE_ORIGIN: ${PUBLIC_SITE_ORIGIN:-http://localhost:4200}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
     ports: ["127.0.0.1:3000:8080"]
     depends_on:
