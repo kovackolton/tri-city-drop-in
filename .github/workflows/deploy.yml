@@ -1,0 +1,122 @@
+name: Test and deploy
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: tricity_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U test -d tricity_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test --workspace @tri-city/api
+      - name: Database integration tests (disposable CI database only)
+        run: |
+          printf '%s\n' 'DATABASE_URL=postgresql://test:test@localhost:5432/tricity_test' > apps/api/.env
+          npm run test:integration --workspace @tri-city/api
+      - run: npm run test:auth --workspace @tri-city/web
+      - run: npm run test:profile --workspace @tri-city/web
+      - run: npm run test:theme --workspace @tri-city/web
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: tri-city-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      REGION: ${{ vars.GCP_REGION }}
+      SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}
+      SQL_CONNECTION: ${{ vars.CLOUD_SQL_CONNECTION }}
+      IMAGE_BASE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.AR_REPOSITORY }}
+      RUNTIME_SA: ${{ vars.GCP_RUNTIME_SA }}
+      MIGRATOR_SA: ${{ vars.GCP_MIGRATOR_SA }}
+      PUBLIC_ORIGIN: ${{ vars.PUBLIC_SITE_ORIGIN }}
+      FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+      PUBLIC_FIREBASE_CONFIG: ${{ vars.PUBLIC_FIREBASE_CONFIG }}
+      APP_DB_VERSION: ${{ vars.APP_DB_SECRET_VERSION }}
+      MIGRATION_DB_VERSION: ${{ vars.MIGRATION_DB_SECRET_VERSION }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build commit-tagged images before requesting cloud credentials
+        run: |
+          docker build --platform linux/amd64 -f Dockerfile.cloudrun -t "$IMAGE_BASE/app:$GITHUB_SHA" .
+          docker build --platform linux/amd64 -f Dockerfile.migrations -t "$IMAGE_BASE/migrations:$GITHUB_SHA" .
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Configure registry and public runtime settings
+        run: |
+          gcloud config set project "$PROJECT_ID"
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          python3 - <<'PY'
+          import json, os
+          config = {
+            'PUBLIC_SITE_ORIGIN': os.environ['PUBLIC_ORIGIN'],
+            'FIREBASE_PROJECT_ID': os.environ['FIREBASE_PROJECT_ID'],
+            'PUBLIC_FIREBASE_CONFIG': json.dumps(json.loads(os.environ['PUBLIC_FIREBASE_CONFIG']))
+          }
+          # JSON is valid YAML; avoid shell escaping the Firebase JSON.
+          with open('/tmp/runtime.yaml', 'w') as f:
+            json.dump(config, f)
+          PY
+      - name: Push commit-tagged images
+        run: |
+          docker push "$IMAGE_BASE/app:$GITHUB_SHA"
+          docker push "$IMAGE_BASE/migrations:$GITHUB_SHA"
+      - name: Migrate before serving the new revision
+        run: |
+          gcloud run jobs deploy tri-city-migrate --region="$REGION" \
+            --image="$IMAGE_BASE/migrations:$GITHUB_SHA" \
+            --service-account="$MIGRATOR_SA" --set-cloudsql-instances="$SQL_CONNECTION" \
+            --set-secrets="DATABASE_URL=tri-city-db-migrator:$MIGRATION_DB_VERSION" \
+            --tasks=1 --parallelism=1 --max-retries=0 --task-timeout=10m \
+            --cpu=1 --memory=512Mi --quiet
+          gcloud run jobs execute tri-city-migrate --region="$REGION" --wait
+      - name: Deploy app (existing public IAM policy is retained)
+        run: |
+          gcloud run deploy "$SERVICE" --region="$REGION" \
+            --image="$IMAGE_BASE/app:$GITHUB_SHA" \
+            --service-account="$RUNTIME_SA" --execution-environment=gen2 \
+            --add-cloudsql-instances="$SQL_CONNECTION" \
+            --set-secrets="DATABASE_URL=tri-city-db-app:$APP_DB_VERSION" \
+            --env-vars-file=/tmp/runtime.yaml \
+            --port=8080 --cpu=1 --memory=512Mi --concurrency=20 \
+            --min-instances=0 --max-instances=3 --timeout=60 \
+            --ingress=all --quiet
+      - name: Public smoke checks
+        run: |
+          curl --fail --retry 4 --retry-all-errors "$PUBLIC_ORIGIN/api/health"
+          curl --fail --retry 4 --retry-all-errors "$PUBLIC_ORIGIN/api/events" > /dev/null
+          curl --fail "$PUBLIC_ORIGIN/" | grep -q '<app-root'
+          curl --fail "$PUBLIC_ORIGIN/share/soccer-ball.png" -o /tmp/soccer-ball.png
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$PUBLIC_ORIGIN/api/me")" = 401
