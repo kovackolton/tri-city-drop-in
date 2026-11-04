@@ -72,13 +72,17 @@ export class OrganizerComponent implements OnInit {
     await this.act(async () => {
       const { price: _, status, ...event } = this.event;
       const payload = { ...event, shirtColorCount: event.bibsProvided ? null : event.shirtColorCount, startsAt: this.original && this.event.startsAt === this.localTime(this.original.startsAt) ? this.original.startsAt : startsAt.toISOString(), endsAt: this.original && this.event.endsAt === this.localTime(this.original.endsAt) ? this.original.endsAt : endsAt.toISOString(), priceCents };
-      await firstValueFrom(this.editingId() ? this.http.patch('/api/admin/events/' + this.editingId(), payload) : this.http.post('/api/events', { ...payload, status, initialPlayerIds: this.selectedPlayers().map(player => player.id), initialPlayerMode: this.initialPlayerMode }));
+      await firstValueFrom(this.editingId() ? this.http.patch('/api/organizer/events/' + this.editingId(), { ...payload, ...(status === 'DRAFT' ? { status } : {}) }) : this.http.post('/api/events', { ...payload, status, initialPlayerIds: this.selectedPlayers().map(player => player.id), initialPlayerMode: this.initialPlayerMode }));
       this.cancelEdit();
     }, 'Event saved.');
   }
   cancelEdit() { this.showEventForm.set(false); this.selectedPlayers.set([]); this.playerResults.set([]); this.playerSearch = ''; this.initialPlayerMode = 'INVITE'; this.editingId.set(''); this.original = null; this.event = { title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, shirtColorCount: 2 as number | null, minPlayers: null as number | null, teamCount: 2, teamBalancingEnabled: false, organizerContactEmail: '', organizerContactPhone: '', contactCallAllowed: false, contactTextAllowed: false }; }
   localTime(value: string) { const d = new Date(value); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
+  canEdit(game: ManagedEvent) { const profile = this.auth.profile(); return !!profile && (profile.role === 'ADMINISTRATOR' || profile.role === 'ORGANIZER' && game.organizerId === profile.id) && ['DRAFT', 'PUBLISHED'].includes(game.status); }
+  canReturnToDraft(game: ManagedEvent) { return this.canEdit(game) && game.status === 'PUBLISHED' && Date.parse(game.startsAt) > Date.now(); }
+  canDraftWhileEditing() { return !!this.original && this.canReturnToDraft(this.original); }
   edit(game: ManagedEvent) {
+    if (!this.canEdit(game)) return;
     this.showEventForm.set(true); this.view.set('events');
     this.selectedPlayers.set([]); this.playerResults.set([]); this.original = game; this.editingId.set(game.id);
     this.event = { title: game.title, description: game.description ?? '', locationId: game.location.id, startsAt: this.localTime(game.startsAt), endsAt: this.localTime(game.endsAt), capacity: game.capacity, price: (game.priceCents / 100).toFixed(2), maxGuestsPerUser: game.maxGuestsPerUser, cancellationCutoffHours: game.cancellationCutoffHours, status: game.status, bibsProvided: game.bibsProvided ?? false, shirtColorCount: game.shirtColorCount ?? 2, minPlayers: game.minPlayers ?? null, teamCount: game.teamCount ?? 2, teamBalancingEnabled: game.teamBalancingEnabled ?? false, organizerContactEmail: game.organizerContactEmail ?? '', organizerContactPhone: game.organizerContactPhone ?? '', contactCallAllowed: game.contactCallAllowed ?? false, contactTextAllowed: game.contactTextAllowed ?? false };
