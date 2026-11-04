@@ -25,7 +25,6 @@
           <label>Minimum player target <span class="font-normal text-muted">(optional)</span><input name="minPlayers" type="number" min="1" [max]="event.capacity" [(ngModel)]="event.minPlayers" placeholder="No target"></label>
           <p class="text-xs text-muted">For visibility only. Confirmed players and guests count toward this target; waitlisted seats do not. The game can run below the target, and nothing is automatically cancelled.</p>
           <label>Description<textarea name="description" rows="3" maxlength="4000" [(ngModel)]="event.description"></textarea></label>
-          @if (!editingId()) { <label>Status<select name="status" [(ngModel)]="event.status"><option value="DRAFT">Draft - visible to you</option><option value="PUBLISHED">Published - visible to players</option></select></label> }
           @if (canDraftWhileEditing()) { <label>Publication after saving<select name="editStatus" [(ngModel)]="event.status"><option value="PUBLISHED">Keep published</option><option value="DRAFT">Return to draft</option></select></label><p class="text-sm text-muted">Returning to draft hides the event from public listings and pauses new joins. Existing bookings and agreed prices are kept as provisional; booked players receive an in-app notice. Publish again when ready.</p> }
           <button class="primary" [disabled]="busy() || loading() || !locations().length">{{ editingId() ? 'Save event changes' : 'Create event' }}</button>@if (editingId()) { <button type="button" class="secondary ml-3" (click)="cancelEdit()">Cancel edit</button> }
         </form>
@@ -39,6 +38,8 @@
         <article class="managed-event mt-5">
           <header class="managed-event-heading"><div class="min-w-0"><p class="event-kickoff">{{ time(game.startsAt, game.location.timezone) }}</p><h3 class="text-xl font-bold mt-2 break-words">{{ game.title }}</h3><p class="text-sm mt-2 break-words">{{ game.location.name }}</p></div><span class="event-status">{{ game.status.toLowerCase() }}</span></header>
           <div class="event-summary">
+            @if (game.organizer; as organizer) { <div class="flex items-center gap-3 mb-4"><app-avatar [name]="organizer.displayName" [photoUrl]="organizer.avatarUrl" [color]="organizer.avatarColor" [size]="36" /><div class="min-w-0"><p class="text-xs text-muted">Organizer</p><p class="font-semibold break-words">{{ organizer.displayName }}</p>@if (organizer.accountName !== organizer.displayName) { <p class="text-xs text-muted break-words">Account name: {{ organizer.accountName }}</p> }</div></div> }
+            <app-organizer-contact [name]="game.organizer?.displayName" [email]="game.organizerContactEmail" [phone]="game.organizerContactPhone" [callAllowed]="game.contactCallAllowed" [textAllowed]="game.contactTextAllowed" />
             <dl class="event-facts"><div><dt>Players</dt><dd>{{ game.confirmed ?? 0 }} / {{ game.capacity }}</dd></div><div><dt>Per player</dt><dd>{{ game.priceCents === 0 ? 'Free' : (game.priceCents / 100 | currency:'USD':'USD ') }}</dd></div><div><dt>Teams</dt><dd>{{ game.teamCount ?? 2 }} <span class="text-muted font-normal">{{ game.teamBalancingEnabled ? ' / balancing on' : '' }}</span></dd></div></dl>
             <details class="event-details"><summary>Event details &amp; equipment</summary><div class="pt-3"><p class="text-sm text-muted">{{ game.location.address }}</p><p class="text-sm text-muted mt-2">Ends {{ time(game.endsAt, game.location.timezone) }}</p><app-event-guidance class="block mt-3" [bibsProvided]="game.bibsProvided" [shirtColorCount]="game.shirtColorCount" [minPlayers]="game.minPlayers" [confirmed]="game.confirmed" />@if (game.description) { <p class="text-sm whitespace-pre-line mt-3">{{ game.description }}</p> }</div></details>
           </div>
@@ -62,3 +63,14 @@
         </article>
       } @empty { @if (!loading()) { <p class="panel mt-4 text-muted">You have no events yet.</p> } }
     </section> }
+
+<app-dialog [open]="choosingStatus()" title="Create your event" [busy]="busy()" (closed)="closeStatusDialog()">
+  <p class="text-sm text-muted">Choose how to create {{ event.title }}.</p>
+  <div class="space-y-4 mt-5">
+    <section><h3 class="font-semibold">Save as draft</h3><p class="text-sm text-muted mt-1">Keep the event out of public listings while you prepare. Publish it later. Selected invitations wait until publication; immediately booked seats remain provisional.</p><button type="button" class="secondary mt-3" [disabled]="busy()" (click)="confirmCreation('DRAFT')">Create draft</button></section>
+    <section class="border-t border-divider pt-4"><h3 class="font-semibold">Publish now</h3><p class="text-sm text-muted mt-1">Make the event visible to players and open for joining. Selected players are invited or booked using your chosen option.</p><button type="button" class="primary mt-3" [disabled]="busy()" (click)="confirmCreation('PUBLISHED')">Create and publish</button></section>
+  </div>
+  @if (error()) { <p role="alert" class="notice error mt-4">{{ error() }}</p> }
+  @if (busy()) { <p role="status" class="text-sm mt-4">Creating event...</p> }
+  <button type="button" class="secondary mt-5" [disabled]="busy()" (click)="closeStatusDialog()">Back to event details</button>
+</app-dialog>

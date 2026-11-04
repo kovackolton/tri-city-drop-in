@@ -428,6 +428,18 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.equal(updated.name, 'Renamed pitch');
       await locations.remove(updated.id);
     });
+    await t.test('workspace event cards include organizer identity without exposing private account contacts', async () => {
+      const owner = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Organizer Account', nickname: 'Captain', role: 'ORGANIZER' } });
+      const e = await event(3);
+      await db.event.update({ where: { id: e.id }, data: { organizerId: owner.id } });
+      const controller = new EventsController(db, service);
+      const own = await controller.ownEvents({ user: owner } as AuthRequest);
+      assert.equal(own.length, 1); assert.equal(own[0].organizer.displayName, 'Captain'); assert.equal(own[0].organizer.accountName, 'Organizer Account');
+      assert.equal('email' in own[0].organizer, false); assert.equal('phone' in own[0].organizer, false);
+      assert.ok(!(await controller.ownEvents({ user: users[0] } as AuthRequest)).some(item => item.id === e.id));
+      const admin = await controller.ownEvents({ user: { ...users[1], role: 'ADMINISTRATOR' } } as AuthRequest);
+      assert.equal(admin.find(item => item.id === e.id)?.organizer.accountName, owner.displayName);
+    });
     await t.test('event editing enforces ownership and preserves administrator access', async () => {
       const e = await event(3);
       const editing = new OrganizerEventEditingController(administration);

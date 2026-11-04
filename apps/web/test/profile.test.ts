@@ -55,6 +55,33 @@ test('organizer editing controls respect ownership and save draft transitions th
   injector.destroy();
 });
 
+test('event creation waits for a modal status choice, preserves input on cancel and prevents duplicate submissions', async () => {
+  const calls: { body: any; response: Subject<any> }[] = [];
+  const injector = Injector.create({ providers: [
+    { provide: AuthService, useValue: { profile: () => ({ id: 'owner', role: 'ORGANIZER' }) } },
+    { provide: HttpClient, useValue: { get: () => of([]), post: (_url: string, body: any) => { const response = new Subject<any>(); calls.push({ body, response }); return response; } } }
+  ] });
+  const component = runInInjectionContext(injector, () => new OrganizerComponent());
+  const setup = () => { component.event = { ...component.event, title: 'Friday soccer', locationId: 'venue', price: '12.50', startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString() }; };
+  setup();
+  await component.createEvent(); assert.equal(calls.length, 0); assert.equal(component.choosingStatus(), true);
+  component.closeStatusDialog(); assert.equal(component.event.title, 'Friday soccer');
+  await component.confirmCreation('PUBLISHED'); assert.equal(calls.length, 0);
+  for (const status of ['DRAFT', 'PUBLISHED'] as const) {
+    setup(); await component.createEvent();
+    const pending = component.confirmCreation(status); const count = calls.length;
+    assert.equal(component.busy(), true); assert.equal(calls.at(-1)?.body.status, status); assert.equal(calls.at(-1)?.body.priceCents, 1250);
+    component.closeStatusDialog(); assert.equal(component.choosingStatus(), true);
+    await component.confirmCreation(status); assert.equal(calls.length, count);
+    calls.at(-1)!.response.next({}); calls.at(-1)!.response.complete(); await pending;
+    assert.equal(component.choosingStatus(), false); assert.equal(component.busy(), false);
+  }
+  setup(); await component.createEvent(); const failing = component.confirmCreation('PUBLISHED');
+  calls.at(-1)!.response.error(new Error('Offline')); await failing;
+  assert.equal(component.choosingStatus(), true); assert.equal(component.event.title, 'Friday soccer'); assert.ok(component.error());
+  injector.destroy();
+});
+
 test('initial avatars handle blank names and Unicode without splitting surrogate pairs', () => {
   assert.equal(avatarInitial('  alex  '), 'A');
   assert.equal(avatarInitial('\u00c9lodie'), '\u00c9');

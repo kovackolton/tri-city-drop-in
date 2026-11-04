@@ -51,8 +51,8 @@ export class EventsController {
   }
   @Get('organizer/events') @UseGuards(FirebaseGuard, OrganizerGuard)
   async ownEvents(@Req() req: AuthRequest) {
-    const events = await this.db.event.findMany({ where: { deletedAt: null, ...(req.user.role === 'ADMINISTRATOR' ? {} : { organizerId: req.user.id }) }, include: { location: true, _count: { select: { signups: { where: { status: 'CONFIRMED' } } } } }, orderBy: { startsAt: 'desc' }, take: 100 });
-    return events.map(({ _count, ...event }) => ({ ...event, confirmed: _count.signups }));
+    const events = await this.db.event.findMany({ where: { deletedAt: null, ...(req.user.role === 'ADMINISTRATOR' ? {} : { organizerId: req.user.id }) }, include: { location: true, organizer: { select: appearanceSelect }, _count: { select: { signups: { where: { status: 'CONFIRMED' } } } } }, orderBy: { startsAt: 'desc' }, take: 100 });
+    return events.map(({ _count, organizer, ...event }) => ({ ...event, organizer: { ...appearance(organizer), accountName: organizer.displayName }, confirmed: _count.signups }));
   }
   @Get('locations') @UseGuards(FirebaseGuard, OrganizerGuard)
   locations() { return this.db.location.findMany({ orderBy: { name: 'asc' }, take: 500 }); }
