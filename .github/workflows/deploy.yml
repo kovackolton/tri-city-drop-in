@@ -65,6 +65,11 @@ jobs:
       MIGRATION_DB_VERSION: ${{ vars.MIGRATION_DB_SECRET_VERSION }}
     steps:
       - uses: actions/checkout@v4
+      - name: Debug deployment identity
+        run: |
+          echo "Repository: $GITHUB_REPOSITORY"
+          echo "Ref: $GITHUB_REF"
+          echo "Event: $GITHUB_EVENT_NAME"
       - name: Build commit-tagged images before requesting cloud credentials
         run: |
           docker build --platform linux/amd64 -f Dockerfile.cloudrun -t "$IMAGE_BASE/app:$GITHUB_SHA" .
