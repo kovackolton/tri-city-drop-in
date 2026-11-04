@@ -31,6 +31,12 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test --workspace @tri-city/api
+      - name: Debug GitHub OIDC context
+        run: |
+          echo "Repository: $GITHUB_REPOSITORY"
+          echo "Ref: $GITHUB_REF"
+          echo "Environment: ${{ job.environment }}"
+          echo "Event: $GITHUB_EVENT_NAME"
       - name: Database integration tests (disposable CI database only)
         run: |
           printf '%s\n' 'DATABASE_URL=postgresql://test:test@localhost:5432/tricity_test' > apps/api/.env
