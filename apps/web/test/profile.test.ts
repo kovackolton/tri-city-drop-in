@@ -1,7 +1,8 @@
 import '@angular/compiler';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Injector, runInInjectionContext } from '@angular/core';
+import { Injector, runInInjectionContext, signal } from '@angular/core';
+import { AppComponent } from '../src/app/app.component';
 import { googleEmbedUrl, googleDirectionsUrl } from '../src/location-media';
 import { LocationMapComponent } from '../src/app/location-map/location-map.component';
 import { DomSanitizer } from '@angular/platform-browser';
@@ -138,6 +139,30 @@ test('email card copying provides rich and plain representations and reports per
     injector.destroy();
     if (originalNavigator) Object.defineProperty(globalThis, 'navigator', originalNavigator); else Reflect.deleteProperty(globalThis, 'navigator');
     if (originalItem) Object.defineProperty(globalThis, 'ClipboardItem', originalItem); else Reflect.deleteProperty(globalThis, 'ClipboardItem');
+  }
+});
+
+test('mobile navigation closes on selection and Escape, restores focus and labels the current page', () => {
+  const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  const animationDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'requestAnimationFrame');
+  const focused: string[] = [];
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: { getElementById: (id: string) => ({ focus: () => focused.push(id) }) } });
+  Object.defineProperty(globalThis, 'requestAnimationFrame', { configurable: true, value: (callback: () => void) => { callback(); return 1; } });
+  try {
+    const component: AppComponent = Object.assign(Object.create(AppComponent.prototype), {
+      mobileNavigationOpen: signal(false), page: signal('games'), profileSectionRequest: signal(null), auth: { profile: () => ({ role: 'ADMINISTRATOR' }) }
+    });
+    assert.equal(component.pageLabel(), 'Upcoming games');
+    component.toggleMobileNavigation(); assert.equal(component.mobileNavigationOpen(), true);
+    component.navigate('profile'); assert.equal(component.mobileNavigationOpen(), false); assert.equal(component.pageLabel(), 'My profile');
+    assert.equal(focused.at(-1), 'main-content');
+    component.toggleMobileNavigation(); component.closeMobileNavigation(true);
+    assert.equal(component.mobileNavigationOpen(), false); assert.equal(focused.at(-1), 'mobile-navigation-toggle');
+    component.page.set('organizer'); assert.equal(component.pageLabel(), 'Administrator workspace');
+    component.page.set('signin'); assert.equal(component.pageLabel(), 'Sign in');
+  } finally {
+    if (documentDescriptor) Object.defineProperty(globalThis, 'document', documentDescriptor); else Reflect.deleteProperty(globalThis, 'document');
+    if (animationDescriptor) Object.defineProperty(globalThis, 'requestAnimationFrame', animationDescriptor); else Reflect.deleteProperty(globalThis, 'requestAnimationFrame');
   }
 });
 
