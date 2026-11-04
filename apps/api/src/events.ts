@@ -84,8 +84,12 @@ export class EventsController {
     return this.db.$transaction(async tx => {
       const result = await tx.event.updateMany({ where: { id, deletedAt: null, ...(req.user.role === 'ADMINISTRATOR' ? {} : { organizerId: req.user.id }), status: 'DRAFT', startsAt: { gt: new Date() } }, data: { status: 'PUBLISHED' } });
       if (result.count !== 1) throw new BadRequestException('Only your future draft events can be published.');
-      await tx.auditLog.create({ data: { actorId: req.user.id, eventId: id, action: 'EVENT_PUBLISHED', details: {} } });
-      await notifyInvitations(tx, await tx.event.findUniqueOrThrow({ where: { id } }));
+      const audit = await tx.auditLog.create({ data: { actorId: req.user.id, eventId: id, action: 'EVENT_PUBLISHED', details: {} } });
+      const event = await tx.event.findUniqueOrThrow({ where: { id } });
+      await this.signups.promote(tx, event);
+      await notifyInvitations(tx, event);
+      const hosts = await tx.signup.findMany({ where: { eventId: id, guestNumber: 0, status: { in: ['CONFIRMED', 'WAITLISTED'] } }, select: { userId: true } });
+      for (const host of hosts) await tx.notification.create({ data: { userId: host.userId, kind: 'EVENT_PUBLISHED', dedupeKey: `published:${audit.id}:${host.userId}`, payload: { eventId: id, title: event.title } } });
       return { id, status: 'PUBLISHED' };
     });
   }

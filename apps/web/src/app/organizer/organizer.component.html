@@ -25,7 +25,8 @@
           <label>Minimum player target <span class="font-normal text-muted">(optional)</span><input name="minPlayers" type="number" min="1" [max]="event.capacity" [(ngModel)]="event.minPlayers" placeholder="No target"></label>
           <p class="text-xs text-muted">For visibility only. Confirmed players and guests count toward this target; waitlisted seats do not. The game can run below the target, and nothing is automatically cancelled.</p>
           <label>Description<textarea name="description" rows="3" maxlength="4000" [(ngModel)]="event.description"></textarea></label>
-          @if (!editingId()) { <label>Status<select name="status" [(ngModel)]="event.status"><option value="DRAFT">Draft â€” visible to you</option><option value="PUBLISHED">Published â€” visible to players</option></select></label> }
+          @if (!editingId()) { <label>Status<select name="status" [(ngModel)]="event.status"><option value="DRAFT">Draft - visible to you</option><option value="PUBLISHED">Published - visible to players</option></select></label> }
+          @if (canDraftWhileEditing()) { <label>Publication after saving<select name="editStatus" [(ngModel)]="event.status"><option value="PUBLISHED">Keep published</option><option value="DRAFT">Return to draft</option></select></label><p class="text-sm text-muted">Returning to draft hides the event from public listings and pauses new joins. Existing bookings and agreed prices are kept as provisional; booked players receive an in-app notice. Publish again when ready.</p> }
           <button class="primary" [disabled]="busy() || loading() || !locations().length">{{ editingId() ? 'Save event changes' : 'Create event' }}</button>@if (editingId()) { <button type="button" class="secondary ml-3" (click)="cancelEdit()">Cancel edit</button> }
         </form>
       </section>
@@ -45,9 +46,9 @@
             @if (canShare(game)) { <app-event-share [eventId]="game.id" /> }
             <button class="primary" [disabled]="busy()" [attr.aria-expanded]="rosterEvent() === game.id" [attr.aria-controls]="'event-management-' + game.id" (click)="rosterEvent.set(rosterEvent() === game.id ? '' : game.id)">{{ rosterEvent() === game.id ? 'Close player management' : 'Manage players' }}</button>
             @if (game.status === 'DRAFT') { <button class="secondary" [disabled]="busy()" (click)="publish(game.id)">Publish event</button> }
-            @if (auth.profile()?.role === 'ADMINISTRATOR' || canCancel(game) || canComplete(game)) {
+            @if (canEdit(game) || auth.profile()?.role === 'ADMINISTRATOR' || canCancel(game) || canComplete(game)) {
               <details class="event-actions"><summary>Event actions</summary><div class="event-action-options">
-                @if (auth.profile()?.role === 'ADMINISTRATOR') { <button class="secondary" [disabled]="busy() || game.status === 'CANCELLED' || game.status === 'COMPLETED'" (click)="edit(game)">Edit event</button> }
+                @if (canEdit(game)) { <button class="secondary" [disabled]="busy()" (click)="edit(game)">Edit event</button> }
                 @if (canComplete(game)) { <button class="secondary" [disabled]="busy()" (click)="transition(game.id, 'complete')">Mark completed</button> }
                 @if (canCancel(game)) { <button class="secondary" [disabled]="busy()" (click)="deleting.set(''); cancelling.set(game.id)">Cancel event</button> }
                 @if (auth.profile()?.role === 'ADMINISTRATOR') { <button class="secondary" [disabled]="busy()" (click)="cancelling.set(''); deleting.set(game.id)">Delete event</button> }

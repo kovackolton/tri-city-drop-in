@@ -7,6 +7,7 @@ import { LocationMapComponent } from '../src/app/location-map/location-map.compo
 import { DomSanitizer } from '@angular/platform-browser';
 import { avatarInitial, avatarPalette, contactEmailLink, contactPhoneLink } from '../src/avatar';
 import { AdminUsersComponent } from '../src/app/admin-users/admin-users.component';
+import { OrganizerComponent } from '../src/app/organizer/organizer.component';
 import { WaiverPanelComponent } from '../src/app/waiver-panel/waiver-panel.component';
 import { StrikePanelComponent } from '../src/app/strike-panel/strike-panel.component';
 import { WaiverStore } from '../src/waiver.store';
@@ -26,6 +27,33 @@ import { EventShareComponent } from '../src/app/event-share/event-share.componen
 import { sharedEventId, shareMessage, SharedGame } from '../src/event-sharing';
 import { EventsStore, defaultGameFilters } from '../src/events.store';
 import { RegistrationsStore, Seat } from '../src/registrations.store';
+
+test('organizer editing controls respect ownership and save draft transitions through the guarded endpoint', async () => {
+  let profile: any = { id: 'owner', role: 'ORGANIZER' };
+  const calls: { url: string; body: any }[] = [];
+  const injector = Injector.create({ providers: [
+    { provide: AuthService, useValue: { profile: () => profile } },
+    { provide: HttpClient, useValue: { get: () => of([]), patch: (url: string, body: any) => { calls.push({ url, body }); return of({}); } } }
+  ] });
+  const component = runInInjectionContext(injector, () => new OrganizerComponent());
+  const own = { id: 'game', organizerId: 'owner', status: 'PUBLISHED', startsAt: new Date(Date.now() + 86400000).toISOString() } as any;
+  assert.equal(component.canEdit(own), true); assert.equal(component.canReturnToDraft(own), true);
+  assert.equal(component.canEdit({ ...own, organizerId: 'other' }), false);
+  profile = { id: 'admin', role: 'ADMINISTRATOR' }; assert.equal(component.canEdit(own), true);
+  assert.equal(component.canEdit({ ...own, status: 'COMPLETED' }), false);
+  assert.equal(component.canReturnToDraft({ ...own, startsAt: new Date(Date.now() - 1000).toISOString() }), false);
+  profile = null; assert.equal(component.canEdit(own), false);
+  profile = { id: 'owner', role: 'ORGANIZER' };
+  for (const status of ['PUBLISHED', 'DRAFT']) {
+    component.editingId.set(own.id);
+    component.event = { ...component.event, title: 'Edited game', locationId: 'location', startsAt: own.startsAt, endsAt: new Date(Date.now() + 90000000).toISOString(), status };
+    await component.createEvent();
+    assert.equal(component.error(), '');
+    assert.equal(calls.at(-1)?.url, '/api/organizer/events/game');
+    assert.equal(calls.at(-1)?.body.status, status === 'DRAFT' ? 'DRAFT' : undefined);
+  }
+  injector.destroy();
+});
 
 test('initial avatars handle blank names and Unicode without splitting surrogate pairs', () => {
   assert.equal(avatarInitial('  alex  '), 'A');
