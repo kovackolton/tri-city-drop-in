@@ -24,7 +24,7 @@ import { Game } from '../src/models';
 import { MyGamesComponent } from '../src/app/my-games/my-games.component';
 import { AuthService } from '../src/auth.service';
 import { EventShareComponent } from '../src/app/event-share/event-share.component';
-import { sharedEventId, shareMessage, SharedGame } from '../src/event-sharing';
+import { sharedEventId, shareMessage, SharedGame, emailShareLink, emailShareText, emailCardHtml } from '../src/event-sharing';
 import { EventsStore, defaultGameFilters } from '../src/events.store';
 import { RegistrationsStore, Seat } from '../src/registrations.store';
 
@@ -103,6 +103,42 @@ test('workspace defaults to My events, uses minimal organizer overview and retai
   assert.equal(component.minimalView(), false); assert.equal(component.events()[0].id, 'managed'); assert.equal(component.overview().length, 0);
   const mine = component.selectEventScope('mine'); assert.equal(requests[3].url, '/api/organizer/events?scope=mine');
   requests[3].response.next([]); requests[3].response.complete(); await mine; injector.destroy();
+});
+
+test('email sharing safely encodes the draft and creates an escaped static card with a website join link', () => {
+  const data = { game: { title: 'Soccer <script>alert(1)</script>', location: 'Field', photoUrl: 'javascript:alert(1)' }, share: { url: 'https://soccer.example.test/games/id?x=1&y=2', title: 'Soccer & friends\r\nBcc: test', description: 'Friday at 7 PM / Field / USD 12.00 / 6 spots available', availability: '6 spots available', action: 'Join Game', open: true } } as SharedGame;
+  const email = new URL(emailShareLink(data));
+  assert.equal(email.protocol, 'mailto:'); assert.equal(email.searchParams.get('subject'), 'Soccer & friends Bcc: test');
+  assert.equal(email.searchParams.has('bcc'), false); assert.equal(email.searchParams.get('body'), emailShareText(data));
+  assert.ok(emailShareText(data).includes(data.share.url));
+  const card = emailCardHtml(data);
+  assert.ok(card.includes('Soccer &lt;script&gt;')); assert.ok(!card.includes('<script>')); assert.ok(!card.includes('javascript:'));
+  assert.ok(card.includes('/share/soccer-ball.png')); assert.ok(card.includes('6 spots available')); assert.ok(card.includes('>Join Game</a>'));
+  assert.ok(card.includes('href="https://soccer.example.test/games/id?x=1&amp;y=2"'));
+  assert.throws(() => emailCardHtml({ ...data, share: { ...data.share, url: 'javascript:alert(1)' } }), /Invalid public/);
+});
+
+test('email card copying provides rich and plain representations and reports permission failures', async () => {
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const originalItem = Object.getOwnPropertyDescriptor(globalThis, 'ClipboardItem');
+  let copied: any[] = [], reject = false;
+  class Item { constructor(readonly data: Record<string, Blob>) {} }
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { clipboard: { write: async (items: any[]) => { if (reject) throw new Error('Denied'); copied = items; } } } });
+  Object.defineProperty(globalThis, 'ClipboardItem', { configurable: true, value: Item });
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: {} }] });
+  try {
+    const component = runInInjectionContext(injector, () => new EventShareComponent());
+    component.data.set({ game: { title: 'Soccer', location: 'Pitch' }, share: { url: 'https://soccer.example.test/games/id', title: 'Soccer', description: 'Friday / USD 12.00', availability: '4 spots available', action: 'Join Game', open: true } } as SharedGame);
+    await component.copyEmailCard(); assert.equal(copied.length, 1);
+    assert.ok((await copied[0].data['text/html'].text()).includes('>Join Game</a>'));
+    assert.ok((await copied[0].data['text/plain'].text()).includes('https://soccer.example.test/games/id'));
+    assert.match(component.notice(), /Paste it/);
+    reject = true; await component.copyEmailCard(); assert.match(component.error(), /Use Email game/);
+  } finally {
+    injector.destroy();
+    if (originalNavigator) Object.defineProperty(globalThis, 'navigator', originalNavigator); else Reflect.deleteProperty(globalThis, 'navigator');
+    if (originalItem) Object.defineProperty(globalThis, 'ClipboardItem', originalItem); else Reflect.deleteProperty(globalThis, 'ClipboardItem');
+  }
 });
 
 test('initial avatars handle blank names and Unicode without splitting surrogate pairs', () => {
