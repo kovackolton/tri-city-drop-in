@@ -26,7 +26,7 @@ import { MyGamesComponent } from '../src/app/my-games/my-games.component';
 import { AuthService } from '../src/auth.service';
 import { EventShareComponent } from '../src/app/event-share/event-share.component';
 import { sharedEventId, shareMessage, SharedGame, emailShareLink, emailShareText, emailCardHtml } from '../src/event-sharing';
-import { EventsStore, defaultGameFilters } from '../src/events.store';
+import { EventsStore, defaultGameFilters, activeGameFilterCount } from '../src/events.store';
 import { RegistrationsStore, Seat } from '../src/registrations.store';
 
 test('organizer editing controls respect ownership and save draft transitions through the guarded endpoint', async () => {
@@ -164,6 +164,25 @@ test('mobile navigation closes on selection and Escape, restores focus and label
     if (documentDescriptor) Object.defineProperty(globalThis, 'document', documentDescriptor); else Reflect.deleteProperty(globalThis, 'document');
     if (animationDescriptor) Object.defineProperty(globalThis, 'requestAnimationFrame', animationDescriptor); else Reflect.deleteProperty(globalThis, 'requestAnimationFrame');
   }
+});
+
+test('collapsed filters count applied criteria and ignore unused dates and blank searches', () => {
+  assert.equal(activeGameFilterCount(defaultGameFilters()), 0);
+  assert.equal(activeGameFilterCount({ ...defaultGameFilters(), date: '2027-01-01', search: '  ' }), 0);
+  assert.equal(activeGameFilterCount({ ...defaultGameFilters(), period: 'week', locationId: 'venue', freeOnly: true, search: 'soccer' }), 4);
+});
+
+test('invalid fields reopen collapsed event sections and keep error messages beside the affected field', () => {
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: {} }, { provide: HttpClient, useValue: {} }] });
+  const component = runInInjectionContext(injector, () => new OrganizerComponent());
+  const outer = { open: false, parentElement: null };
+  const inner = { open: false, parentElement: { closest: () => outer } };
+  component.event.title = 'Keep my entered title';
+  component.revealInvalidField({ target: { name: 'teamCount', validationMessage: 'Enter at least 2 teams.', closest: () => inner } } as unknown as Event);
+  assert.equal(inner.open, true); assert.equal(outer.open, true); assert.equal(component.fieldErrors()['teamCount'], 'Enter at least 2 teams.');
+  assert.equal(component.event.title, 'Keep my entered title');
+  component.clearFieldError('teamCount'); assert.equal(component.fieldErrors()['teamCount'], undefined);
+  injector.destroy();
 });
 
 test('initial avatars handle blank names and Unicode without splitting surrogate pairs', () => {
