@@ -31,12 +31,6 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test --workspace @tri-city/api
-      - name: Debug GitHub OIDC context
-        run: |
-          echo "Repository: $GITHUB_REPOSITORY"
-          echo "Ref: $GITHUB_REF"
-          echo "Environment: ${{ job.environment }}"
-          echo "Event: $GITHUB_EVENT_NAME"
       - name: Database integration tests (disposable CI database only)
         run: |
           printf '%s\n' 'DATABASE_URL=postgresql://test:test@localhost:5432/tricity_test' > apps/api/.env
@@ -71,6 +65,11 @@ jobs:
       MIGRATION_DB_VERSION: ${{ vars.MIGRATION_DB_SECRET_VERSION }}
     steps:
       - uses: actions/checkout@v4
+      - name: Debug deployment identity
+        run: |
+          echo "Repository: $GITHUB_REPOSITORY"
+          echo "Ref: $GITHUB_REF"
+          echo "Event: $GITHUB_EVENT_NAME"
       - name: Build commit-tagged images before requesting cloud credentials
         run: |
           docker build --platform linux/amd64 -f Dockerfile.cloudrun -t "$IMAGE_BASE/app:$GITHUB_SHA" .
