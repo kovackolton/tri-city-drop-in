@@ -25,7 +25,7 @@ import { EventsController } from '../src/events';
 import { ProfilesController } from '../src/profiles';
 import { AuthRequest } from '../src/auth';
 import { NotificationsService } from '../src/notifications';
-import { AdministrationService } from '../src/administration';
+import { AdministrationService, AdministrationController, OrganizerEventEditingController } from '../src/administration';
 
 test('signup transactions against isolated PostgreSQL schema', { timeout: 120000 }, async t => {
   assert.ok(process.env.DATABASE_URL, 'Run with the API .env loaded.');
@@ -428,6 +428,99 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.equal(updated.name, 'Renamed pitch');
       await locations.remove(updated.id);
     });
+    await t.test('workspace event cards include organizer identity without exposing private account contacts', async () => {
+      const owner = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Organizer Account', nickname: 'Captain', role: 'ORGANIZER' } });
+      const e = await event(3);
+      await db.event.update({ where: { id: e.id }, data: { organizerId: owner.id } });
+      const controller = new EventsController(db, service);
+      const own = await controller.ownEvents({ user: owner } as AuthRequest);
+      assert.equal(own.length, 1); assert.equal(own[0].organizer.displayName, 'Captain'); assert.equal(own[0].organizer.accountName, 'Organizer Account');
+      assert.equal('email' in own[0].organizer, false); assert.equal('phone' in own[0].organizer, false);
+      assert.ok(!(await controller.ownEvents({ user: users[0] } as AuthRequest)).some(item => item.id === e.id));
+      assert.ok(!(await controller.ownEvents({ user: { ...users[1], role: 'ADMINISTRATOR' } } as AuthRequest)).some(item => item.id === e.id));
+      const admin = await controller.ownEvents({ user: { ...users[1], role: 'ADMINISTRATOR' } } as AuthRequest, 'all');
+      assert.equal(admin.find(item => item.id === e.id)?.organizer.accountName, owner.displayName);
+    });
+    await t.test('organizer overview exposes only minimal current published details while full listings stay scoped', async () => {
+      const controller = new EventsController(db, service);
+      const current = await event(3), draft = await event(3), cancelled = await event(3), past = await event(3), deleted = await event(3), ongoing = await event(3);
+      await db.event.update({ where: { id: draft.id }, data: { status: 'DRAFT' } });
+      await db.event.update({ where: { id: cancelled.id }, data: { status: 'CANCELLED' } });
+      await db.event.update({ where: { id: deleted.id }, data: { deletedAt: new Date() } });
+      await db.event.update({ where: { id: past.id }, data: { startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000) } });
+      await db.event.update({ where: { id: ongoing.id }, data: { startsAt: new Date(Date.now() - 3600000), endsAt: new Date(Date.now() + 3600000) } });
+      const overview = await controller.eventOverview();
+      assert.ok(overview.some(item => item.id === current.id)); assert.ok(overview.some(item => item.id === ongoing.id));
+      for (const hidden of [draft, cancelled, past, deleted]) assert.ok(!overview.some(item => item.id === hidden.id));
+      const summary = overview.find(item => item.id === current.id)!;
+      assert.deepEqual(Object.keys(summary).sort(), ['endsAt', 'id', 'location', 'organizer', 'startsAt', 'title']);
+      assert.deepEqual(Object.keys(summary.organizer), ['displayName']);
+      assert.deepEqual(Object.keys(summary.location).sort(), ['city', 'name', 'timezone']);
+      assert.ok(!(await controller.ownEvents({ user: { ...users[4], role: 'ORGANIZER' } } as AuthRequest, 'all')).some(item => item.id === current.id));
+      const fullAdmin = await controller.ownEvents({ user: { ...users[4], role: 'ADMINISTRATOR' } } as AuthRequest, 'all');
+      assert.ok(fullAdmin.some(item => item.id === draft.id)); assert.ok(fullAdmin.some(item => item.id === past.id));
+      await assert.rejects(controller.ownEvents({ user: users[0] } as AuthRequest, 'invalid'), /Choose My events/);
+    });
+    await t.test('event editing enforces ownership and preserves administrator access', async () => {
+      const e = await event(3);
+      const editing = new OrganizerEventEditingController(administration);
+      await assert.rejects(editing.edit({ user: { ...users[4], role: 'ORGANIZER' } } as AuthRequest, e.id, { title: 'Not mine' }), /Event not found/);
+      assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).title, e.title);
+      await editing.edit({ user: users[0] } as AuthRequest, e.id, { title: 'Owner edited' });
+      assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).title, 'Owner edited');
+      await new AdministrationController(administration).edit({ user: { ...users[4], role: 'ADMINISTRATOR' } } as AuthRequest, e.id, { title: 'Admin edited' });
+      assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).title, 'Admin edited');
+      await assert.rejects(editing.edit({ user: users[0] } as AuthRequest, e.id, { organizerId: users[4].id }), /Unexpected field/);
+    });
+    await t.test('returning to draft retains bookings and quotes, hides public links, and resumes FIFO on publication', async () => {
+      const e = await event(2);
+      const confirmed = await join(1, e.id, ['Guest']);
+      const waiting = await join(2, e.id);
+      await assert.rejects(administration.edit(users[4].id, e.id, { status: 'DRAFT' }), /Event not found/);
+      await administration.edit(users[0].id, e.id, { title: 'Under review', status: 'DRAFT', capacity: 3, priceCents: 2000 });
+      assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).status, 'DRAFT');
+      assert.equal(await db.signup.count({ where: { eventId: e.id, status: 'CONFIRMED' } }), 2);
+      assert.equal((await db.signup.findUniqueOrThrow({ where: { id: waiting[0].id } })).status, 'WAITLISTED');
+      assert.equal((await db.paymentObligation.findUniqueOrThrow({ where: { signupId: confirmed[0].id } })).amountCents, 1000);
+      const publicEvents = new EventsController(db, service);
+      assert.ok(!(await publicEvents.events()).some(item => item.id === e.id));
+      assert.equal(await new EventSharingService(db).event(e.id), null);
+      await assert.rejects(join(3, e.id, [], 2000), /future published/);
+      assert.equal((await service.mine(users[1].id)).find(seat => seat.id === confirmed[0].id)?.event.status, 'DRAFT');
+      assert.equal(await db.notification.count({ where: { kind: 'EVENT_RETURNED_TO_DRAFT', payload: { path: ['eventId'], equals: e.id } } }), 2);
+      const audits = await db.auditLog.count({ where: { eventId: e.id } });
+      await administration.edit(users[0].id, e.id, { status: 'DRAFT' });
+      assert.equal(await db.auditLog.count({ where: { eventId: e.id } }), audits);
+      await publicEvents.publish({ user: users[0] } as AuthRequest, e.id);
+      assert.equal((await db.signup.findUniqueOrThrow({ where: { id: waiting[0].id } })).status, 'CONFIRMED');
+      assert.equal((await db.paymentObligation.findUniqueOrThrow({ where: { signupId: waiting[0].id } })).amountCents, 1000);
+      assert.ok((await publicEvents.events()).some(item => item.id === e.id));
+      assert.equal(await db.notification.count({ where: { kind: 'EVENT_PUBLISHED', payload: { path: ['eventId'], equals: e.id } } }), 2);
+    });
+    await t.test('draft cancellation is unpenalized and leaves waitlist promotion until publication', async () => {
+      const e = await event(2);
+      const booked = await join(1, e.id, ['Guest']);
+      const waiting = await join(2, e.id);
+      await administration.edit(users[0].id, e.id, { status: 'DRAFT' });
+      const cancelled = await service.cancel(users[1].id, e.id, booked[0].bookingId);
+      assert.equal(cancelled.lateCancellation, false);
+      assert.equal((await db.signup.findUniqueOrThrow({ where: { id: waiting[0].id } })).status, 'WAITLISTED');
+      assert.equal(await db.paymentObligation.count({ where: { signup: { bookingId: booked[0].bookingId }, status: 'VOID' } }), 2);
+      await new EventsController(db, service).publish({ user: users[0] } as AuthRequest, e.id);
+      assert.equal((await db.signup.findUniqueOrThrow({ where: { id: waiting[0].id } })).status, 'CONFIRMED');
+    });
+    await t.test('draft transitions reject ended, cancelled and completed events and roll back invalid edits', async () => {
+      const e = await event(3);
+      await assert.rejects(administration.edit(users[0].id, e.id, { status: 'DRAFT', capacity: 0 }), /Capacity/);
+      assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).status, 'PUBLISHED');
+      await assert.rejects(administration.edit(users[0].id, e.id, { status: 'PUBLISHED' }), /Use Publish event/);
+      await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000) } });
+      await assert.rejects(administration.edit(users[0].id, e.id, { status: 'DRAFT' }, true), /Only future/);
+      for (const status of ['CANCELLED', 'COMPLETED'] as const) {
+        await db.event.update({ where: { id: e.id }, data: { status } });
+        await assert.rejects(administration.edit(users[0].id, e.id, { status: 'DRAFT' }), /cannot be edited/);
+      }
+    });
     await t.test('administrator editing preserves quotes and capacity, promotes queue, deletion preserves history', async () => {
       const e = await event(2);
       const a = await join(1, e.id, ['Guest']);
@@ -595,6 +688,9 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.ok(seats.every(seat => !seat.guestPaymentAcknowledgedAt));
       const confirmed = seats.find(seat => seat.status === 'CONFIRMED')!;
       const cancelled = await service.cancel(confirmed.userId, e.id, confirmed.bookingId); assert.equal(cancelled.lateCancellation, false);
+      assert.equal(await db.signup.count({ where: { eventId: e.id, status: 'CONFIRMED' } }), 0);
+      assert.equal(await db.signup.count({ where: { eventId: e.id, status: 'WAITLISTED' } }), 1);
+      await events.publish({ user: users[0] } as AuthRequest, e.id);
       const remaining = await db.signup.findFirstOrThrow({ where: { eventId: e.id, status: 'CONFIRMED' } }); assert.notEqual(remaining.userId, confirmed.userId);
       assert.equal(await db.notification.count({ where: { kind: 'ORGANIZER_BOOKED_PLAYER', payload: { path: ['eventId'], equals: e.id } } }), 2);
       const before = await db.event.count();

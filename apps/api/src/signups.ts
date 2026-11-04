@@ -116,6 +116,7 @@ export class SignupsService {
   }
   // Caller must hold this event's row lock throughout the transaction.
   async promote(tx: Prisma.TransactionClient, event: Event) {
+    if (event.status !== 'PUBLISHED') return;
     let available = event.capacity - await tx.signup.count({ where: { eventId: event.id, status: 'CONFIRMED' } });
     const hosts = await tx.signup.findMany({ where: { eventId: event.id, status: 'WAITLISTED', guestNumber: 0 }, orderBy: [{ queuedAt: 'asc' }, { id: 'asc' }] });
     for (const host of hosts) {

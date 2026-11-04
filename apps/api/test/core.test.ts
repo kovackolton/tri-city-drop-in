@@ -112,7 +112,7 @@ test('profile updates cannot escalate role', async () => {
 });
 test('publishing is scoped to owned future drafts and writes an audit entry', async () => {
   let query: any, audited = false;
-  const tx = { eventInvitation: { findMany: async () => [] }, event: { findUniqueOrThrow: async () => ({ id: 'event', status: 'PUBLISHED' }), updateMany: async (input: unknown) => { query = input; return { count: 1 }; } }, auditLog: { create: async () => { audited = true; } } };
+  const tx = { signup: { count: async () => 0, findMany: async () => [] }, eventInvitation: { findMany: async () => [] }, event: { findUniqueOrThrow: async () => ({ id: 'event', status: 'PUBLISHED' }), updateMany: async (input: unknown) => { query = input; return { count: 1 }; } }, auditLog: { create: async () => { audited = true; return { id: 'audit' }; } } };
   const controller = new EventsController({ $transaction: async (work: (tx: unknown) => unknown) => work(tx) } as unknown as Database);
   await controller.publish({ user: organizer } as AuthRequest, valid().locationId);
   assert.equal(query.where.organizerId, organizer.id);

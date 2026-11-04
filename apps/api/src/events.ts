@@ -50,9 +50,19 @@ export class EventsController {
     return { locations, organizers: users.map(user => ({ id: user.id, name: user.nickname ?? user.displayName })) };
   }
   @Get('organizer/events') @UseGuards(FirebaseGuard, OrganizerGuard)
-  async ownEvents(@Req() req: AuthRequest) {
-    const events = await this.db.event.findMany({ where: { deletedAt: null, ...(req.user.role === 'ADMINISTRATOR' ? {} : { organizerId: req.user.id }) }, include: { location: true, _count: { select: { signups: { where: { status: 'CONFIRMED' } } } } }, orderBy: { startsAt: 'desc' }, take: 100 });
-    return events.map(({ _count, ...event }) => ({ ...event, confirmed: _count.signups }));
+  async ownEvents(@Req() req: AuthRequest, @Query('scope') scope = 'mine') {
+    if (!['mine', 'all'].includes(scope)) throw new BadRequestException('Choose My events or All events.');
+    const events = await this.db.event.findMany({ where: { deletedAt: null, ...(req.user.role === 'ADMINISTRATOR' && scope === 'all' ? {} : { organizerId: req.user.id }) }, include: { location: true, organizer: { select: appearanceSelect }, _count: { select: { signups: { where: { status: 'CONFIRMED' } } } } }, orderBy: { startsAt: 'desc' }, take: 100 });
+    return events.map(({ _count, organizer, ...event }) => ({ ...event, organizer: { ...appearance(organizer), accountName: organizer.displayName }, confirmed: _count.signups }));
+  }
+  @Get('organizer/events/overview') @UseGuards(FirebaseGuard, OrganizerGuard)
+  async eventOverview() {
+    const events = await this.db.event.findMany({
+      where: { deletedAt: null, status: 'PUBLISHED', endsAt: { gt: new Date() } },
+      select: { id: true, title: true, startsAt: true, endsAt: true, organizer: { select: { displayName: true, nickname: true } }, location: { select: { name: true, city: true, timezone: true } } },
+      orderBy: [{ startsAt: 'asc' }, { id: 'asc' }], take: 100
+    });
+    return events.map(({ organizer, ...event }) => ({ ...event, organizer: { displayName: organizer.nickname ?? organizer.displayName } }));
   }
   @Get('locations') @UseGuards(FirebaseGuard, OrganizerGuard)
   locations() { return this.db.location.findMany({ orderBy: { name: 'asc' }, take: 500 }); }
@@ -84,8 +94,12 @@ export class EventsController {
     return this.db.$transaction(async tx => {
       const result = await tx.event.updateMany({ where: { id, deletedAt: null, ...(req.user.role === 'ADMINISTRATOR' ? {} : { organizerId: req.user.id }), status: 'DRAFT', startsAt: { gt: new Date() } }, data: { status: 'PUBLISHED' } });
       if (result.count !== 1) throw new BadRequestException('Only your future draft events can be published.');
-      await tx.auditLog.create({ data: { actorId: req.user.id, eventId: id, action: 'EVENT_PUBLISHED', details: {} } });
-      await notifyInvitations(tx, await tx.event.findUniqueOrThrow({ where: { id } }));
+      const audit = await tx.auditLog.create({ data: { actorId: req.user.id, eventId: id, action: 'EVENT_PUBLISHED', details: {} } });
+      const event = await tx.event.findUniqueOrThrow({ where: { id } });
+      await this.signups.promote(tx, event);
+      await notifyInvitations(tx, event);
+      const hosts = await tx.signup.findMany({ where: { eventId: id, guestNumber: 0, status: { in: ['CONFIRMED', 'WAITLISTED'] } }, select: { userId: true } });
+      for (const host of hosts) await tx.notification.create({ data: { userId: host.userId, kind: 'EVENT_PUBLISHED', dedupeKey: `published:${audit.id}:${host.userId}`, payload: { eventId: id, title: event.title } } });
       return { id, status: 'PUBLISHED' };
     });
   }
