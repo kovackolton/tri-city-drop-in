@@ -4,7 +4,7 @@ import { WaiverStore } from '../waiver.store';
 import { StrikesStore } from '../strikes.store';
 import { ThemeService } from '../theme.service';
 import { IconComponent } from './icon/icon.component';
-import { Component, effect, inject, OnInit, OnDestroy, signal, untracked } from '@angular/core';
+import { Component, ElementRef, ViewChild, effect, inject, OnInit, OnDestroy, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../auth.service';
 import { OrganizerComponent } from './organizer/organizer.component';
@@ -17,7 +17,7 @@ import { AvatarComponent } from './avatar/avatar.component';
 import { MyGamesComponent } from './my-games/my-games.component';
 
 import { NotificationsStore } from '../notifications.store';
-import { EventsStore, defaultGameFilters } from '../events.store';
+import { EventsStore, defaultGameFilters, activeGameFilterCount } from '../events.store';
 
 @Component({
   selector: 'app-root', imports: [IconComponent, EventCardComponent, FormsModule, ProfileComponent, AvatarComponent, OrganizerComponent, MyGamesComponent, SignInComponent, AdminUsersComponent],
@@ -38,12 +38,14 @@ export class AppComponent implements OnInit, OnDestroy {
   readonly registrations = inject(RegistrationsStore);
   readonly page = signal<'games' | 'mygames' | 'profile' | 'organizer' | 'notifications' | 'signin' | 'users'>('games');
   readonly mobileNavigationOpen = signal(false);
+  @ViewChild('accountMenu') accountMenu?: ElementRef<HTMLDetailsElement>;
   pageLabel() {
     if (this.page() === 'organizer') return this.auth.profile()?.role === 'ADMINISTRATOR' ? 'Administrator workspace' : 'Organizer workspace';
     return { games: 'Upcoming games', mygames: 'My games', profile: 'My profile', notifications: 'Notifications', signin: 'Sign in', users: 'Users', organizer: 'Organizer workspace' }[this.page()];
   }
   toggleMobileNavigation() { this.mobileNavigationOpen.update(open => !open); }
   closeMobileNavigation(restoreFocus = false) {
+    if (this.accountMenu) this.accountMenu.nativeElement.open = false;
     if (!this.mobileNavigationOpen()) return;
     this.mobileNavigationOpen.set(false);
     if (restoreFocus) document.getElementById('mobile-navigation-toggle')?.focus();
@@ -51,8 +53,10 @@ export class AppComponent implements OnInit, OnDestroy {
   readonly userRequestsOnly = signal(false);
   readonly time = eventTime;
   filters = defaultGameFilters();
+  readonly filtersOpen = signal(false);
+  activeFilterCount() { return activeGameFilterCount(this.store.filters()); }
   cities() { return [...new Set(this.store.locations().map(location => location.city).filter((city): city is string => !!city))].sort((a, b) => a.localeCompare(b)); }
-  applyFilters() { void this.store.load(this.filters); }
+  applyFilters() { this.filtersOpen.set(false); void this.store.load(this.filters); }
   resetFilters() { this.filters = defaultGameFilters(); this.applyFilters(); }
   refreshGames() { void this.store.load(); void this.store.loadFilters(); if (this.store.selectedId()) void this.store.loadSelected(this.store.selectedId()); }
   refreshAfterJoin() { void this.store.load(); if (this.store.selectedId()) void this.store.loadSelected(this.store.selectedId()); }

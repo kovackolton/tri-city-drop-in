@@ -47,3 +47,16 @@ aside :focus-visible, .game-header :focus-visible { outline-color: var(--focus-o
 
 .strike-alert { border: 2px solid var(--warning-border); border-left-width: 7px; background: var(--warning-bg); color: var(--warning-text); padding: 1.15rem; border-radius: .8rem; }
 .strike-alert.blocked { border-color: var(--danger-text); }
+
+/* Phone-sized controls and action layouts. */
+@media (max-width: 767.98px) {
+  button, summary, .primary, .secondary { min-height: 44px; }
+  a.primary, a.secondary { display: inline-flex; align-items: center; justify-content: center; }
+  input:not([type="checkbox"]):not([type="radio"]), select, textarea { font-size: 1rem; min-height: 44px; }
+  app-signup .primary, app-payment-review button, app-event-invitations .primary, app-dialog .primary { width: 100%; }
+  app-signup .signup-actions { flex-wrap: wrap; }
+  app-dialog button { white-space: normal; }
+  app-dialog .flex { flex-wrap: wrap; }
+  app-event-teams, app-organizer-seat { display: block; min-width: 0; }
+  app-event-teams section, app-event-teams li { min-width: 0; overflow-wrap: anywhere; }
+}
