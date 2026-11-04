@@ -4,3 +4,32 @@
 .icon-button.selected { color: var(--accent); border-color: var(--accent); background: var(--success-bg); }
 .unread-badge { position: absolute; top: -6px; right: -7px; min-width: 20px; height: 20px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--primary); color: var(--on-primary); border: 2px solid var(--surface); font-size: .6rem; line-height: 1; font-weight: 700; }
 @media (max-width: 480px) { .app-header { padding: 1rem; } .header-actions { gap: .5rem; } }
+
+.mobile-navigation-toggle, .mobile-current-page { display: none; }
+@media (max-width: 767.98px) {
+  .app-sidebar { padding: 1rem; }
+  .sidebar-top { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .mobile-navigation-toggle { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-width: 44px; min-height: 44px; padding: .6rem .75rem; border: 1px solid currentColor; border-radius: .7rem; flex-shrink: 0; }
+  .mobile-navigation-toggle:hover { background: var(--nav-active); }
+  .mobile-current-page { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .75rem; margin-top: .85rem; font-size: .875rem; }
+  .mobile-current-page span { font-size: .75rem; }
+  .mobile-current-page strong { overflow-wrap: anywhere; }
+  .main-navigation { display: none; margin-top: 1rem; }
+  .main-navigation.mobile-open { display: block; }
+  .main-navigation button { min-height: 44px; }
+}
+
+.desktop-account { display: contents; }
+.mobile-account { display: none; }
+.game-filters > summary { cursor: pointer; font-weight: 700; color: var(--accent); }
+.filter-count { display: inline-block; margin-left: .5rem; padding: .2rem .6rem; border-radius: 999px; font-size: .75rem; color: var(--badge-text); background: var(--badge-bg); }
+@media (max-width: 767.98px) {
+  .header-tagline, .desktop-account { display: none; }
+  .app-header { padding: .75rem 1rem; }
+  .header-actions { width: 100%; gap: .5rem; min-width: 0; }
+  .mobile-account { display: block; position: relative; margin-right: auto; }
+  .mobile-account > summary { display: flex; align-items: center; gap: .4rem; min-height: 44px; padding: .25rem .4rem; border: 1px solid var(--border); border-radius: .8rem; cursor: pointer; font-size: .8rem; list-style: none; }
+  .mobile-account > summary::-webkit-details-marker { display: none; }
+  .mobile-account-panel { position: absolute; z-index: 20; left: 0; top: calc(100% + .5rem); width: min(18rem, calc(100vw - 2rem)); display: grid; gap: .75rem; padding: 1rem; border: 1px solid var(--border); border-radius: .8rem; background: var(--surface); color: var(--text); box-shadow: 0 8px 24px var(--dialog-shadow); }
+  .game-filters { padding: 1rem; }
+}
