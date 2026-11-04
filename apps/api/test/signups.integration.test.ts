@@ -437,8 +437,29 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.equal(own.length, 1); assert.equal(own[0].organizer.displayName, 'Captain'); assert.equal(own[0].organizer.accountName, 'Organizer Account');
       assert.equal('email' in own[0].organizer, false); assert.equal('phone' in own[0].organizer, false);
       assert.ok(!(await controller.ownEvents({ user: users[0] } as AuthRequest)).some(item => item.id === e.id));
-      const admin = await controller.ownEvents({ user: { ...users[1], role: 'ADMINISTRATOR' } } as AuthRequest);
+      assert.ok(!(await controller.ownEvents({ user: { ...users[1], role: 'ADMINISTRATOR' } } as AuthRequest)).some(item => item.id === e.id));
+      const admin = await controller.ownEvents({ user: { ...users[1], role: 'ADMINISTRATOR' } } as AuthRequest, 'all');
       assert.equal(admin.find(item => item.id === e.id)?.organizer.accountName, owner.displayName);
+    });
+    await t.test('organizer overview exposes only minimal current published details while full listings stay scoped', async () => {
+      const controller = new EventsController(db, service);
+      const current = await event(3), draft = await event(3), cancelled = await event(3), past = await event(3), deleted = await event(3), ongoing = await event(3);
+      await db.event.update({ where: { id: draft.id }, data: { status: 'DRAFT' } });
+      await db.event.update({ where: { id: cancelled.id }, data: { status: 'CANCELLED' } });
+      await db.event.update({ where: { id: deleted.id }, data: { deletedAt: new Date() } });
+      await db.event.update({ where: { id: past.id }, data: { startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000) } });
+      await db.event.update({ where: { id: ongoing.id }, data: { startsAt: new Date(Date.now() - 3600000), endsAt: new Date(Date.now() + 3600000) } });
+      const overview = await controller.eventOverview();
+      assert.ok(overview.some(item => item.id === current.id)); assert.ok(overview.some(item => item.id === ongoing.id));
+      for (const hidden of [draft, cancelled, past, deleted]) assert.ok(!overview.some(item => item.id === hidden.id));
+      const summary = overview.find(item => item.id === current.id)!;
+      assert.deepEqual(Object.keys(summary).sort(), ['endsAt', 'id', 'location', 'organizer', 'startsAt', 'title']);
+      assert.deepEqual(Object.keys(summary.organizer), ['displayName']);
+      assert.deepEqual(Object.keys(summary.location).sort(), ['city', 'name', 'timezone']);
+      assert.ok(!(await controller.ownEvents({ user: { ...users[4], role: 'ORGANIZER' } } as AuthRequest, 'all')).some(item => item.id === current.id));
+      const fullAdmin = await controller.ownEvents({ user: { ...users[4], role: 'ADMINISTRATOR' } } as AuthRequest, 'all');
+      assert.ok(fullAdmin.some(item => item.id === draft.id)); assert.ok(fullAdmin.some(item => item.id === past.id));
+      await assert.rejects(controller.ownEvents({ user: users[0] } as AuthRequest, 'invalid'), /Choose My events/);
     });
     await t.test('event editing enforces ownership and preserves administrator access', async () => {
       const e = await event(3);

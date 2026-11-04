@@ -6,7 +6,7 @@ import { CurrencyPipe } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { AuthService, message } from '../../auth.service';
-import { Location, ManagedEvent, eventTime } from '../../models';
+import { Location, ManagedEvent, EventOverview, eventTime } from '../../models';
 import { RosterComponent } from '../roster/roster.component';
 import { LocationsComponent } from '../locations/locations.component';
 import { DialogComponent } from '../dialog/dialog.component';
@@ -29,6 +29,16 @@ export class OrganizerComponent implements OnInit {
   private readonly http = inject(HttpClient);
   readonly locations = signal<Location[]>([]);
   readonly events = signal<ManagedEvent[]>([]);
+  readonly eventScope = signal<'mine' | 'all'>('mine');
+  readonly overview = signal<EventOverview[]>([]);
+  private loadRevision = 0;
+  minimalView() { return this.eventScope() === 'all' && this.auth.profile()?.role !== 'ADMINISTRATOR'; }
+  async selectEventScope(scope: 'mine' | 'all') {
+    if (this.busy() || scope === this.eventScope()) return;
+    this.eventScope.set(scope); this.events.set([]); this.overview.set([]);
+    this.rosterEvent.set(''); this.cancelling.set(''); this.deleting.set('');
+    await this.load();
+  }
   readonly rosterEvent = signal('');
   readonly busy = signal(false);
   readonly loading = signal(true);
@@ -51,12 +61,17 @@ export class OrganizerComponent implements OnInit {
   event = { title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, shirtColorCount: 2 as number | null, minPlayers: null as number | null, teamCount: 2, teamBalancingEnabled: false, organizerContactEmail: '', organizerContactPhone: '', contactCallAllowed: false, contactTextAllowed: false };
   ngOnInit() { void this.load(); }
   async load() {
+    const revision = ++this.loadRevision;
+    const minimal = this.minimalView();
     this.loading.set(true); this.error.set('');
     try {
-      const [locations, events] = await Promise.all([firstValueFrom(this.http.get<Location[]>('/api/locations')), firstValueFrom(this.http.get<ManagedEvent[]>('/api/organizer/events'))]);
-      this.locations.set(locations); this.events.set(events);
-    } catch (error) { this.error.set(message(error)); }
-    finally { this.loading.set(false); }
+      const [locations, events] = await Promise.all([firstValueFrom(this.http.get<Location[]>('/api/locations')), firstValueFrom(this.http.get<ManagedEvent[] | EventOverview[]>(minimal ? '/api/organizer/events/overview' : '/api/organizer/events?scope=' + this.eventScope()))]);
+      if (revision !== this.loadRevision) return;
+      this.locations.set(locations);
+      if (minimal) { this.overview.set(events as EventOverview[]); this.events.set([]); }
+      else { this.events.set(events as ManagedEvent[]); this.overview.set([]); }
+    } catch (error) { if (revision === this.loadRevision) this.error.set(message(error)); }
+    finally { if (revision === this.loadRevision) this.loading.set(false); }
   }
   private async act(work: () => Promise<unknown>, success: string) {
     if (this.busy()) return;
