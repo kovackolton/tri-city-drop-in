@@ -82,6 +82,29 @@ test('event creation waits for a modal status choice, preserves input on cancel 
   injector.destroy();
 });
 
+test('workspace defaults to My events, uses minimal organizer overview and retains full admin views without stale responses', async () => {
+  let profile: any = { id: 'owner', role: 'ORGANIZER' };
+  const requests: { url: string; response: Subject<any> }[] = [];
+  const injector = Injector.create({ providers: [
+    { provide: AuthService, useValue: { profile: () => profile } },
+    { provide: HttpClient, useValue: { get: (url: string) => { if (url === '/api/locations') return of([]); const response = new Subject<any>(); requests.push({ url, response }); return response; } } }
+  ] });
+  const component = runInInjectionContext(injector, () => new OrganizerComponent());
+  assert.equal(component.eventScope(), 'mine');
+  const initial = component.load(); assert.equal(requests[0].url, '/api/organizer/events?scope=mine');
+  component.rosterEvent.set('old'); const overview = component.selectEventScope('all');
+  assert.equal(component.rosterEvent(), ''); assert.equal(component.minimalView(), true); assert.equal(requests[1].url, '/api/organizer/events/overview');
+  requests[1].response.next([{ id: 'summary' }]); requests[1].response.complete(); await overview;
+  requests[0].response.next([{ id: 'stale-private-event' }]); requests[0].response.complete(); await initial;
+  assert.equal(component.events().length, 0); assert.equal(component.overview()[0].id, 'summary');
+  profile = { id: 'admin', role: 'ADMINISTRATOR' };
+  const all = component.load(); assert.equal(requests[2].url, '/api/organizer/events?scope=all');
+  requests[2].response.next([{ id: 'managed' }]); requests[2].response.complete(); await all;
+  assert.equal(component.minimalView(), false); assert.equal(component.events()[0].id, 'managed'); assert.equal(component.overview().length, 0);
+  const mine = component.selectEventScope('mine'); assert.equal(requests[3].url, '/api/organizer/events?scope=mine');
+  requests[3].response.next([]); requests[3].response.complete(); await mine; injector.destroy();
+});
+
 test('initial avatars handle blank names and Unicode without splitting surrogate pairs', () => {
   assert.equal(avatarInitial('  alex  '), 'A');
   assert.equal(avatarInitial('\u00c9lodie'), '\u00c9');

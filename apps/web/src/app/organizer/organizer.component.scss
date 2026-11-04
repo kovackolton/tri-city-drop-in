@@ -16,3 +16,8 @@ summary { cursor: pointer; font-size: .8rem; font-weight: 600; color: var(--acce
 .event-action-options { display: flex; flex-wrap: wrap; gap: .5rem; padding-top: .75rem; }
 .event-management { border-top: 1px solid var(--divider); padding: 1.25rem 1.5rem; }
 @media (max-width: 600px) { .managed-event-heading, .event-summary, .event-toolbar, .event-management { padding: 1rem; } .event-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } .event-actions { margin-left: 0; } }
+
+.workspace-chip { border-radius: 999px; }
+.workspace-chip.selected { font-weight: 700; box-shadow: inset 0 0 0 1px var(--secondary-border); text-decoration: underline; text-underline-offset: .2em; }
+.workspace-refresh { background: var(--success-bg); color: var(--success-text); border: 1px solid var(--success-border); border-radius: .7rem; padding: .65rem 1.15rem; font-size: .875rem; font-weight: 600; }
+.workspace-refresh:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--success-border); }
