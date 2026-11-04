@@ -19,7 +19,7 @@ describe('AppComponent', () => {
     for (const request of http.match(() => true)) request.flush([]);
     await fixture.whenStable();
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain("More soccer.");
+    expect(fixture.nativeElement.textContent).toContain("Upcoming games");
     http.verify();
   });
 });

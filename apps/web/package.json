@@ -4,7 +4,10 @@
   "scripts": {
     "start": "ng serve --host 0.0.0.0 --proxy-config proxy.conf.json",
     "build": "ng build",
-    "test": "ng test --watch=false"
+    "test": "ng test --watch=false",
+    "test:auth": "node --import tsx --test test/auth.test.ts",
+    "test:theme": "node --import tsx --test test/theme.test.ts",
+    "test:profile": "node --import tsx --test test/profile.test.ts"
   },
   "dependencies": {
     "@angular/common": "^21.0.0",

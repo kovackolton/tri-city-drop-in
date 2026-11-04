@@ -8,3 +8,14 @@ node_modules
 .npm-cache
 **/.test-build
 .angular
+
+# Keep runtime configuration and local credentials out of container builds.
+.npmrc
+**/.npmrc
+**/*.pem
+**/*.key
+**/*.p12
+**/*service-account*.json
+**/*service_account*.json
+**/*firebase-adminsdk*.json
+**/*credentials*.json

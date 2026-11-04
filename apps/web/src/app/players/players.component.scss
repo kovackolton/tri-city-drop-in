@@ -1,1 +1,4 @@
-// Component-specific styles. Shared Tailwind utilities remain in src/styles.css.
+.lineup-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: .65rem; }
+.player-tile { display: flex; align-items: center; gap: .75rem; padding: .85rem; border-radius: .75rem; background: var(--surface-muted); }
+.lineup-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success-text); }
+.lineup-dot.waiting { background: var(--warning-text); }

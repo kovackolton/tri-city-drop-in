@@ -1,0 +1,6 @@
+:host { display: block; min-width: 0; }
+.event-card { padding: 0; overflow: hidden; }
+.event-card-header { padding: 1.5rem; background: var(--card-banner); color: var(--on-banner); }
+.event-card-header .event-start { color: var(--banner-muted); }
+.event-card-body { padding: 1.5rem; background: var(--surface); }
+@media (max-width: 480px) { .event-card-header, .event-card-body { padding: 1.1rem; } }

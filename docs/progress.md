@@ -1,4 +1,71 @@
-# Current milestone: Administrator and Locations
+# Current milestone: event sharing and Cloud Run container
+
+Published games have server-rendered rich-link metadata, venue photos/soccer-ball fallback, live availability and FIFO-aware waitlist wording. Share/Copy controls and a pinned shared-game view preserve the target through sign-in/waiver review. A combined Dockerfile.cloudrun serves the API, HTML previews and Angular app with runtime public configuration on the injected port. No cloud deployment or new paid service. Clean image build and local container smoke passed, plus API/frontend builds, 39 API unit tests, 57 PostgreSQL scenarios and 28 frontend logic tests. Messaging-app rendering and signed-in browser flows remain manual. See [sharing/Cloud Run review](event-sharing-cloudrun-review.md).
+
+## Previous milestone: paid event cost confirmation
+
+Paid joins, waitlists and invitations now require a separate cost acknowledgment button in a dialog showing the price and party total. Free joins remain direct. The server requires explicit acknowledgment for paid player submissions, validates the quote and audits consent once per new booking. Guest responsibility, waiver and strike checks remain independent. No migration or external service. Builds, 36 API unit tests, 56 PostgreSQL scenarios and 26 frontend logic tests passed; browser review remains manual. See [cost confirmation review](paid-cost-confirmation-review.md).
+
+## Previous milestone: waiver and profile sections
+
+Strike banners are limited to My profile / My games and target a collapsible strike section. A collapsible My profile waiver renders the server's complete versioned participation/strike rules and records explicit I agree acceptance with an immutable text/hash/identity/time snapshot. Unsigned users get targeted banners on Upcoming games / My games and cannot make new bookings through any path or role; existing bookings and payment access remain. Local migration applied without backfilling signatures. API and frontend builds, 35 API unit tests, 54 PostgreSQL scenarios and 24 frontend logic tests passed. Browser review remains manual. See [waiver/profile sections review](waiver-profile-sections-review.md).
+
+## Previous milestone: overdue payment reminders and strike restrictions
+
+In-app payment review reminders cover unreviewed paid seats/guests after 24 hours. Automatic payment strikes require an explicit organizer-unpaid review after grace; player reports are informational and organizer-confirmed payment clears the strike. Three current strikes block new booking paths while retaining existing bookings. Prominent access banners, profile strike/event/payment history and staff counts are added, with administrator-only reasoned permanent strikes/corrections on Users. Local migration applied. Build, API compilation, 35 API unit tests, 51 PostgreSQL scenarios, 21 frontend logic tests and 3 theme tests passed; browser review remains manual. See [payment reminders and strike review](payment-reminders-strikes-review.md).
+
+## Previous milestone: organizer workspace layout
+
+All events / Your events now uses compact themed event cards with grouped actions and an integrated Manage players area. Players, Teams and History are separate views. Search/status filters and one expanded player reduce roster clutter while retaining contact, payment, attendance, strikes and party overrides. Team settings/help and event equipment are collapsible. Build, strict frontend harness types and 17 frontend logic tests passed; browser review remains manual. See [workspace layout review](organizer-workspace-layout-review.md).
+
+## Previous milestone: editable themes and header shortcuts
+
+App colors live in `apps/web/src/theme.css`, with light/dark palettes shared across controls and component styles. The top-right theme toggle follows the device initially and persists an explicit browser choice. Signed-in users have a notification bell with unread badge and a settings cog linking to My profile. No new package or external service. Production build, strict theme-test types, 3 theme tests and 14 frontend logic tests passed. Browser review remains manual. See [theme review](theme-review.md).
+
+## Previous milestone: unified Users and combined rating balance
+
+Users now combines administrator ratings and full role selection (Player, Organizer or Administrator), with confirmations, audit records and in-app notifications. The separate Player ratings navigation is removed. Auto-balance and reshuffle equally average self/admin ratings, use the sole available rating, or fall back to 3/5 for unrated players and guests. Current-session access refreshes after self role changes. API and frontend builds, 35 API unit tests, 44 PostgreSQL scenarios and 14 frontend logic tests passed. Browser review remains manual. See [Users and ratings review](admin-ratings-review.md).
+
+## Previous milestone: filters, grouped history and team reshuffle
+
+Upcoming games supports venue-local day/week, location/city, organizer, search, free and available-place filters. My Games groups all attempts into one card per event, retaining earlier booking details and counting player cancellations separately from organizer/event cancellations and unknown legacy history. Teams adds a rating-aware reshuffle with explicit confirmation and manual organizer overrides. The local city/cancellation-source migration is applied. Builds, 34 unit tests, 40 PostgreSQL scenarios and 12 frontend logic tests passed; browser review remains manual. See [filters/history/reshuffle review](filters-history-reshuffle-review.md).
+
+## Previous milestone: teams, initial players, organizer contact and review dialogs
+
+
+Event creation supports team count/balancing, selecting existing accounts for invitations or immediate bookings, and explicitly public contact email/phone with C/T availability. Owners/admins manage confirmed team assignments and run optional self-rating balancing; guests/unrated players use an estimated 3/5 and private ratings remain hidden from peers. Invitations are accepted/declined in My Games. Draft reservations are provisional and cancellable. Payment and strike review use native overlay dialogs. The local migration is applied; frontend build, API compilation, 32 unit tests, 37 PostgreSQL scenarios and 23 frontend logic tests passed. Browser checks remain manual. See [teams and invitations review](teams-invitations-review.md).
+
+## Previous milestone: event equipment and player targets
+
+
+Creation/editing includes bib availability, shirt-color count when bibs are not provided, and an optional minimum-player target. Player and organizer cards show the guidance and confirmed-count progress, including guests. The target is informational and does not trigger cancellation or block a game. Existing events remain unspecified until configured. The local migration is applied; frontend build, API compilation, 29 unit tests and 33 isolated PostgreSQL scenarios passed. Browser review remains manual. See [event guidance review](event-guidance-review.md).
+
+## Previous milestone: player identity, organizer requests and guest responsibility
+
+
+New profile setup includes optional nickname and a private 1-5 self-rated skill level with a team-balancing blurb. Existing account names are preserved and locked. Players can request organizer access; administrators have a Users page, request flags/filters, notifications and audited Grant/Clear decisions. Guest booking requires explicit payment-responsibility acknowledgment, retained through waitlist promotion. Per the selected policy, strikes remain organizer-reviewed and guest strikes belong to the booking account. The local migration is applied; builds, 27 API unit tests, 32 local PostgreSQL scenarios and 21 frontend logic tests passed. Browser review remains manual. See [identity/request review](player-identity-review.md).
+
+## Previous milestone: venue photos and map embeds
+
+
+Locations now supports an optional approved external photo URL, credit text and a manually copied Google Maps embed. Game cards and My Games show thumbnails beside titles and maps near addresses; a building icon and directions link cover missing media. No image files, API keys or paid Maps/Places API integration were added. The local migration is applied. Frontend build, API compilation, 25 unit tests, 28 isolated PostgreSQL scenarios and seven frontend profile/map tests passed. Existing locations need their optional media configured; live image/map and browser checks remain manual. See [venue media review](location-media-review.md).
+
+## Previous milestone: player contact, avatars and My Games
+
+
+My profile now supports optional contact email/phone, a Google-hosted profile photo, or a colored initial. Private event rosters expose contact links only to the owning organizer and administrators; shared player cards exclude contact information. My Games has redesigned game/party cards and avatar lineups. No profile image files are stored. The local additive migration is applied. Frontend build, API compilation, 22 API unit tests, 27 isolated PostgreSQL scenarios and 16 frontend logic tests passed. Live Google photos and browser layouts remain manual checks. See [player profiles review](player-profiles-review.md).
+
+## Previous milestone: event management and in-app notifications
+
+
+Email/password authentication is now implemented alongside Google; Facebook UI/client integration is removed. Registration uses Firebase's password policy plus a 12-character app minimum, with verification resend/check and password reset. Passwords are handled only by Firebase's SDK and are never sent to the application API or persisted by the application. Password-token API access now requires verified email even for existing profiles. Eleven local auth service/form tests and 18 API unit tests pass. See [email/password review](email-password-review.md).
+
+Added owner/administrator event cancellation and completion, persistent private notification inbox/read state, unread badge, and refresh-driven 24-hour reminders. Existing administrator-only edit/delete permissions remain. Cancellation locks the event, cancels active parties, voids charges, writes notices and audits atomically. Completion retains attendance/payment review. Cancelled/completed events cannot be edited; unchanged edits create no notices.
+
+The inbox migration was applied locally. Both production builds, 16 API unit tests and all 26 isolated PostgreSQL scenarios passed without external services. Frontend tests are blocked by missing Vitest/jsdom; the offline dependency restore failed. No browser or live Firebase test is claimed. See [event management review](event-management-review.md) for exact behavior, endpoints and local review steps. No external delivery or deployment was performed.
+
+## Previous milestone: Administrator and Locations
+
 
 Added ADMINISTRATOR above ORGANIZER, inheriting cross-event organizer access plus administrator-only event/location edit/delete controls. Locations now has its own workspace page with a required duplicate precheck, repeated server validation and database uniqueness. The applied migration removed one duplicate Midland Civic Arena record and retained the canonical location with all three linked events. Event deletion archives history; referenced locations cannot be deleted. No accounts were automatically promoted; use the trusted administrator:grant CLI. API compilation, frontend production build, 16 unit tests and 19 isolated PostgreSQL scenarios passed. See [Administrator review](administrator-review.md).
 
@@ -38,4 +105,4 @@ The payment-review migrations add separate nullable paid flags and timestamps, o
 
 ## Next milestone
 
-Event editing/cancellation, manual addition of existing players, dispute resolution/waivers, notification delivery/reminders and Cloud Run/Cloud SQL deployment. Automatic suspensions and strike-expiry thresholds remain unset. Manual strikes require organizer review; conflicting payment reports do not qualify.
+Manual addition of existing players, dispute resolution/waivers, external notification delivery/background scheduling and Cloud Run/Cloud SQL deployment. Automatic suspensions and strike-expiry thresholds remain unset. Manual strikes require organizer review; conflicting payment reports do not qualify.
