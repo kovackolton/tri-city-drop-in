@@ -1,7 +1,8 @@
 import '@angular/compiler';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Injector, runInInjectionContext } from '@angular/core';
+import { Injector, runInInjectionContext, signal } from '@angular/core';
+import { AppComponent } from '../src/app/app.component';
 import { googleEmbedUrl, googleDirectionsUrl } from '../src/location-media';
 import { LocationMapComponent } from '../src/app/location-map/location-map.component';
 import { DomSanitizer } from '@angular/platform-browser';
@@ -25,7 +26,7 @@ import { MyGamesComponent } from '../src/app/my-games/my-games.component';
 import { AuthService } from '../src/auth.service';
 import { EventShareComponent } from '../src/app/event-share/event-share.component';
 import { sharedEventId, shareMessage, SharedGame, emailShareLink, emailShareText, emailCardHtml } from '../src/event-sharing';
-import { EventsStore, defaultGameFilters } from '../src/events.store';
+import { EventsStore, defaultGameFilters, activeGameFilterCount } from '../src/events.store';
 import { RegistrationsStore, Seat } from '../src/registrations.store';
 
 test('organizer editing controls respect ownership and save draft transitions through the guarded endpoint', async () => {
@@ -139,6 +140,49 @@ test('email card copying provides rich and plain representations and reports per
     if (originalNavigator) Object.defineProperty(globalThis, 'navigator', originalNavigator); else Reflect.deleteProperty(globalThis, 'navigator');
     if (originalItem) Object.defineProperty(globalThis, 'ClipboardItem', originalItem); else Reflect.deleteProperty(globalThis, 'ClipboardItem');
   }
+});
+
+test('mobile navigation closes on selection and Escape, restores focus and labels the current page', () => {
+  const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  const animationDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'requestAnimationFrame');
+  const focused: string[] = [];
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: { getElementById: (id: string) => ({ focus: () => focused.push(id) }) } });
+  Object.defineProperty(globalThis, 'requestAnimationFrame', { configurable: true, value: (callback: () => void) => { callback(); return 1; } });
+  try {
+    const component: AppComponent = Object.assign(Object.create(AppComponent.prototype), {
+      mobileNavigationOpen: signal(false), page: signal('games'), profileSectionRequest: signal(null), auth: { profile: () => ({ role: 'ADMINISTRATOR' }) }
+    });
+    assert.equal(component.pageLabel(), 'Upcoming games');
+    component.toggleMobileNavigation(); assert.equal(component.mobileNavigationOpen(), true);
+    component.navigate('profile'); assert.equal(component.mobileNavigationOpen(), false); assert.equal(component.pageLabel(), 'My profile');
+    assert.equal(focused.at(-1), 'main-content');
+    component.toggleMobileNavigation(); component.closeMobileNavigation(true);
+    assert.equal(component.mobileNavigationOpen(), false); assert.equal(focused.at(-1), 'mobile-navigation-toggle');
+    component.page.set('organizer'); assert.equal(component.pageLabel(), 'Administrator workspace');
+    component.page.set('signin'); assert.equal(component.pageLabel(), 'Sign in');
+  } finally {
+    if (documentDescriptor) Object.defineProperty(globalThis, 'document', documentDescriptor); else Reflect.deleteProperty(globalThis, 'document');
+    if (animationDescriptor) Object.defineProperty(globalThis, 'requestAnimationFrame', animationDescriptor); else Reflect.deleteProperty(globalThis, 'requestAnimationFrame');
+  }
+});
+
+test('collapsed filters count applied criteria and ignore unused dates and blank searches', () => {
+  assert.equal(activeGameFilterCount(defaultGameFilters()), 0);
+  assert.equal(activeGameFilterCount({ ...defaultGameFilters(), date: '2027-01-01', search: '  ' }), 0);
+  assert.equal(activeGameFilterCount({ ...defaultGameFilters(), period: 'week', locationId: 'venue', freeOnly: true, search: 'soccer' }), 4);
+});
+
+test('invalid fields reopen collapsed event sections and keep error messages beside the affected field', () => {
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: {} }, { provide: HttpClient, useValue: {} }] });
+  const component = runInInjectionContext(injector, () => new OrganizerComponent());
+  const outer = { open: false, parentElement: null };
+  const inner = { open: false, parentElement: { closest: () => outer } };
+  component.event.title = 'Keep my entered title';
+  component.revealInvalidField({ target: { name: 'teamCount', validationMessage: 'Enter at least 2 teams.', closest: () => inner } } as unknown as Event);
+  assert.equal(inner.open, true); assert.equal(outer.open, true); assert.equal(component.fieldErrors()['teamCount'], 'Enter at least 2 teams.');
+  assert.equal(component.event.title, 'Keep my entered title');
+  component.clearFieldError('teamCount'); assert.equal(component.fieldErrors()['teamCount'], undefined);
+  injector.destroy();
 });
 
 test('initial avatars handle blank names and Unicode without splitting surrogate pairs', () => {

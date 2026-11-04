@@ -5,6 +5,7 @@ import { firstValueFrom } from 'rxjs';
 import { SharedGame } from './event-sharing';
 import { Game } from './models';
 export interface GameFilters { period: 'all' | 'day' | 'week'; date: string; locationId: string; city: string; organizerId: string; search: string; freeOnly: boolean; spacesOnly: boolean; }
+export function activeGameFilterCount(filters: GameFilters) { return [filters.period !== 'all', !!filters.locationId, !!filters.city, !!filters.organizerId, !!filters.search.trim(), filters.freeOnly, filters.spacesOnly].filter(Boolean).length; }
 export function defaultGameFilters(): GameFilters {
   const today = new Date(), pad = (value: number) => String(value).padStart(2, '0');
   return { period: 'all', date: `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`, locationId: '', city: '', organizerId: '', search: '', freeOnly: false, spacesOnly: false };
