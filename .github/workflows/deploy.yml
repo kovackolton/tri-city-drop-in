@@ -70,6 +70,21 @@ jobs:
           echo "Repository: $GITHUB_REPOSITORY"
           echo "Ref: $GITHUB_REF"
           echo "Event: $GITHUB_EVENT_NAME"
+      - name: Debug actual OIDC claims
+        shell: bash
+        run: |
+          RESPONSE=$(curl --fail --silent --show-error \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=debug")
+
+          TOKEN=$(echo "$RESPONSE" | jq -r '.value')
+
+          PAYLOAD=$(echo "$TOKEN" | cut -d '.' -f2)
+
+          # Decode base64url JWT payload
+          echo "$PAYLOAD" | tr '_-' '/+' | \
+            base64 -d 2>/dev/null | \
+            jq '{repository, ref, sub, environment}'
       - name: Build commit-tagged images before requesting cloud credentials
         run: |
           docker build --platform linux/amd64 -f Dockerfile.cloudrun -t "$IMAGE_BASE/app:$GITHUB_SHA" .
