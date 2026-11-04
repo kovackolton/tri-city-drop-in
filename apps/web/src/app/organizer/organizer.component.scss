@@ -1,1 +1,18 @@
-// Component-specific styles. Shared Tailwind utilities remain in src/styles.css.
+:host { display: block; }
+.event-list-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem; }
+.managed-event { border: 1px solid var(--border); border-radius: 1rem; background: var(--surface); }
+.managed-event-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; padding: 1.25rem 1.5rem; border-radius: calc(1rem - 1px) calc(1rem - 1px) 0 0; background: var(--card-banner); color: var(--on-banner); }
+.event-kickoff { color: var(--banner-muted); font-size: .8rem; font-weight: 600; }
+.event-status { flex-shrink: 0; padding: .3rem .7rem; border: 1px solid var(--banner-border); border-radius: 999px; background: var(--banner-tile); font-size: .7rem; font-weight: 700; text-transform: capitalize; }
+.event-summary { padding: 1.25rem 1.5rem; }
+.event-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.event-facts dt { font-size: .7rem; color: var(--muted); }
+.event-facts dd { font-weight: 700; font-size: .875rem; margin-top: .25rem; }
+.event-details { border-top: 1px solid var(--divider); margin-top: 1rem; padding-top: .8rem; }
+summary { cursor: pointer; font-size: .8rem; font-weight: 600; color: var(--accent); padding: .35rem 0; }
+.event-toolbar { display: flex; flex-wrap: wrap; gap: .75rem; align-items: flex-start; padding: 1rem 1.5rem; border-top: 1px solid var(--divider); }
+.event-actions { margin-left: auto; max-width: 100%; }
+.event-actions > summary { padding: .65rem .8rem; border: 1px solid var(--secondary-border); border-radius: .7rem; color: var(--secondary-text); background: var(--secondary-bg); }
+.event-action-options { display: flex; flex-wrap: wrap; gap: .5rem; padding-top: .75rem; }
+.event-management { border-top: 1px solid var(--divider); padding: 1.25rem 1.5rem; }
+@media (max-width: 600px) { .managed-event-heading, .event-summary, .event-toolbar, .event-management { padding: 1rem; } .event-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } .event-actions { margin-left: 0; } }

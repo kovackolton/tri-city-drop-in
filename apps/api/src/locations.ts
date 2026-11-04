@@ -2,12 +2,19 @@ import { BadRequestException, Body, ConflictException, Controller, Delete, Injec
 import { Prisma } from '@prisma/client';
 import { AdministratorGuard, FirebaseGuard, OrganizerGuard } from './auth';
 import { Database } from './database';
+import { locationPhotoUrl, locationMapUrl } from './location-media';
 import { object, text, uuid } from './validation';
 export function locationInput(value: unknown) {
-  const b = object(value, ['name', 'address', 'timezone']);
+  const b = object(value, ['name', 'address', 'timezone', 'photoUrl', 'photoCredit', 'mapEmbedUrl', 'city']);
   const timezone = text(b.timezone, 'Timezone', 100);
   try { new Intl.DateTimeFormat('en', { timeZone: timezone }).format(); } catch { throw new BadRequestException('Use a valid IANA timezone.'); }
-  return { name: text(b.name, 'Name').replace(/\s+/g, ' '), address: text(b.address, 'Address', 400).replace(/\s+/g, ' '), timezone };
+  const media = {
+    ...(b.city === undefined ? {} : { city: b.city === '' || b.city === null ? null : text(b.city, 'City', 80) }),
+    ...(b.photoUrl === undefined ? {} : { photoUrl: locationPhotoUrl(b.photoUrl) }),
+    ...(b.photoCredit === undefined ? {} : { photoCredit: b.photoCredit === '' || b.photoCredit === null ? null : text(b.photoCredit, 'Photo credit', 160) }),
+    ...(b.mapEmbedUrl === undefined ? {} : { mapEmbedUrl: locationMapUrl(b.mapEmbedUrl) })
+  };
+  return { ...media, name: text(b.name, 'Name').replace(/\s+/g, ' '), address: text(b.address, 'Address', 400).replace(/\s+/g, ' '), timezone };
 }
 @Injectable()
 export class LocationsService {

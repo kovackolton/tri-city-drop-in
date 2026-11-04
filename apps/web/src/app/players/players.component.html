@@ -1,11 +1,11 @@
-<section class="border-t border-stone-100 mt-4 pt-4" aria-label="Game players">
-    <div class="flex justify-between items-center gap-3"><h3 class="font-bold">Game players</h3><button class="secondary" [disabled]="loading()" (click)="load()">Refresh players</button></div>
-    @if (loading()) { <p role="status" class="text-sm mt-3">Loading players…</p> }
-    @if (error()) { <p role="alert" class="notice error mt-3">{{ error() }}</p> }
-    @if (!loading() && !error()) {
-      <h4 class="text-sm font-semibold mt-4">Confirmed · {{ group('CONFIRMED').length }}</h4>
-      <ul class="text-sm mt-2 space-y-2">@for (player of group('CONFIRMED'); track player.id) { <li>{{ player.name }} @if (player.isGuest) { <span class="text-stone-500">(guest)</span> }</li> } @empty { <li class="text-stone-500">No confirmed players.</li> }</ul>
-      <h4 class="text-sm font-semibold mt-4">Waitlist · {{ group('WAITLISTED').length }}</h4>
-      <ul class="text-sm mt-2 space-y-2">@for (player of group('WAITLISTED'); track player.id) { <li>{{ player.name }} @if (player.isGuest) { <span class="text-stone-500">(guest)</span> }</li> } @empty { <li class="text-stone-500">No players waiting.</li> }</ul>
+<section class="border-t border-divider mt-5 pt-5" aria-label="Game players">
+  <div class="flex flex-wrap justify-between items-center gap-3"><div><h3 class="font-bold">The lineup</h3><p class="text-xs text-muted mt-1">Players and guests joining this game.</p></div><button class="secondary" [disabled]="loading()" (click)="load()">Refresh players</button></div>
+  @if (loading()) { <p role="status" class="text-sm mt-3">Loading players...</p> }
+  @if (error()) { <p role="alert" class="notice error mt-3">{{ error() }}</p> }
+  @if (!loading() && !error()) {
+    @for (status of ['CONFIRMED', 'WAITLISTED']; track status) {
+      <h4 class="text-sm font-semibold mt-5 flex items-center gap-2"><span class="lineup-dot" [class.waiting]="status === 'WAITLISTED'"></span>{{ status === 'CONFIRMED' ? 'Confirmed' : 'Waitlist' }}<span class="text-muted font-normal">{{ group(status === 'CONFIRMED' ? 'CONFIRMED' : 'WAITLISTED').length }}</span></h4>
+      <ul class="lineup-grid mt-3">@for (player of group(status === 'CONFIRMED' ? 'CONFIRMED' : 'WAITLISTED'); track player.id) { <li class="player-tile"><app-avatar [name]="player.name" [color]="player.avatarColor" [photoUrl]="player.avatarUrl" /><div class="min-w-0"><p class="text-sm font-semibold break-words">{{ player.name }}</p><p class="text-xs text-muted mt-1">{{ player.isGuest ? 'Guest of ' + player.guestOf : 'Player' }} @if (player.teamNumber) { &middot; Team {{ player.teamNumber }} }</p></div></li> } @empty { <li class="text-sm text-muted">{{ status === 'CONFIRMED' ? 'No confirmed players yet.' : 'No players waiting.' }}</li> }</ul>
     }
-  </section>
+  }
+</section>

@@ -1,6 +1,8 @@
 # Tri-City Drop-In
 
-Current review milestone: Administrator role, event edit/delete controls, a separate workspace Locations page, and duplicate-location prevention/cleanup. Players pay in person; signup, payment reviews, organizer attendance and strikes remain in place. Start with the [Administrator review](docs/administrator-review.md), [organizer review](docs/organizer-review.md), [signup review](docs/signup-review.md) and [Firebase setup](docs/firebase-setup.md).
+Production setup: [Deploy to GCP with GitHub Actions](docs/gcp-deployment-guide.md), covering Cloud Run, Cloud SQL, Firebase, keyless CI/CD, database migrations and rollback.
+
+Current review milestone: [event sharing and Cloud Run](docs/event-sharing-cloudrun-review.md), plus [paid-event cost confirmation](docs/paid-cost-confirmation-review.md), plus [waiver and profile sections](docs/waiver-profile-sections-review.md), plus [payment reminders and strike restrictions](docs/payment-reminders-strikes-review.md), plus [organizer workspace layout](docs/organizer-workspace-layout-review.md), plus [editable themes and header shortcuts](docs/theme-review.md), plus [Users, administrator ratings and account roles](docs/admin-ratings-review.md), plus [game filters, grouped history and team reshuffle](docs/filters-history-reshuffle-review.md), plus [teams, player selection, organizer contacts and review dialogs](docs/teams-invitations-review.md), plus [event equipment and player targets](docs/event-guidance-review.md), plus [player identity, skill ratings, organizer requests and guest responsibility](docs/player-identity-review.md), plus [venue photos and Google map embeds](docs/location-media-review.md), plus [player contact, avatars and My Games](docs/player-profiles-review.md), plus [event management and in-app notifications](docs/event-management-review.md), tested with local PostgreSQL and no external notification services. Administrator role, event edit/delete controls, a separate workspace Locations page, and duplicate-location prevention/cleanup. Players pay in person; signup, payment reviews, organizer attendance and strikes remain in place. Start with the [Administrator review](docs/administrator-review.md), [organizer review](docs/organizer-review.md), [signup review](docs/signup-review.md) and [Firebase setup](docs/firebase-setup.md).
 
 ## Local Docker development
 
@@ -24,9 +26,9 @@ Use Node 22.12+ with npm. From the root, run `npm install`, copy `apps/api/.env.
 ## Review sequence
 
 1. **Completed:** foundation, schema, and read-only event listing.
-2. **Completed:** Firebase Google/Facebook integration, verified API identity, profile and organizer authorization; event creation. Email/password and additional provider screens are future extensions.
+2. **Completed:** Firebase Google and email/password sign-in, email registration/verification/password reset, verified API identity, profile and organizer authorization; event creation. Facebook sign-in has been removed. See [email/password review](docs/email-password-review.md).
 3. **Current review:** transactional signups, guests, capacity enforcement, cancellations, waitlist promotion, payment obligations and private rosters; concurrency tests.
 4. **Current review:** organizer party removal/promotion, attendance, manual strikes/revocation and audit history. See [organizer review](docs/organizer-review.md). Payment review is implemented; automatic suspension/expiry policy is not selected.
-5. Notification worker, reminder scheduling, Cloud SQL/Cloud Run infrastructure and deployment checks.
+5. **Current review:** owner/administrator event cancellation and completion, private in-app notification inbox, unread state and refresh-driven 24-hour reminders. See [event management review](docs/event-management-review.md). External delivery workers and Cloud SQL/Cloud Run deployment remain future work.
 
 See [database and behavior decisions](docs/architecture.md). No cloud resources are provisioned by these repository commands.

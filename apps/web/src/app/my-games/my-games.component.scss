@@ -1,1 +1,18 @@
-// Component-specific styles. Shared Tailwind utilities remain in src/styles.css.
+.eyebrow { font-size: .65rem; letter-spacing: .15em; font-weight: 700; color: var(--accent); }
+.game-card { overflow: hidden; border: 1px solid var(--border); border-radius: 1.25rem; background: var(--surface); box-shadow: 0 4px 20px var(--shadow); }
+.game-header { display: flex; align-items: center; gap: 1.25rem; background: var(--card-banner); color: var(--on-banner); padding: 1.5rem; }
+.date-tile { width: 64px; flex-shrink: 0; border: 1px solid var(--banner-border); border-radius: .85rem; text-align: center; padding: .6rem .4rem; background: var(--banner-tile); }
+.date-tile span { display: block; font-size: .65rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--banner-muted); }
+.date-tile strong { display: block; font-size: 1.8rem; line-height: 1.2; margin-top: .2rem; }
+.booking-badge { display: inline-block; padding: .2rem .65rem; border-radius: 2rem; font-size: .7rem; font-weight: 600; text-transform: capitalize; color: var(--badge-text); background: var(--badge-bg); }
+.booking-badge.waiting { background: var(--warning-bg); color: var(--warning-text); }
+.booking-badge.cancelled { background: var(--neutral-bg); color: var(--neutral-text); }
+.game-body { padding: 1.5rem; }
+.game-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; }
+.game-facts dt { font-size: .65rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: .35rem; }
+.game-facts dd { font-size: .875rem; font-weight: 500; overflow-wrap: anywhere; }
+.organizer-strip { display: flex; align-items: center; gap: .75rem; margin-top: 1.25rem; padding: 1rem; border-radius: .85rem; background: var(--surface-muted); }
+.party-seat { padding: 1rem; border: 1px solid var(--divider); border-radius: .85rem; }
+@media (max-width: 480px) { .game-header { gap: .85rem; padding: 1.1rem; } .game-body { padding: 1.1rem; } .game-facts { grid-template-columns: 1fr; gap: .9rem; } }
+
+@media (max-width: 480px) { .game-header { flex-wrap: wrap; } .game-header > .min-w-0 { flex-basis: calc(100% - 90px); } .game-header app-location-thumbnail { margin-left: auto; } }

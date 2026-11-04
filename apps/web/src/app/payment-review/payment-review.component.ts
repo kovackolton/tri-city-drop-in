@@ -1,6 +1,8 @@
 import { Component, EventEmitter, Input, Output, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { CurrencyPipe } from '@angular/common';
+import { DialogComponent } from '../dialog/dialog.component';
 import { message } from '../../auth.service';
 
 export interface PaymentReview {
@@ -12,7 +14,7 @@ export interface PaymentReview {
   organizerReviewedAt: string | null;
 }
 @Component({
-  selector: 'app-payment-review',
+  selector: 'app-payment-review', imports: [CurrencyPipe, DialogComponent],
   templateUrl: './payment-review.component.html',
   styleUrl: './payment-review.component.scss'
 })
@@ -21,6 +23,9 @@ export class PaymentReviewComponent {
   @Input({ required: true }) payment!: PaymentReview;
   @Input({ required: true }) endsAt!: string;
   @Input({ required: true }) eventStatus!: string;
+  @Input() playerName: string | null | undefined = '';
+  readonly showReview = signal(false);
+  openReview() { this.error.set(''); this.showReview.set(true); }
   @Input() side: 'player' | 'organizer' = 'player';
   @Output() changed = new EventEmitter<void>();
   private readonly http = inject(HttpClient);
@@ -35,7 +40,7 @@ export class PaymentReviewComponent {
     this.busy.set(true); this.error.set(''); this.notice.set('');
     try {
       await firstValueFrom(this.http.post(`/api/signups/${this.signupId}/payment/${this.side}-review`, { paid }));
-      this.notice.set('Your review was saved.'); this.changed.emit();
+      this.showReview.set(false); this.notice.set('Your review was saved.'); this.changed.emit();
     } catch (error) { this.error.set(message(error)); }
     finally { this.busy.set(false); }
   }

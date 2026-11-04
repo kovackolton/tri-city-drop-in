@@ -16,7 +16,7 @@ describe('RosterComponent', () => {
     for (const [name, value] of Object.entries(inputs)) fixture.componentRef.setInput(name, value);
     fixture.detectChanges();
     const http = TestBed.inject(HttpTestingController);
-    for (const request of http.match(() => true)) request.flush([]);
+    for (const request of http.match(() => true)) request.flush(request.request.url.endsWith('/teams') ? { teamCount: 2, teamBalancingEnabled: false, editable: false, players: [] } : []);
     await fixture.whenStable();
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain("Player list");
