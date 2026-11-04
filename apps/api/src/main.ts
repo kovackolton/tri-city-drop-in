@@ -19,9 +19,9 @@ import { SignupsController, SignupsService } from './signups';
 import { PaymentsController, PaymentsService } from './payments';
 import { OrganizerController, OrganizerService } from './organizer';
 import { LocationsController, LocationsService } from './locations';
-import { AdministrationController, AdministrationService } from './administration';
+import { AdministrationController, AdministrationService, OrganizerEventEditingController } from './administration';
 
-@Module({ controllers: [EventSharingController, WaiverController, MyStrikesController, AdminStrikesController, TeamsController, EventInvitationsController, OrganizerRequestsController, AdminUsersController, NotificationsController, EventManagementController, EventsController, ProfilesController, SignupsController, PaymentsController, OrganizerController, LocationsController, AdministrationController], providers: [EventSharingService, WaiverService, StrikesService, TeamsService, EventInvitationsService, OrganizerRequestsService, NotificationsService, EventManagementService, Database, AdministratorGuard, FirebaseGuard, OrganizerGuard, TokenVerifier, SignupsService, PaymentsService, OrganizerService, LocationsService, AdministrationService] })
+@Module({ controllers: [EventSharingController, WaiverController, MyStrikesController, AdminStrikesController, TeamsController, EventInvitationsController, OrganizerRequestsController, AdminUsersController, NotificationsController, EventManagementController, EventsController, ProfilesController, SignupsController, PaymentsController, OrganizerController, LocationsController, AdministrationController, OrganizerEventEditingController], providers: [EventSharingService, WaiverService, StrikesService, TeamsService, EventInvitationsService, OrganizerRequestsService, NotificationsService, EventManagementService, Database, AdministratorGuard, FirebaseGuard, OrganizerGuard, TokenVerifier, SignupsService, PaymentsService, OrganizerService, LocationsService, AdministrationService] })
 export class AppModule {}
 
 async function bootstrap() {

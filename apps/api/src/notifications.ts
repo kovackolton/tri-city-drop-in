@@ -21,6 +21,8 @@ const descriptions: Record<string, string> = {
   WAITLIST_PROMOTED: 'Your whole party now has confirmed places.',
   BOOKING_REMOVED: 'The organizer removed your booking.',
   EVENT_CHANGED: 'Event details changed. Review the latest details in My games.',
+  EVENT_RETURNED_TO_DRAFT: 'The organizer returned this event to draft while reviewing it. Your booking is retained as provisional. New joins are paused until the event is published again. Check My games for updates.',
+  EVENT_PUBLISHED: 'This event is published and open for joining. Your existing booking is retained. Check My games for the latest details and booking status.',
   EVENT_CANCELLED: 'The event was cancelled. Your booking has been cancelled.',
   EVENT_REMINDER: 'Your game starts within 24 hours. Check the time and location in My games.'
 };

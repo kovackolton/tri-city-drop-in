@@ -7,6 +7,7 @@ import { LocationMapComponent } from '../src/app/location-map/location-map.compo
 import { DomSanitizer } from '@angular/platform-browser';
 import { avatarInitial, avatarPalette, contactEmailLink, contactPhoneLink } from '../src/avatar';
 import { AdminUsersComponent } from '../src/app/admin-users/admin-users.component';
+import { OrganizerComponent } from '../src/app/organizer/organizer.component';
 import { WaiverPanelComponent } from '../src/app/waiver-panel/waiver-panel.component';
 import { StrikePanelComponent } from '../src/app/strike-panel/strike-panel.component';
 import { WaiverStore } from '../src/waiver.store';
@@ -23,9 +24,122 @@ import { Game } from '../src/models';
 import { MyGamesComponent } from '../src/app/my-games/my-games.component';
 import { AuthService } from '../src/auth.service';
 import { EventShareComponent } from '../src/app/event-share/event-share.component';
-import { sharedEventId, shareMessage, SharedGame } from '../src/event-sharing';
+import { sharedEventId, shareMessage, SharedGame, emailShareLink, emailShareText, emailCardHtml } from '../src/event-sharing';
 import { EventsStore, defaultGameFilters } from '../src/events.store';
 import { RegistrationsStore, Seat } from '../src/registrations.store';
+
+test('organizer editing controls respect ownership and save draft transitions through the guarded endpoint', async () => {
+  let profile: any = { id: 'owner', role: 'ORGANIZER' };
+  const calls: { url: string; body: any }[] = [];
+  const injector = Injector.create({ providers: [
+    { provide: AuthService, useValue: { profile: () => profile } },
+    { provide: HttpClient, useValue: { get: () => of([]), patch: (url: string, body: any) => { calls.push({ url, body }); return of({}); } } }
+  ] });
+  const component = runInInjectionContext(injector, () => new OrganizerComponent());
+  const own = { id: 'game', organizerId: 'owner', status: 'PUBLISHED', startsAt: new Date(Date.now() + 86400000).toISOString() } as any;
+  assert.equal(component.canEdit(own), true); assert.equal(component.canReturnToDraft(own), true);
+  assert.equal(component.canEdit({ ...own, organizerId: 'other' }), false);
+  profile = { id: 'admin', role: 'ADMINISTRATOR' }; assert.equal(component.canEdit(own), true);
+  assert.equal(component.canEdit({ ...own, status: 'COMPLETED' }), false);
+  assert.equal(component.canReturnToDraft({ ...own, startsAt: new Date(Date.now() - 1000).toISOString() }), false);
+  profile = null; assert.equal(component.canEdit(own), false);
+  profile = { id: 'owner', role: 'ORGANIZER' };
+  for (const status of ['PUBLISHED', 'DRAFT']) {
+    component.editingId.set(own.id);
+    component.event = { ...component.event, title: 'Edited game', locationId: 'location', startsAt: own.startsAt, endsAt: new Date(Date.now() + 90000000).toISOString(), status };
+    await component.createEvent();
+    assert.equal(component.error(), '');
+    assert.equal(calls.at(-1)?.url, '/api/organizer/events/game');
+    assert.equal(calls.at(-1)?.body.status, status === 'DRAFT' ? 'DRAFT' : undefined);
+  }
+  injector.destroy();
+});
+
+test('event creation waits for a modal status choice, preserves input on cancel and prevents duplicate submissions', async () => {
+  const calls: { body: any; response: Subject<any> }[] = [];
+  const injector = Injector.create({ providers: [
+    { provide: AuthService, useValue: { profile: () => ({ id: 'owner', role: 'ORGANIZER' }) } },
+    { provide: HttpClient, useValue: { get: () => of([]), post: (_url: string, body: any) => { const response = new Subject<any>(); calls.push({ body, response }); return response; } } }
+  ] });
+  const component = runInInjectionContext(injector, () => new OrganizerComponent());
+  const setup = () => { component.event = { ...component.event, title: 'Friday soccer', locationId: 'venue', price: '12.50', startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString() }; };
+  setup();
+  await component.createEvent(); assert.equal(calls.length, 0); assert.equal(component.choosingStatus(), true);
+  component.closeStatusDialog(); assert.equal(component.event.title, 'Friday soccer');
+  await component.confirmCreation('PUBLISHED'); assert.equal(calls.length, 0);
+  for (const status of ['DRAFT', 'PUBLISHED'] as const) {
+    setup(); await component.createEvent();
+    const pending = component.confirmCreation(status); const count = calls.length;
+    assert.equal(component.busy(), true); assert.equal(calls.at(-1)?.body.status, status); assert.equal(calls.at(-1)?.body.priceCents, 1250);
+    component.closeStatusDialog(); assert.equal(component.choosingStatus(), true);
+    await component.confirmCreation(status); assert.equal(calls.length, count);
+    calls.at(-1)!.response.next({}); calls.at(-1)!.response.complete(); await pending;
+    assert.equal(component.choosingStatus(), false); assert.equal(component.busy(), false);
+  }
+  setup(); await component.createEvent(); const failing = component.confirmCreation('PUBLISHED');
+  calls.at(-1)!.response.error(new Error('Offline')); await failing;
+  assert.equal(component.choosingStatus(), true); assert.equal(component.event.title, 'Friday soccer'); assert.ok(component.error());
+  injector.destroy();
+});
+
+test('workspace defaults to My events, uses minimal organizer overview and retains full admin views without stale responses', async () => {
+  let profile: any = { id: 'owner', role: 'ORGANIZER' };
+  const requests: { url: string; response: Subject<any> }[] = [];
+  const injector = Injector.create({ providers: [
+    { provide: AuthService, useValue: { profile: () => profile } },
+    { provide: HttpClient, useValue: { get: (url: string) => { if (url === '/api/locations') return of([]); const response = new Subject<any>(); requests.push({ url, response }); return response; } } }
+  ] });
+  const component = runInInjectionContext(injector, () => new OrganizerComponent());
+  assert.equal(component.eventScope(), 'mine');
+  const initial = component.load(); assert.equal(requests[0].url, '/api/organizer/events?scope=mine');
+  component.rosterEvent.set('old'); const overview = component.selectEventScope('all');
+  assert.equal(component.rosterEvent(), ''); assert.equal(component.minimalView(), true); assert.equal(requests[1].url, '/api/organizer/events/overview');
+  requests[1].response.next([{ id: 'summary' }]); requests[1].response.complete(); await overview;
+  requests[0].response.next([{ id: 'stale-private-event' }]); requests[0].response.complete(); await initial;
+  assert.equal(component.events().length, 0); assert.equal(component.overview()[0].id, 'summary');
+  profile = { id: 'admin', role: 'ADMINISTRATOR' };
+  const all = component.load(); assert.equal(requests[2].url, '/api/organizer/events?scope=all');
+  requests[2].response.next([{ id: 'managed' }]); requests[2].response.complete(); await all;
+  assert.equal(component.minimalView(), false); assert.equal(component.events()[0].id, 'managed'); assert.equal(component.overview().length, 0);
+  const mine = component.selectEventScope('mine'); assert.equal(requests[3].url, '/api/organizer/events?scope=mine');
+  requests[3].response.next([]); requests[3].response.complete(); await mine; injector.destroy();
+});
+
+test('email sharing safely encodes the draft and creates an escaped static card with a website join link', () => {
+  const data = { game: { title: 'Soccer <script>alert(1)</script>', location: 'Field', photoUrl: 'javascript:alert(1)' }, share: { url: 'https://soccer.example.test/games/id?x=1&y=2', title: 'Soccer & friends\r\nBcc: test', description: 'Friday at 7 PM / Field / USD 12.00 / 6 spots available', availability: '6 spots available', action: 'Join Game', open: true } } as SharedGame;
+  const email = new URL(emailShareLink(data));
+  assert.equal(email.protocol, 'mailto:'); assert.equal(email.searchParams.get('subject'), 'Soccer & friends Bcc: test');
+  assert.equal(email.searchParams.has('bcc'), false); assert.equal(email.searchParams.get('body'), emailShareText(data));
+  assert.ok(emailShareText(data).includes(data.share.url));
+  const card = emailCardHtml(data);
+  assert.ok(card.includes('Soccer &lt;script&gt;')); assert.ok(!card.includes('<script>')); assert.ok(!card.includes('javascript:'));
+  assert.ok(card.includes('/share/soccer-ball.png')); assert.ok(card.includes('6 spots available')); assert.ok(card.includes('>Join Game</a>'));
+  assert.ok(card.includes('href="https://soccer.example.test/games/id?x=1&amp;y=2"'));
+  assert.throws(() => emailCardHtml({ ...data, share: { ...data.share, url: 'javascript:alert(1)' } }), /Invalid public/);
+});
+
+test('email card copying provides rich and plain representations and reports permission failures', async () => {
+  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const originalItem = Object.getOwnPropertyDescriptor(globalThis, 'ClipboardItem');
+  let copied: any[] = [], reject = false;
+  class Item { constructor(readonly data: Record<string, Blob>) {} }
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { clipboard: { write: async (items: any[]) => { if (reject) throw new Error('Denied'); copied = items; } } } });
+  Object.defineProperty(globalThis, 'ClipboardItem', { configurable: true, value: Item });
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: {} }] });
+  try {
+    const component = runInInjectionContext(injector, () => new EventShareComponent());
+    component.data.set({ game: { title: 'Soccer', location: 'Pitch' }, share: { url: 'https://soccer.example.test/games/id', title: 'Soccer', description: 'Friday / USD 12.00', availability: '4 spots available', action: 'Join Game', open: true } } as SharedGame);
+    await component.copyEmailCard(); assert.equal(copied.length, 1);
+    assert.ok((await copied[0].data['text/html'].text()).includes('>Join Game</a>'));
+    assert.ok((await copied[0].data['text/plain'].text()).includes('https://soccer.example.test/games/id'));
+    assert.match(component.notice(), /Paste it/);
+    reject = true; await component.copyEmailCard(); assert.match(component.error(), /Use Email game/);
+  } finally {
+    injector.destroy();
+    if (originalNavigator) Object.defineProperty(globalThis, 'navigator', originalNavigator); else Reflect.deleteProperty(globalThis, 'navigator');
+    if (originalItem) Object.defineProperty(globalThis, 'ClipboardItem', originalItem); else Reflect.deleteProperty(globalThis, 'ClipboardItem');
+  }
+});
 
 test('initial avatars handle blank names and Unicode without splitting surrogate pairs', () => {
   assert.equal(avatarInitial('  alex  '), 'A');
