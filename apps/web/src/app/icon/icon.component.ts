@@ -3,6 +3,8 @@ import { Component, Input } from '@angular/core';
   selector: 'app-icon',
   template: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
     @switch (name) {
+      @case ('menu') { <path d="M4 6h16M4 12h16M4 18h16"/> }
+      @case ('close') { <path d="m6 6 12 12M6 18 18 6"/> }
       @case ('bell') { <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/> }
       @case ('settings') { <path d="m9.5 3-.6 2.1-1.8 1-2.1-.5-2.5 4.3L4 11.5v2l-1.5 1.6 2.5 4.3 2.1-.5 1.8 1 .6 2.1h5l.6-2.1 1.8-1 2.1.5 2.5-4.3-1.5-1.6v-2l1.5-1.6L19 5.6l-2.1.5-1.8-1L14.5 3z"/><circle cx="12" cy="12.5" r="3"/> }
       @case ('sun') { <circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4m0-14.2-1.4 1.4M6.3 17.7l-1.4 1.4"/> }
@@ -11,4 +13,4 @@ import { Component, Input } from '@angular/core';
   </svg>`,
   styles: [':host { display: inline-flex; flex-shrink: 0; }']
 })
-export class IconComponent { @Input({ required: true }) name!: 'bell' | 'settings' | 'sun' | 'moon'; }
+export class IconComponent { @Input({ required: true }) name!: 'bell' | 'settings' | 'sun' | 'moon' | 'menu' | 'close'; }

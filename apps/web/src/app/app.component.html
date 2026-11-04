@@ -1,15 +1,19 @@
 <div class="min-h-screen md:grid md:grid-cols-[240px_1fr]">
-    <aside class="bg-sidebar text-on-sidebar p-7 md:min-h-screen">
+    <aside class="app-sidebar bg-sidebar text-on-sidebar p-7 md:min-h-screen" (keydown.escape)="closeMobileNavigation(true)">
+      <div class="sidebar-top">
       <a href="/" class="text-xl font-black tracking-tight">TRI-CITY <span class="text-brand-highlight">&#8599;</span><span class="block text-xs tracking-[.25em] font-normal mt-1">DROP-IN SOCCER</span></a>
-      <nav aria-label="Main navigation" class="mt-8 space-y-2">
+        <button id="mobile-navigation-toggle" type="button" class="mobile-navigation-toggle" [attr.aria-expanded]="mobileNavigationOpen()" aria-controls="main-navigation" [attr.aria-label]="mobileNavigationOpen() ? 'Close navigation' : 'Open navigation'" (click)="toggleMobileNavigation()"><app-icon [name]="mobileNavigationOpen() ? 'close' : 'menu'" /><span>Menu</span></button>
+      </div>
+      <p class="mobile-current-page"><span>Current page</span><strong>{{ pageLabel() }}</strong></p>
+      <nav id="main-navigation" aria-label="Main navigation" class="main-navigation mt-8 space-y-2" [class.mobile-open]="mobileNavigationOpen()">
         <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'games'" [attr.aria-current]="page() === 'games' ? 'page' : null" (click)="navigate('games')">Upcoming games</button>
-        @if (auth.profile()) { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'notifications'" (click)="navigate('notifications')">Notifications ({{ notifications.unread() }})</button><button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'mygames'" (click)="navigate('mygames')">My games</button><button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'profile'" (click)="navigate('profile')">My profile</button> }
-        @if ((auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'organizer'" (click)="navigate('organizer')">Organizer workspace</button> }
-        @if (auth.profile()?.role === 'ADMINISTRATOR') { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'users'" (click)="openUsers()">Users</button> }
+        @if (auth.profile()) { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'notifications'" [attr.aria-current]="page() === 'notifications' ? 'page' : null" (click)="navigate('notifications')">Notifications ({{ notifications.unread() }})</button><button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'mygames'" [attr.aria-current]="page() === 'mygames' ? 'page' : null" (click)="navigate('mygames')">My games</button><button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'profile'" [attr.aria-current]="page() === 'profile' ? 'page' : null" (click)="navigate('profile')">My profile</button> }
+        @if ((auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'organizer'" [attr.aria-current]="page() === 'organizer' ? 'page' : null" (click)="navigate('organizer')">{{ auth.profile()?.role === 'ADMINISTRATOR' ? 'Administrator workspace' : 'Organizer workspace' }}</button> }
+        @if (auth.profile()?.role === 'ADMINISTRATOR') { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'users'" [attr.aria-current]="page() === 'users' ? 'page' : null" (click)="openUsers()">Users</button> }
       </nav>
       <!-- <p class="mt-10 text-sm text-banner-muted">Good games. New faces.<br>Everyone belongs on the pitch.</p> -->
     </aside>
-    <div>
+    <div class="min-w-0">
       <header class="app-header flex flex-wrap gap-4 justify-between items-center border-b border-default bg-surface px-6 py-5 md:px-10">
         <span class="text-sm text-muted">The Beautiful Game</span>
         <div class="header-actions flex flex-wrap gap-3 items-center justify-end">
@@ -23,7 +27,7 @@
           <button type="button" class="icon-button" [attr.aria-pressed]="theme.dark()" [attr.aria-label]="theme.dark() ? 'Switch to light mode' : 'Switch to dark mode'" [title]="theme.dark() ? 'Switch to light mode' : 'Switch to dark mode'" (click)="theme.toggle()"><app-icon [name]="theme.dark() ? 'sun' : 'moon'" /></button>
         </div>
       </header>
-      <main class="max-w-6xl mx-auto p-6 md:p-10">
+      <main id="main-content" tabindex="-1" class="max-w-6xl mx-auto p-6 md:p-10">
         @if (auth.profile() && (page() === 'profile' || page() === 'mygames') && strikes.report(); as report) { <section class="mb-5" [class.strike-alert]="report.count > 0" [class.blocked]="report.blocked" [class.notice]="report.count === 0" aria-label="Current strikes and game access" aria-live="polite"><div class="flex flex-wrap justify-between items-center gap-3"><div><p class="text-lg font-bold">{{ report.count }} current {{ report.count === 1 ? 'strike' : 'strikes' }} / 3 strike joining limit</p><p class="text-sm mt-1">{{ report.blocked ? 'NEW BOOKINGS BLOCKED. Review payment discrepancies and other strike reasons. Your existing games are kept.' : report.count ? 'Resolve payment discrepancies with your organizer. At 3 current strikes, new game bookings are blocked.' : waiver.accepted() ? 'No current strikes. You can join games.' : 'No current strikes. E-sign the waiver in My profile before joining games.' }}</p></div><button class="secondary" (click)="openProfileSection('strikes')">View strikes &amp; reasons</button></div></section> }
         @if (auth.profile() && (page() === 'profile' || page() === 'mygames') && strikes.error()) { <p role="alert" class="notice error mb-4">Strike status could not be refreshed. <button class="underline" (click)="strikes.load()">Retry strike status</button></p> }
         @if (auth.profile() && (page() === 'games' || page() === 'mygames') && !waiver.accepted() && (waiver.status() || waiver.error())) { <section class="strike-alert mb-5" aria-label="Waiver signature required"><div class="flex flex-wrap justify-between items-center gap-3"><div><p class="font-bold">E-sign the participation &amp; strike rules waiver before joining games</p><p class="text-sm mt-2">You can keep existing bookings and review payments. New game bookings require your agreement on My profile.</p></div><button type="button" class="primary" (click)="openProfileSection('waiver')">Review &amp; e-sign waiver</button></div></section> }

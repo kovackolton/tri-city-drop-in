@@ -4,3 +4,17 @@
 .icon-button.selected { color: var(--accent); border-color: var(--accent); background: var(--success-bg); }
 .unread-badge { position: absolute; top: -6px; right: -7px; min-width: 20px; height: 20px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--primary); color: var(--on-primary); border: 2px solid var(--surface); font-size: .6rem; line-height: 1; font-weight: 700; }
 @media (max-width: 480px) { .app-header { padding: 1rem; } .header-actions { gap: .5rem; } }
+
+.mobile-navigation-toggle, .mobile-current-page { display: none; }
+@media (max-width: 767.98px) {
+  .app-sidebar { padding: 1rem; }
+  .sidebar-top { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .mobile-navigation-toggle { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-width: 44px; min-height: 44px; padding: .6rem .75rem; border: 1px solid currentColor; border-radius: .7rem; flex-shrink: 0; }
+  .mobile-navigation-toggle:hover { background: var(--nav-active); }
+  .mobile-current-page { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .75rem; margin-top: .85rem; font-size: .875rem; }
+  .mobile-current-page span { font-size: .75rem; }
+  .mobile-current-page strong { overflow-wrap: anywhere; }
+  .main-navigation { display: none; margin-top: 1rem; }
+  .main-navigation.mobile-open { display: block; }
+  .main-navigation button { min-height: 44px; }
+}

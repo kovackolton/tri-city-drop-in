@@ -37,6 +37,17 @@ export class AppComponent implements OnInit, OnDestroy {
   readonly auth = inject(AuthService);
   readonly registrations = inject(RegistrationsStore);
   readonly page = signal<'games' | 'mygames' | 'profile' | 'organizer' | 'notifications' | 'signin' | 'users'>('games');
+  readonly mobileNavigationOpen = signal(false);
+  pageLabel() {
+    if (this.page() === 'organizer') return this.auth.profile()?.role === 'ADMINISTRATOR' ? 'Administrator workspace' : 'Organizer workspace';
+    return { games: 'Upcoming games', mygames: 'My games', profile: 'My profile', notifications: 'Notifications', signin: 'Sign in', users: 'Users', organizer: 'Organizer workspace' }[this.page()];
+  }
+  toggleMobileNavigation() { this.mobileNavigationOpen.update(open => !open); }
+  closeMobileNavigation(restoreFocus = false) {
+    if (!this.mobileNavigationOpen()) return;
+    this.mobileNavigationOpen.set(false);
+    if (restoreFocus) document.getElementById('mobile-navigation-toggle')?.focus();
+  }
   readonly userRequestsOnly = signal(false);
   readonly time = eventTime;
   filters = defaultGameFilters();
@@ -70,16 +81,17 @@ export class AppComponent implements OnInit, OnDestroy {
   }
   ngOnInit() { this.restoreSharedGame(); void this.store.load(); void this.store.loadFilters(); this.poll = setInterval(() => { void this.notifications.load(); void this.strikes.load(); }, 30000); }
   ngOnDestroy() { if (this.poll) clearInterval(this.poll); }
-  navigate(page: 'games' | 'mygames' | 'profile' | 'organizer' | 'notifications' | 'signin' | 'users') { this.profileSectionRequest.set(null); this.page.set(page); if (page === 'notifications') void this.notifications.load(); if (page === 'games') { this.restoreSharedGame(); requestAnimationFrame(() => document.getElementById('shared-game')?.scrollIntoView({ block: 'start' })); void this.store.load(); void this.store.loadFilters(); if (this.auth.profile()) void this.registrations.load(); } if (page === 'mygames') void this.registrations.load(); }
+  navigate(page: 'games' | 'mygames' | 'profile' | 'organizer' | 'notifications' | 'signin' | 'users') { const fromMobileMenu = this.mobileNavigationOpen(); this.closeMobileNavigation(); this.profileSectionRequest.set(null); this.page.set(page); if (fromMobileMenu) requestAnimationFrame(() => document.getElementById('main-content')?.focus({ preventScroll: true })); if (page === 'notifications') void this.notifications.load(); if (page === 'games') { this.restoreSharedGame(); requestAnimationFrame(() => document.getElementById('shared-game')?.scrollIntoView({ block: 'start' })); void this.store.load(); void this.store.loadFilters(); if (this.auth.profile()) void this.registrations.load(); } if (page === 'mygames') void this.registrations.load(); }
   openProfileSection(section: 'strikes' | 'waiver') {
+    this.closeMobileNavigation();
     this.profileSectionRequest.set({ section, id: ++this.profileRequestId }); this.page.set('profile');
     requestAnimationFrame(() => { const target = document.getElementById(section + '-section'); target?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); target?.focus({ preventScroll: true }); });
   }
   async reviewPayment(eventId: string | null | undefined) {
-    this.paymentEventId.set(eventId ?? ''); this.page.set('mygames'); await this.registrations.load(eventId ?? undefined);
+    this.closeMobileNavigation(); this.paymentEventId.set(eventId ?? ''); this.page.set('mygames'); await this.registrations.load(eventId ?? undefined);
     requestAnimationFrame(() => { const card = document.getElementById('my-game-' + eventId); card?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); card?.focus({ preventScroll: true }); });
   }
   reviewOrganizerRequests() { this.userRequestsOnly.set(true); this.navigate('users'); }
   openUsers() { this.userRequestsOnly.set(false); this.navigate('users'); }
-  async logout() { await this.auth.logout(); this.page.set('games'); }
+  async logout() { this.closeMobileNavigation(); await this.auth.logout(); this.page.set('games'); }
 }
