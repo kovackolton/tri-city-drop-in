@@ -1,5 +1,7 @@
 # Tri-City Drop-In
 
+Branding: replace `apps/web/public/favicon.png` to customize the browser-tab icon. See [branding instructions](docs/branding.md).
+
 Production setup: [Deploy to GCP with GitHub Actions](docs/gcp-deployment-guide.md), covering Cloud Run, Cloud SQL, Firebase, keyless CI/CD, database migrations and rollback.
 
 Latest feature: [organizer event editing and return to draft](docs/event-editing-drafts-review.md).
