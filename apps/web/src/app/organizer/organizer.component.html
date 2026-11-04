@@ -2,7 +2,7 @@
     <p class="mt-2 text-muted">Create a pitch, then schedule your next game. All prices are per player in USD.</p>
     @if (error()) { <p role="alert" class="notice error mt-5">{{ error() }}</p> }
     @if (success()) { <p role="status" class="notice mt-5">{{ success() }}</p> }
-    <nav aria-label="Organizer pages" class="flex gap-3 mt-5"><button class="secondary" (click)="view.set('events'); load()">Events</button><button class="secondary" (click)="view.set('locations')">Locations</button></nav>
+    <nav aria-label="Organizer pages" class="flex gap-3 mt-5"><button type="button" class="secondary workspace-chip" [class.selected]="view() === 'events'" [attr.aria-pressed]="view() === 'events'" (click)="view.set('events'); load()">Events</button><button type="button" class="secondary workspace-chip" [class.selected]="view() === 'locations'" [attr.aria-pressed]="view() === 'locations'" (click)="view.set('locations')">Locations</button></nav>
     @if (view() === 'locations') { <app-locations (changed)="load()" /> } @else {
     <div class="mt-6"><button type="button" class="primary" [disabled]="busy()" [attr.aria-expanded]="showEventForm()" aria-controls="organizer-event-form" (click)="showEventForm.set(!showEventForm())">{{ showEventForm() ? 'Hide event form' : editingId() ? 'Continue editing event' : 'Create an event' }}</button></div>
     @if (showEventForm()) {
