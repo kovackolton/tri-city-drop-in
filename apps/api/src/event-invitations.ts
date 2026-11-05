@@ -5,6 +5,7 @@ import { costAcknowledgment, SignupsService } from './signups';
 import { integer, object, uuid } from './validation';
 import { refreshPaymentStrikes } from './strike-policy';
 import { appearance, appearanceSelect } from './profile-fields';
+import { notifyInvitations } from './event-invitation-notices';
 @Injectable()
 export class EventInvitationsService {
   constructor(@Inject(Database) private readonly db: Database, @Inject(SignupsService) private readonly signups: SignupsService) {}
@@ -16,6 +17,47 @@ export class EventInvitationsService {
   async mine(userId: string) {
     const invitations = await this.db.eventInvitation.findMany({ where: { userId, status: 'PENDING', event: { deletedAt: null, status: 'PUBLISHED', startsAt: { gt: new Date() } } }, select: { id: true, event: { select: { id: true, isPrivate: true, privateInviteToken: true, title: true, startsAt: true, priceCents: true, location: true } } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 100 });
     return invitations.map(({ event: { privateInviteToken, ...event }, ...invitation }) => ({ ...invitation, event, privateGameUrl: event.isPrivate ? `/private-game/${event.id}/${privateInviteToken}` : null }));
+  }
+  async addPlayer(actorId: string, eventId: string, value: unknown, administrator = false) {
+    uuid(eventId);
+    const input = object(value, ['userId', 'mode', 'expectedPriceCents']);
+    const userId = uuid(typeof input.userId === 'string' ? input.userId : '');
+    if (input.mode !== 'INVITE' && input.mode !== 'BOOK') throw new BadRequestException('Choose an invitation or immediate booking.');
+    const mode = input.mode;
+    const price = mode === 'BOOK' ? integer(input.expectedPriceCents, 'Expected price', 0, 2147483647) : 0;
+    const where = { id: eventId, deletedAt: null, ...(administrator ? {} : { organizerId: actorId }) };
+    if (!await this.db.event.findFirst({ where })) throw new NotFoundException('Event not found.');
+    if (mode === 'BOOK') await refreshPaymentStrikes(this.db, [userId]);
+    return this.db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${eventId}::uuid FOR UPDATE`;
+      const event = await tx.event.findFirst({ where });
+      if (!event) throw new NotFoundException('Event not found.');
+      if (!['DRAFT', 'PUBLISHED'].includes(event.status) || event.startsAt <= new Date()) throw new ConflictException('Players can only be added to future draft or published events.');
+      if (!await tx.user.findUnique({ where: { id: userId }, select: { id: true } })) throw new NotFoundException('Player not found.');
+      const current = await tx.signup.findFirst({ where: { eventId, userId, guestNumber: 0, status: { in: ['CONFIRMED', 'WAITLISTED'] } } });
+      if (current) {
+        if (mode === 'INVITE') throw new ConflictException('This player already has an active booking.');
+        return { mode, status: current.status, bookingId: current.bookingId, draft: event.status === 'DRAFT', alreadyAdded: true };
+      }
+      if (mode === 'INVITE') {
+        const previous = await tx.eventInvitation.findUnique({ where: { eventId_userId: { eventId, userId } } });
+        if (previous?.status === 'PENDING') return { mode, status: 'PENDING', draft: event.status === 'DRAFT', alreadyAdded: true };
+        const invitation = await tx.eventInvitation.upsert({ where: { eventId_userId: { eventId, userId } }, create: { eventId, userId }, update: { status: 'PENDING', bookingId: null } });
+        // A draft re-invitation stays quiet until publication.
+        if (event.status === 'DRAFT') await tx.notification.updateMany({ where: { dedupeKey: `event-invitation:${invitation.id}`, readAt: null }, data: { readAt: new Date() } });
+        await notifyInvitations(tx, event, userId);
+        await tx.auditLog.create({ data: { actorId, eventId, action: 'ORGANIZER_INVITED_PLAYER', details: { userId, invitationId: invitation.id, draft: event.status === 'DRAFT' } } });
+        return { mode, status: 'PENDING', draft: event.status === 'DRAFT', alreadyAdded: false };
+      }
+      if (event.priceCents !== price) throw new ConflictException('The event price changed. Refresh the event and review the current price before booking.');
+      // The event owner/admin authorizes this private booking; the player did not submit an invite key or consent.
+      const seats = await this.signups.bookParty(tx, event, userId, [], price, undefined, event.privateInviteToken ?? undefined);
+      await tx.eventInvitation.updateMany({ where: { eventId, userId, status: 'PENDING' }, data: { status: 'ACCEPTED', bookingId: seats[0].bookingId } });
+      await tx.notification.updateMany({ where: { userId, kind: 'EVENT_INVITATION', payload: { path: ['eventId'], equals: eventId }, readAt: null }, data: { readAt: new Date() } });
+      await tx.auditLog.create({ data: { actorId, eventId, action: 'ORGANIZER_BOOKED_PLAYER', details: { userId, bookingId: seats[0].bookingId, priceCents: price, status: seats[0].status, playerConfirmation: false } } });
+      await tx.notification.create({ data: { userId, kind: 'ORGANIZER_BOOKED_PLAYER', dedupeKey: `added:${seats[0].bookingId}`, payload: { eventId, title: event.title, draft: event.status === 'DRAFT' } } });
+      return { mode, status: seats[0].status, bookingId: seats[0].bookingId, draft: event.status === 'DRAFT', alreadyAdded: false };
+    }, { maxWait: 10000, timeout: 15000 });
   }
   async respond(userId: string, id: string, action: 'accept' | 'decline', value?: unknown) {
     uuid(id);
@@ -48,6 +90,7 @@ export class EventInvitationsService {
 export class EventInvitationsController {
   constructor(@Inject(EventInvitationsService) private readonly service: EventInvitationsService) {}
   @Get('organizer/players') @UseGuards(OrganizerGuard) search(@Query('search') search = '') { return this.service.search(search); }
+  @Post('organizer/events/:id/players') @UseGuards(OrganizerGuard) add(@Req() req: AuthRequest, @Param('id') id: string, @Body() value: unknown) { return this.service.addPlayer(req.user.id, id, value, req.user.role === 'ADMINISTRATOR'); }
   @Get('me/event-invitations') mine(@Req() req: AuthRequest) { return this.service.mine(req.user.id); }
   @Post('me/event-invitations/:id/accept') accept(@Req() req: AuthRequest, @Param('id') id: string, @Body() value: unknown) { return this.service.respond(req.user.id, id, 'accept', value); }
   @Post('me/event-invitations/:id/decline') decline(@Req() req: AuthRequest, @Param('id') id: string) { return this.service.respond(req.user.id, id, 'decline'); }

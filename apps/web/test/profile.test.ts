@@ -228,6 +228,40 @@ test('private creation converts selected-player bookings into link invitations a
   await share.prepare(); assert.ok(calls.some(call => call.url === '/api/organizer/events/private/share')); injector.destroy();
 });
 
+test('roster adds searched players by invitation or immediate booking and prevents duplicate submissions', async () => {
+  const searches: Subject<any>[] = [], posts: { body: any; response: Subject<any> }[] = [];
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: {
+    get: (url: string) => { if (url.endsWith('/roster')) return of([]); const response = new Subject<any>(); searches.push(response); return response; },
+    post: (_url: string, body: any) => { const response = new Subject<any>(); posts.push({ body, response }); return response; }
+  } }] });
+  const component = runInInjectionContext(injector, () => new RosterComponent());
+  component.eventId = 'event'; component.eventStatus = 'PUBLISHED'; component.startsAt = new Date(Date.now() + 86400000).toISOString(); component.priceCents = 1200; component.isPrivate = true;
+  assert.equal(component.canAddPlayers(), true); component.toggleAddPlayer(); assert.equal(component.showAddPlayer(), true);
+  component.playerSearch = 'Alex'; const search = component.searchExistingPlayers();
+  const player = { id: 'player', displayName: 'Alex', accountName: 'Alex Account' }; searches[0].next([player]); searches[0].complete(); await search;
+  component.selectedPlayer.set(component.playerResults()[0]);
+  const invite = component.addSelectedPlayer(); await component.addSelectedPlayer(); assert.equal(posts.length, 1); component.toggleAddPlayer(); assert.equal(component.showAddPlayer(), true);
+  assert.deepEqual(posts[0].body, { userId: 'player', mode: 'INVITE' });
+  posts[0].response.next({ mode: 'INVITE', status: 'PENDING', draft: false, alreadyAdded: false }); posts[0].response.complete(); await invite;
+  assert.match(component.addNotice(), /invitation sent/); assert.equal(component.selectedPlayer(), null);
+  component.selectedPlayer.set(player); component.addMode = 'BOOK';
+  const booking = component.addSelectedPlayer(); assert.deepEqual(posts[1].body, { userId: 'player', mode: 'BOOK', expectedPriceCents: 1200 });
+  posts[1].response.next({ mode: 'BOOK', status: 'WAITLISTED', draft: false, alreadyAdded: false }); posts[1].response.complete(); await booking;
+  assert.match(component.addNotice(), /waitlist/);
+  component.selectedPlayer.set(player); const failed = component.addSelectedPlayer(); posts[2].response.error(new Error('Failed')); await failed;
+  assert.ok(component.addError()); assert.equal(component.selectedPlayer()?.id, player.id); assert.equal(component.addingPlayer(), false);
+  component.eventStatus = 'COMPLETED'; assert.equal(component.canAddPlayers(), false); injector.destroy();
+});
+
+test('add-player search ignores a response for an event that is no longer open', async () => {
+  const response = new Subject<any>();
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: { get: (url: string) => url.endsWith('/roster') ? of([]) : response } }] });
+  const component = runInInjectionContext(injector, () => new RosterComponent()); component.eventId = 'first'; component.playerSearch = 'Alex';
+  const pending = component.searchExistingPlayers(); component.eventId = 'second'; component.ngOnChanges();
+  response.next([{ id: 'old-player' }]); response.complete(); await pending;
+  assert.equal(component.playerResults().length, 0); assert.equal(component.selectedPlayer(), null); assert.equal(component.showAddPlayer(), false); injector.destroy();
+});
+
 test('initial avatars handle blank names and Unicode without splitting surrogate pairs', () => {
   assert.equal(avatarInitial('  alex  '), 'A');
   assert.equal(avatarInitial('\u00c9lodie'), '\u00c9');
