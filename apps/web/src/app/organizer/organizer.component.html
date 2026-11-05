@@ -63,7 +63,7 @@
               </details>
             }
           </div>
-          @if (rosterEvent() === game.id) { <section class="event-management" [id]="'event-management-' + game.id" [attr.aria-label]="'Player management for ' + game.title"><app-roster [eventId]="game.id" (changed)="load()" /></section> }
+          @if (rosterEvent() === game.id) { <section class="event-management" [id]="'event-management-' + game.id" [attr.aria-label]="'Player management for ' + game.title"><app-roster [eventId]="game.id" [eventStatus]="game.status" [startsAt]="game.startsAt" [priceCents]="game.priceCents" [isPrivate]="game.isPrivate ?? false" (changed)="load()" /></section> }
         </article>
       } @empty { @if (!loading()) { <p class="panel mt-4 text-muted">{{ eventScope() === 'mine' ? 'You have no events yet.' : 'No events found.' }}</p> } }
       }

@@ -428,6 +428,67 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.equal(updated.name, 'Renamed pitch');
       await locations.remove(updated.id);
     });
+    await t.test('organizers and admins add players after creation with ownership, FIFO, price and idempotency checks', async () => {
+      const makePlayer = () => createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Added player' } });
+      for (const isPrivate of [false, true]) {
+        const e = await event(1), first = await makePlayer(), second = await makePlayer(), third = await makePlayer();
+        if (isPrivate) await db.event.update({ where: { id: e.id }, data: { isPrivate: true, privateInviteToken: randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', '') } });
+        const body = { userId: first.id, mode: 'BOOK', expectedPriceCents: 1000 };
+        await assert.rejects(invitations.addPlayer(users[5].id, e.id, body), /Event not found/);
+        await assert.rejects(invitations.addPlayer(users[0].id, e.id, { ...body, administrator: true }), /Unexpected field/);
+        const added = await Promise.all([invitations.addPlayer(users[0].id, e.id, body), invitations.addPlayer(users[0].id, e.id, body)]);
+        assert.equal(added.filter(result => result.alreadyAdded).length, 1);
+        assert.equal(added[0].status, 'CONFIRMED'); assert.equal(added[0].bookingId, added[1].bookingId);
+        assert.equal(await db.auditLog.count({ where: { eventId: e.id, action: 'ORGANIZER_BOOKED_PLAYER' } }), 1);
+        assert.equal(await db.auditLog.count({ where: { eventId: e.id, action: 'PLAYER_EVENT_COST_ACKNOWLEDGED' } }), 0);
+        assert.equal(await db.notification.count({ where: { userId: first.id, kind: 'ORGANIZER_BOOKED_PLAYER' } }), 1);
+        await assert.rejects(invitations.addPlayer(users[0].id, e.id, { userId: third.id, mode: 'BOOK', expectedPriceCents: 500 }), /price changed/);
+        const queued = await invitations.addPlayer(users[0].id, e.id, { userId: second.id, mode: 'BOOK', expectedPriceCents: 1000 }); assert.equal(queued.status, 'WAITLISTED');
+        const adminAdded = await invitations.addPlayer(users[5].id, e.id, { userId: third.id, mode: 'BOOK', expectedPriceCents: 1000 }, true); assert.equal(adminAdded.status, 'WAITLISTED');
+        const host = await db.signup.findFirstOrThrow({ where: { eventId: e.id, userId: first.id } });
+        await service.cancel(first.id, e.id, host.bookingId);
+        assert.equal((await db.signup.findFirstOrThrow({ where: { eventId: e.id, userId: second.id } })).status, 'CONFIRMED');
+        assert.equal((await db.signup.findFirstOrThrow({ where: { eventId: e.id, userId: third.id } })).status, 'WAITLISTED');
+        const history = await service.mine(first.id); assert.ok(history.some(item => item.event.isPrivate === isPrivate));
+      }
+    });
+    await t.test('add-player invitations queue for drafts, resend after decline and are fulfilled by organizer booking', async () => {
+      const player = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Invited later' } });
+      const e = await event(3); await db.event.update({ where: { id: e.id }, data: { status: 'DRAFT', isPrivate: true, privateInviteToken: randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', '') } });
+      const body = { userId: player.id, mode: 'INVITE' };
+      const outcomes = await Promise.all([invitations.addPlayer(users[0].id, e.id, body), invitations.addPlayer(users[0].id, e.id, body)]);
+      assert.equal(outcomes.filter(item => item.alreadyAdded).length, 1);
+      assert.equal(await db.signup.count({ where: { eventId: e.id } }), 0);
+      assert.equal(await db.notification.count({ where: { userId: player.id, kind: 'EVENT_INVITATION' } }), 0);
+      const draftPlayer = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Provisional addition' } });
+      const provisional = await invitations.addPlayer(users[0].id, e.id, { userId: draftPlayer.id, mode: 'BOOK', expectedPriceCents: 1000 });
+      assert.equal(provisional.draft, true); assert.equal(provisional.status, 'CONFIRMED');
+      assert.equal((await service.mine(draftPlayer.id))[0].event.status, 'DRAFT');
+      await new EventsController(db, service).publish({ user: users[0] } as AuthRequest, e.id);
+      const invitation = (await invitations.mine(player.id)).find(item => item.event.id === e.id)!; assert.ok(invitation.privateGameUrl);
+      await invitations.respond(player.id, invitation.id, 'decline');
+      await invitations.addPlayer(users[0].id, e.id, body);
+      assert.equal(await db.notification.count({ where: { userId: player.id, kind: 'EVENT_INVITATION', readAt: null } }), 1);
+      await invitations.addPlayer(users[0].id, e.id, { userId: player.id, mode: 'BOOK', expectedPriceCents: 1000 });
+      assert.equal((await invitations.mine(player.id)).length, 0);
+      assert.equal(await db.notification.count({ where: { userId: player.id, kind: 'EVENT_INVITATION', readAt: null } }), 0);
+      await assert.rejects(invitations.addPlayer(users[0].id, e.id, body), /active booking/);
+    });
+    await t.test('immediate additions keep waiver and strike enforcement and reject closed events', async () => {
+      const e = await event(3);
+      const unsigned = await db.user.create({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Unsigned' } });
+      await assert.rejects(invitations.addPlayer(users[0].id, e.id, { userId: unsigned.id, mode: 'BOOK', expectedPriceCents: 1000 }), /electronically sign/);
+      const player = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Blocked player' } });
+      const adminUser = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Adding admin', role: 'ADMINISTRATOR' } });
+      for (let i = 0; i < 3; i++) await strikes.permanent(adminUser.id, player.id, { note: `Test incident ${i}`, requestId: randomUUID() });
+      await assert.rejects(invitations.addPlayer(adminUser.id, e.id, { userId: player.id, mode: 'BOOK', expectedPriceCents: 1000 }, true), /Joining is blocked/);
+      for (const status of ['CANCELLED', 'COMPLETED'] as const) {
+        await db.event.update({ where: { id: e.id }, data: { status } });
+        await assert.rejects(invitations.addPlayer(users[0].id, e.id, { userId: player.id, mode: 'INVITE' }), /future draft or published/);
+      }
+      await db.event.update({ where: { id: e.id }, data: { status: 'PUBLISHED', startsAt: new Date(Date.now() - 1000) } });
+      await assert.rejects(invitations.addPlayer(users[0].id, e.id, { userId: player.id, mode: 'INVITE' }), /future draft or published/);
+    });
     await t.test('private games are invite-only across discovery, booking, cancellation and invitation paths', async () => {
       const owner = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Private Organizer', role: 'ORGANIZER' } });
       const player = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Private Player' } });

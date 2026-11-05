@@ -1,0 +1,48 @@
+:host { display: block; min-width: 0; }
+.docs { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 2rem; align-items: start; }
+.docs-directory { position: sticky; top: 0; max-height: 100dvh; overflow-y: auto; min-width: 0; padding: 1.5rem 1rem; border-right: 1px solid var(--divider); background: var(--surface); }
+.directory-heading h2 { font-size: 1.4rem; font-weight: 800; }
+.eyebrow { font-size: .65rem; letter-spacing: .12em; color: var(--accent); font-weight: 700; }
+.directory-toggle { display: none; }
+.guide-search { margin-top: 1.25rem; font-size: .8rem; }
+.guide-search input { font-size: .85rem; }
+.directory-note { color: var(--muted); font-size: .75rem; line-height: 1.6; margin-top: .85rem; }
+.guide-group { margin-top: 1.2rem; }
+.guide-group summary { cursor: pointer; font-size: .8rem; font-weight: 700; padding: .4rem 0; }
+.guide-group ul { margin-top: .4rem; border-left: 1px solid var(--border); padding-left: .4rem; }
+.guide-group a { display: block; padding: .65rem .7rem; border-radius: .5rem; font-size: .8rem; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+.guide-group a:hover { background: var(--surface-muted); color: var(--text); }
+.guide-group a.active { color: var(--secondary-text); background: var(--secondary-bg); font-weight: 700; border-left: 3px solid var(--secondary-border); }
+.guide-article { min-width: 0; max-width: 48rem; padding: 1.5rem 1.5rem 2rem 0; }
+.guide-breadcrumb { color: var(--accent); font-size: .8rem; margin-bottom: 1rem; }
+h1 { font-size: clamp(1.7rem, 3vw, 2.35rem); font-weight: 800; line-height: 1.2; overflow-wrap: anywhere; scroll-margin-top: 1.5rem; }
+.guide-summary { color: var(--muted); font-size: 1.05rem; line-height: 1.7; margin-top: 1rem; }
+.guide-audience { display: inline-block; margin-top: 1rem; padding: .3rem .7rem; font-size: .75rem; border-radius: 999px; color: var(--badge-text); background: var(--badge-bg); }
+.page-contents { margin: 2rem 0; padding: 1rem 1.2rem; border-left: 3px solid var(--secondary-border); background: var(--surface-muted); border-radius: 0 .6rem .6rem 0; }
+.page-contents h2 { font-size: .8rem; font-weight: 700; margin-bottom: .6rem; }
+.page-contents a { display: inline-block; color: var(--accent); font-size: .85rem; padding: .3rem 0; text-decoration: underline; text-underline-offset: .2em; overflow-wrap: anywhere; }
+.guide-section { margin-top: 2rem; scroll-margin-top: 1.5rem; overflow-wrap: anywhere; }
+.guide-section h2, .related-guides h2 { font-size: 1.25rem; line-height: 1.4; font-weight: 750; margin-bottom: 1rem; }
+.guide-section p, .guide-section li { line-height: 1.85; font-size: .95rem; }
+.guide-section p + p { margin-top: 1rem; }
+.guide-section ol { list-style: decimal; padding-left: 1.5rem; }
+.guide-section li { padding-left: .3rem; margin-top: .75rem; }
+.guide-section li::marker { color: var(--accent); font-weight: 700; }
+.guide-note { margin-top: 1.25rem; border-left: 4px solid var(--success-border); border-radius: 0 .6rem .6rem 0; background: var(--success-bg); color: var(--success-text); padding: 1rem; }
+.related-guides { margin-top: 3rem; border-top: 1px solid var(--divider); padding-top: 1.5rem; }
+.related-guides > div { display: grid; gap: .8rem; }
+.related-guides a { display: block; border: 1px solid var(--border); border-radius: .7rem; padding: 1rem; }
+.related-guides a:hover { background: var(--surface-muted); }
+.related-guides strong { display: block; color: var(--accent); font-size: .9rem; }
+.related-guides span { display: block; color: var(--muted); font-size: .8rem; margin-top: .3rem; line-height: 1.6; }
+@media (max-width: 1023.98px) {
+  .docs { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; padding: 1rem; }
+  .docs-directory { position: static; max-height: none; padding: 1rem; border: 1px solid var(--border); border-radius: .8rem; }
+  .directory-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .8rem; }
+  .directory-toggle { display: inline-flex; align-items: center; }
+  .guide-tree { display: none; }
+  .guide-tree.open { display: block; max-height: 65dvh; overflow-y: auto; padding-right: .25rem; }
+  .guide-search input { font-size: 1rem; }
+  .guide-article { max-width: none; padding: 0 0 1rem; }
+  .guide-group a, .page-contents a { min-height: 44px; display: flex; align-items: center; }
+}

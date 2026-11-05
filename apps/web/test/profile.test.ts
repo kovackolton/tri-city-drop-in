@@ -28,6 +28,10 @@ import { EventShareComponent } from '../src/app/event-share/event-share.componen
 import { sharedEventId, privateGameTarget, shareMessage, SharedGame, emailShareLink, emailShareText, emailCardHtml } from '../src/event-sharing';
 import { EventsStore, defaultGameFilters, activeGameFilterCount } from '../src/events.store';
 import { RegistrationsStore, Seat } from '../src/registrations.store';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { howToGuides, visibleHowToGuides, searchHowToGuides, howToGuideFromHash, guideScreenshotPath } from '../src/app/how-to/how-to-content';
+import { HowToComponent } from '../src/app/how-to/how-to.component';
 
 test('organizer editing controls respect ownership and save draft transitions through the guarded endpoint', async () => {
   let profile: any = { id: 'owner', role: 'ORGANIZER' };
@@ -226,6 +230,74 @@ test('private creation converts selected-player bookings into link invitations a
   const create = calls.find(call => call.url === '/api/events')!; assert.equal(create.body.isPrivate, true); assert.equal(create.body.initialPlayerMode, 'INVITE');
   const share = runInInjectionContext(injector, () => new EventShareComponent()); share.eventId = 'private'; share.organizerContext = true;
   await share.prepare(); assert.ok(calls.some(call => call.url === '/api/organizer/events/private/share')); injector.destroy();
+});
+
+test('roster adds searched players by invitation or immediate booking and prevents duplicate submissions', async () => {
+  const searches: Subject<any>[] = [], posts: { body: any; response: Subject<any> }[] = [];
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: {
+    get: (url: string) => { if (url.endsWith('/roster')) return of([]); const response = new Subject<any>(); searches.push(response); return response; },
+    post: (_url: string, body: any) => { const response = new Subject<any>(); posts.push({ body, response }); return response; }
+  } }] });
+  const component = runInInjectionContext(injector, () => new RosterComponent());
+  component.eventId = 'event'; component.eventStatus = 'PUBLISHED'; component.startsAt = new Date(Date.now() + 86400000).toISOString(); component.priceCents = 1200; component.isPrivate = true;
+  assert.equal(component.canAddPlayers(), true); component.toggleAddPlayer(); assert.equal(component.showAddPlayer(), true);
+  component.playerSearch = 'Alex'; const search = component.searchExistingPlayers();
+  const player = { id: 'player', displayName: 'Alex', accountName: 'Alex Account' }; searches[0].next([player]); searches[0].complete(); await search;
+  component.selectedPlayer.set(component.playerResults()[0]);
+  const invite = component.addSelectedPlayer(); await component.addSelectedPlayer(); assert.equal(posts.length, 1); component.toggleAddPlayer(); assert.equal(component.showAddPlayer(), true);
+  assert.deepEqual(posts[0].body, { userId: 'player', mode: 'INVITE' });
+  posts[0].response.next({ mode: 'INVITE', status: 'PENDING', draft: false, alreadyAdded: false }); posts[0].response.complete(); await invite;
+  assert.match(component.addNotice(), /invitation sent/); assert.equal(component.selectedPlayer(), null);
+  component.selectedPlayer.set(player); component.addMode = 'BOOK';
+  const booking = component.addSelectedPlayer(); assert.deepEqual(posts[1].body, { userId: 'player', mode: 'BOOK', expectedPriceCents: 1200 });
+  posts[1].response.next({ mode: 'BOOK', status: 'WAITLISTED', draft: false, alreadyAdded: false }); posts[1].response.complete(); await booking;
+  assert.match(component.addNotice(), /waitlist/);
+  component.selectedPlayer.set(player); const failed = component.addSelectedPlayer(); posts[2].response.error(new Error('Failed')); await failed;
+  assert.ok(component.addError()); assert.equal(component.selectedPlayer()?.id, player.id); assert.equal(component.addingPlayer(), false);
+  component.eventStatus = 'COMPLETED'; assert.equal(component.canAddPlayers(), false); injector.destroy();
+});
+
+test('add-player search ignores a response for an event that is no longer open', async () => {
+  const response = new Subject<any>();
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: { get: (url: string) => url.endsWith('/roster') ? of([]) : response } }] });
+  const component = runInInjectionContext(injector, () => new RosterComponent()); component.eventId = 'first'; component.playerSearch = 'Alex';
+  const pending = component.searchExistingPlayers(); component.eventId = 'second'; component.ngOnChanges();
+  response.next([{ id: 'old-player' }]); response.complete(); await pending;
+  assert.equal(component.playerResults().length, 0); assert.equal(component.selectedPlayer(), null); assert.equal(component.showAddPlayer(), false); injector.destroy();
+});
+
+test('handbook visibility and search respect roles and direct restricted-guide selection falls back safely', () => {
+  const player = visibleHowToGuides('PLAYER'), organizer = visibleHowToGuides('ORGANIZER'), admin = visibleHowToGuides('ADMINISTRATOR');
+  assert.ok(player.some(guide => guide.id === 'payment-strikes')); assert.ok(!player.some(guide => guide.id === 'create-event'));
+  assert.ok(organizer.some(guide => guide.id === 'create-event')); assert.ok(!organizer.some(guide => guide.id === 'admin-users'));
+  assert.ok(admin.some(guide => guide.id === 'admin-users')); assert.equal(visibleHowToGuides(null).length, player.length);
+  assert.ok(searchHowToGuides('PLAYER', 'organizer workspace').every(guide => guide.audience === 'everyone'));
+  assert.ok(searchHowToGuides('PLAYER', '24 hours').some(guide => guide.id === 'payment-strikes'));
+  const profile = signal<any>({ role: 'ADMINISTRATOR' });
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile } }] });
+  const component = runInInjectionContext(injector, () => new HowToComponent()); component.guideId = 'admin-users'; assert.equal(component.guide().id, 'admin-users');
+  profile.set({ role: 'PLAYER' }); assert.equal(component.guide().id, 'start'); assert.equal(component.unavailable(), true);
+  component.openGuide('create-event'); assert.equal(component.guide().id, 'start');
+  component.openGuide('join-game'); assert.equal(component.guide().id, 'join-game'); assert.equal(component.unavailable(), false); injector.destroy();
+});
+
+test('handbook links resolve and every screenshot placeholder has a checklist entry', () => {
+  const checklist = readFileSync(resolve('../../docs/how-to-screenshot-checklist.md'), 'utf8');
+  const ids = new Set(howToGuides.map(guide => guide.id)); assert.equal(ids.size, howToGuides.length);
+  const images = new Set<string>();
+  for (const guide of howToGuides) {
+    for (const id of guide.related) assert.ok(ids.has(id), `Missing related guide ${id}`);
+    assert.equal(new Set(guide.sections.map(section => section.id)).size, guide.sections.length);
+    for (const section of guide.sections) {
+      if (!section.image) continue;
+      assert.ok(!images.has(section.image.id)); images.add(section.image.id);
+      assert.equal(guideScreenshotPath(section.image), `/images/how-to/${section.image.id}.png`);
+      assert.ok(checklist.includes(`**${section.image.id}.png**`), `Missing screenshot checklist item ${section.image.id}`);
+    }
+  }
+  assert.equal(howToGuideFromHash('#how-to/payment-strikes'), 'payment-strikes');
+  assert.equal(howToGuideFromHash('#how-to'), 'start'); assert.equal(howToGuideFromHash('#how-to/'), 'start');
+  assert.equal(howToGuideFromHash('#some-other-section'), null);
 });
 
 test('initial avatars handle blank names and Unicode without splitting surrogate pairs', () => {
