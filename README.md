@@ -1,5 +1,7 @@
 # Tri-City Drop-In
 
+Latest workspace update: [add players after event creation](docs/add-players-review.md), with invitations or immediate bookings for public and private games.
+
 Latest feature: [private games with invite links](docs/private-games-review.md). Deploy the included database migration before releasing the new app revision.
 
 Branding: replace `apps/web/public/favicon.png` to customize the browser-tab icon. See [branding instructions](docs/branding.md).
