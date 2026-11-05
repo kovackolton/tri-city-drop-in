@@ -1,4 +1,8 @@
-# Current milestone: event sharing and Cloud Run container
+# Current milestone: private games
+
+Private events are hidden from public discovery and other organizers' overview, with unguessable invite links, a hidden app view, organizer sharing and retained My games history. Creation uses a private toggle in the publication dialog; selected players receive link invitations. Joining/rejoining requires the key server-side. The additive migration is applied locally and must run before production rollout. 40 API units, 64 PostgreSQL scenarios and 39 frontend logic checks passed, plus a clean Linux container build and local browser checks. See [private games review](private-games-review.md).
+
+## Previous milestone: event sharing and Cloud Run container
 
 Published games have server-rendered rich-link metadata, venue photos/soccer-ball fallback, live availability and FIFO-aware waitlist wording. Share/Copy controls and a pinned shared-game view preserve the target through sign-in/waiver review. A combined Dockerfile.cloudrun serves the API, HTML previews and Angular app with runtime public configuration on the injected port. No cloud deployment or new paid service. Clean image build and local container smoke passed, plus API/frontend builds, 39 API unit tests, 57 PostgreSQL scenarios and 28 frontend logic tests. Messaging-app rendering and signed-in browser flows remain manual. See [sharing/Cloud Run review](event-sharing-cloudrun-review.md).
 

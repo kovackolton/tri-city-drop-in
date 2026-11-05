@@ -13,16 +13,16 @@ export function defaultGameFilters(): GameFilters {
 interface Facets { locations: { id: string; name: string; city: string | null }[]; organizers: { id: string; name: string }[]; }
 export const EventsStore = signalStore(
   { providedIn: 'root' },
-  withState({ selectedId: '', selectedGame: null as Game | null, selectedLoading: false, selectedError: '', events: [] as Game[], loading: true, error: '', filters: defaultGameFilters(), locations: [] as Facets['locations'], organizers: [] as Facets['organizers'], filterError: '' }),
+  withState({ selectedInviteToken: '', selectedId: '', selectedGame: null as Game | null, selectedLoading: false, selectedError: '', events: [] as Game[], loading: true, error: '', filters: defaultGameFilters(), locations: [] as Facets['locations'], organizers: [] as Facets['organizers'], filterError: '' }),
   withMethods((store, http = inject(HttpClient)) => {
     let revision = 0, selectedRevision = 0;
     return {
-      clearSelected() { selectedRevision++; patchState(store, { selectedId: '', selectedGame: null, selectedLoading: false, selectedError: '' }); },
-      async loadSelected(id: string) {
+      clearSelected() { selectedRevision++; patchState(store, { selectedInviteToken: '', selectedId: '', selectedGame: null, selectedLoading: false, selectedError: '' }); },
+      async loadSelected(id: string, invite = '') {
         const current = ++selectedRevision;
-        patchState(store, { selectedId: id, selectedGame: null, selectedLoading: true, selectedError: '' });
+        patchState(store, { selectedInviteToken: invite, selectedId: id, selectedGame: null, selectedLoading: true, selectedError: '' });
         try {
-          const result = await firstValueFrom(http.get<SharedGame>(`/api/public/games/${encodeURIComponent(id)}`));
+          const result = await firstValueFrom(http.get<SharedGame>(invite ? `/api/private/games/${encodeURIComponent(id)}?invite=${encodeURIComponent(invite)}` : `/api/public/games/${encodeURIComponent(id)}`));
           if (current === selectedRevision) patchState(store, { selectedGame: result.game, selectedLoading: false });
         } catch { if (current === selectedRevision) patchState(store, { selectedGame: null, selectedLoading: false, selectedError: 'This game is unavailable for joining. It may have started, ended or been cancelled. You can browse other upcoming games below.' }); }
       },
