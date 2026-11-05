@@ -297,3 +297,14 @@ test('public origins reject credentials and paths and runtime web config only ex
   const config = publicWebConfig(JSON.stringify({ apiKey: 'public-key', authDomain: 'example.test', projectId: 'test', appId: 'test-app', private_key: 'never-expose' }));
   assert.equal(config.firebase.apiKey, 'public-key'); assert.equal('private_key' in config.firebase, false); assert.throws(() => publicWebConfig('bad-json'));
 });
+
+
+test('private previews retain invite-only URLs and send joining back to the hidden app view', () => {
+  const event = { ...shareFixture(), isPrivate: true, privateInviteToken: 'a'.repeat(64) };
+  const now = new Date('2030-01-01T00:00:00Z');
+  const metadata = previewMetadata(event, 'https://soccer.example.test', now);
+  assert.equal(metadata.url, `https://soccer.example.test/private-game/${event.id}/${event.privateInviteToken}`);
+  const preview = renderPreview(event, 'https://soccer.example.test', now);
+  assert.ok(preview.includes(`/?privateGame=${event.id}&amp;invite=${event.privateInviteToken}`));
+  assert.ok(!preview.includes(`/?event=${event.id}`));
+});

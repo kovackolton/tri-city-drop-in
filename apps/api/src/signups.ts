@@ -13,13 +13,14 @@ export function costAcknowledgment(value: unknown, price: number) {
   if (price > 0 && value !== true) throw new BadRequestException('Acknowledge the event cost before joining.');
 }
 export function signupInput(value: unknown) {
-  const b = object(value, ['guests', 'expectedPriceCents', 'guestPaymentAcknowledged', 'costAcknowledged']);
+  const b = object(value, ['guests', 'expectedPriceCents', 'guestPaymentAcknowledged', 'costAcknowledged', 'privateInviteToken']);
   if (!Array.isArray(b.guests) || b.guests.length > 20) throw new BadRequestException('Provide up to 20 guest names.');
   if (b.guests.length && b.guestPaymentAcknowledged !== true) throw new BadRequestException('Acknowledge responsibility for guest payments before booking guests.');
   if (b.guestPaymentAcknowledged !== undefined && typeof b.guestPaymentAcknowledged !== 'boolean') throw new BadRequestException('Guest payment acknowledgment must be a boolean.');
   const price = integer(b.expectedPriceCents, 'Expected price', 0, 2147483647);
   costAcknowledgment(b.costAcknowledged, price);
-  return { guests: b.guests.map(name => text(name, 'Guest name', 80)), price };
+  if (b.privateInviteToken !== undefined && (typeof b.privateInviteToken !== 'string' || !/^[a-f0-9]{64}$/.test(b.privateInviteToken))) throw new BadRequestException('Use the complete private invitation link.');
+  return { ...(typeof b.privateInviteToken === 'string' ? { privateInviteToken: b.privateInviteToken } : {}), guests: b.guests.map(name => text(name, 'Guest name', 80)), price };
 }
 
 @Injectable()
@@ -40,16 +41,22 @@ export class SignupsService {
   }
   async join(userId: string, eventId: string, value: unknown) {
     uuid(eventId);
-    const { guests, price } = signupInput(value);
+    const { guests, price, privateInviteToken } = signupInput(value);
     await refreshPaymentStrikes(this.db, [userId]);
     return this.db.$transaction(async tx => {
       const event = await this.lockedEvent(tx, eventId);
-      return this.bookParty(tx, event, userId, guests, price, 'PLAYER_JOIN');
+      const seats = await this.bookParty(tx, event, userId, guests, price, 'PLAYER_JOIN', privateInviteToken);
+      if (event.isPrivate) {
+        await tx.eventInvitation.updateMany({ where: { eventId, userId, status: 'PENDING' }, data: { status: 'ACCEPTED', bookingId: seats[0].bookingId } });
+        await tx.notification.updateMany({ where: { userId, kind: 'EVENT_INVITATION', payload: { path: ['eventId'], equals: eventId }, readAt: null }, data: { readAt: new Date() } });
+      }
+      return seats;
 
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, maxWait: 10000, timeout: 15000 });
   }
   // Caller holds the event lock (or has just created the event in this transaction).
-  async bookParty(tx: Prisma.TransactionClient, event: Event, userId: string, guests: string[], price: number, costSource?: 'PLAYER_JOIN' | 'PLAYER_INVITATION') {
+  async bookParty(tx: Prisma.TransactionClient, event: Event, userId: string, guests: string[], price: number, costSource?: 'PLAYER_JOIN' | 'PLAYER_INVITATION', privateInviteToken?: string) {
+    if (event.isPrivate && (!privateInviteToken || privateInviteToken !== event.privateInviteToken)) throw new NotFoundException('Use the private game invitation link to join.');
     const eventId = event.id;
       const existing = await tx.signup.findMany({ where: { eventId, userId, status: { in: ['CONFIRMED', 'WAITLISTED'] } }, orderBy: { guestNumber: 'asc' } });
       if (existing.length) {
@@ -134,7 +141,7 @@ export class SignupsService {
     const events = await this.db.signup.groupBy({ by: ['eventId'], where: { userId, guestNumber: 0 }, _max: { queuedAt: true }, orderBy: [{ _max: { queuedAt: 'desc' } }, { eventId: 'asc' }], take: 100 });
     const eventIds = [...new Set([...events.map(event => event.eventId), ...(includeEventId ? [includeEventId] : [])])];
     const history = await this.db.signup.groupBy({ by: ['eventId', 'status', 'cancellationSource'], where: { userId, guestNumber: 0, eventId: { in: eventIds } }, _count: true });
-    const seats = await this.db.signup.findMany({ where: { userId, eventId: { in: eventIds } }, include: { strikes: { select: { id: true, reason: true, createdAt: true, revokedAt: true, expiresAt: true } }, payment: true, event: { select: { id: true, title: true, description: true, capacity: true, teamCount: true, teamBalancingEnabled: true, organizerContactEmail: true, organizerContactPhone: true, contactCallAllowed: true, contactTextAllowed: true, bibsProvided: true, shirtColorCount: true, minPlayers: true, _count: { select: { signups: { where: { status: 'CONFIRMED' } } } }, startsAt: true, endsAt: true, status: true, cancellationCutoffHours: true, location: true, organizer: { select: appearanceSelect } } } }, orderBy: [{ queuedAt: 'desc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
+    const seats = await this.db.signup.findMany({ where: { userId, eventId: { in: eventIds } }, include: { strikes: { select: { id: true, reason: true, createdAt: true, revokedAt: true, expiresAt: true } }, payment: true, event: { select: { id: true, isPrivate: true, title: true, description: true, capacity: true, teamCount: true, teamBalancingEnabled: true, organizerContactEmail: true, organizerContactPhone: true, contactCallAllowed: true, contactTextAllowed: true, bibsProvided: true, shirtColorCount: true, minPlayers: true, _count: { select: { signups: { where: { status: 'CONFIRMED' } } } }, startsAt: true, endsAt: true, status: true, cancellationCutoffHours: true, location: true, organizer: { select: appearanceSelect } } } }, orderBy: [{ queuedAt: 'desc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
     return seats.map(seat => { const { _count, ...event } = seat.event; const records = history.filter(record => record.eventId === seat.eventId); return { ...seat, bookingCount: records.reduce((sum, record) => sum + record._count, 0), playerCancellationCount: records.filter(record => record.status === 'CANCELLED' && record.cancellationSource === 'PLAYER').reduce((sum, record) => sum + record._count, 0), legacyCancellationCount: records.filter(record => record.status === 'CANCELLED' && record.cancellationSource === null).reduce((sum, record) => sum + record._count, 0), event: { ...event, confirmed: _count.signups, organizer: appearance(event.organizer) } }; });
   }
   async participants(userId: string, eventId: string) {
