@@ -1,5 +1,6 @@
 {
   "/api": { "target": "http://127.0.0.1:3000", "secure": false },
+  "/private-game": { "target": "http://127.0.0.1:3000", "secure": false },
   "/games": { "target": "http://127.0.0.1:3000", "secure": false },
   "/share": { "target": "http://127.0.0.1:3000", "secure": false }
 }

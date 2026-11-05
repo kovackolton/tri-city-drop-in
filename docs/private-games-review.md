@@ -1,0 +1,25 @@
+# Private games
+
+The event-creation dialog has an obvious Private game — invitation link only checkbox, independent of Create draft/Create and publish. Existing games default to public. Visibility is set at creation and preserved through editing, returning to draft and republishing. Private published events stay in their organizer's workspace and administrators' full All events view, marked private; use the existing Share event control to retrieve their link. Drafts must be published before sharing.
+
+Private events are excluded from Upcoming games, its filter facets/search results, and other organizers' minimal All events overview. The full organizer listing still checks ownership. A normal public `/games/:id` or `/api/public/games/:id` request returns 404 for private events even if the event ID is known.
+
+Each private game has a cryptographically random 256-bit invite key. Its preview URL is `/private-game/:eventID/:inviteKey`; the extra key prevents an event ID retained in booking history from granting new joining access. The preview retains venue image/fallback, current spots/FIFO waitlist wording, price and a static Join Game/Join Waitlist link. That link opens `/?privateGame=:eventID&invite=:inviteKey` in the main application, displaying a dedicated private-game view with no navigation item. The invite context survives sign-in, onboarding/profile and waiver review. Explicitly returning to public browsing removes the private context from the URL and store.
+
+Anyone with the full link can view the event and request a place; this is link-based access, not a named-player allowlist. Forwarding the link grants that access. Private previews use no-store, no-referrer and noindex/nofollow/noarchive response headers, and avoid sharing a referrer with venue photos. Search-engine exclusion is advisory; the unguessable key is the actual access requirement. Existing messaging/email sharing works with the private URL, and messaging services can retain previews they fetched from that link.
+
+Private booking requests require the invite key on the server, including rejoining after cancellation. Existing waiver, strike, guest acknowledgment, paid-cost confirmation, capacity and FIFO rules remain enforced. My games retains private bookings/history, payment/roster access for active players and cancellation controls, but never returns the invite key or a rejoin link. The history card reminds players to keep their original invitation. Cancellation does not invalidate the original link.
+
+When selected players are added during private creation, the UI uses invitations rather than immediate bookings; the backend rejects immediate private bookings. Pending in-app invitations provide the private link instead of a direct Accept button. Joining through it marks that invitation accepted and removes it from the pending list. The direct invitation-accept API also requires the key, so it cannot bypass private joining. Owners/admins retrieve share metadata through an authenticated, ownership-checked endpoint. Invite keys are omitted from ordinary workspace/create responses, My games and edit audits.
+
+## Deployment and local development
+
+Commit and deploy migration `20261105000000_private_games` before the new application revision. It adds `Event.isPrivate` (false by default), a unique optional invite key and a consistency constraint. The existing migration job can apply it; no new GCP service or paid delivery provider is needed. The migration was applied only to the verified local development database during this work. Production deployment is left to the GitHub pipeline.
+
+The combined Cloud Run image already serves the new routes. Local Angular proxy and Compose nginx now forward `/private-game/` to the API; restart the web dev server to load its updated proxy configuration. No production domain/Firebase settings change is required for the existing hostname.
+
+The application also recognizes `/private-game/:eventID/:inviteKey` directly when a development server serves the Angular shell instead of proxying the preview route. It normalizes that path to the root query-string invite URL, then loads the same private card; this preserves the key through sign-in and prevents refresh after returning to public browsing from restoring an abandoned invitation. Both path and query-string entry formats are covered by regression checks.
+
+## Validation
+
+API units (40), isolated local PostgreSQL scenarios (64) and frontend logic tests (39) passed. Coverage includes public discovery/facet/overview exclusion, absent/wrong keys, owner/admin sharing, private invitation acceptance, paid signup key propagation, token-free history/audits, cancellation/rejoining, draft/republish behavior, preview HTTP headers and generic 404 responses. The Linux Cloud Run container built successfully. Local headless Edge verified the hidden view and no navigation item, private context removal when browsing, and no horizontal overflow at 320/375/430/1024px using mock data. Real Firebase sign-in and messaging/email-client rendering remain manual checks.

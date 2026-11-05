@@ -25,7 +25,7 @@ import { Game } from '../src/models';
 import { MyGamesComponent } from '../src/app/my-games/my-games.component';
 import { AuthService } from '../src/auth.service';
 import { EventShareComponent } from '../src/app/event-share/event-share.component';
-import { sharedEventId, shareMessage, SharedGame, emailShareLink, emailShareText, emailCardHtml } from '../src/event-sharing';
+import { sharedEventId, privateGameTarget, shareMessage, SharedGame, emailShareLink, emailShareText, emailCardHtml } from '../src/event-sharing';
 import { EventsStore, defaultGameFilters, activeGameFilterCount } from '../src/events.store';
 import { RegistrationsStore, Seat } from '../src/registrations.store';
 
@@ -183,6 +183,49 @@ test('invalid fields reopen collapsed event sections and keep error messages bes
   assert.equal(component.event.title, 'Keep my entered title');
   component.clearFieldError('teamCount'); assert.equal(component.fieldErrors()['teamCount'], undefined);
   injector.destroy();
+});
+
+test('private game context uses its invite endpoint and clears the key when leaving the shared game', async () => {
+  const requests: string[] = [];
+  const injector = Injector.create({ providers: [EventsStore, { provide: HttpClient, useValue: { get: (url: string) => { requests.push(url); return of({ game: { id: 'private', isPrivate: true } }); } } }] });
+  const store = injector.get(EventsStore), token = 'a'.repeat(64);
+  assert.deepEqual(privateGameTarget(`?privateGame=private&invite=${token}`), { id: 'private', invite: token });
+  assert.equal(privateGameTarget('?privateGame=private'), null);
+  const id = '11111111-1111-4111-8111-111111111111';
+  assert.deepEqual(privateGameTarget('', `/private-game/${id}/${token}`), { id, invite: token });
+  assert.deepEqual(privateGameTarget('', `/private-game/${id}/${token}/`), { id, invite: token });
+  assert.equal(privateGameTarget('', `/private-game/${id}/wrong`), null);
+  assert.deepEqual(privateGameTarget('?privateGame=other&invite=other', `/private-game/${id}/${token}`), { id, invite: token });
+  await store.loadSelected('private', token);
+  assert.equal(requests[0], `/api/private/games/private?invite=${token}`); assert.equal(store.selectedInviteToken(), token);
+  store.clearSelected(); assert.equal(store.selectedInviteToken(), ''); injector.destroy();
+});
+
+test('private signup carries the invite key after separate paid cost confirmation', async () => {
+  const calls: unknown[][] = [];
+  const injector = Injector.create({ providers: [
+    { provide: WaiverStore, useValue: { accepted: () => true } }, { provide: StrikesStore, useValue: { blocked: () => false } },
+    { provide: RegistrationsStore, useValue: { join: async (...args: unknown[]) => { calls.push(args); return true; } } }
+  ] });
+  const component = runInInjectionContext(injector, () => new SignupComponent());
+  component.game = { id: 'private', title: 'Private soccer', priceCents: 1200, isPrivate: true } as Game; component.inviteToken = 'a'.repeat(64);
+  await component.join(); assert.equal(calls.length, 0); await component.confirmCost();
+  assert.equal(calls.length, 1); assert.equal(calls[0][5], component.inviteToken); assert.equal(calls[0][4], true); injector.destroy();
+});
+
+test('private creation converts selected-player bookings into link invitations and sharing uses the organizer endpoint', async () => {
+  const calls: { url: string; body?: any }[] = [];
+  const injector = Injector.create({ providers: [
+    { provide: AuthService, useValue: { profile: () => ({ id: 'owner', role: 'ORGANIZER' }) } },
+    { provide: HttpClient, useValue: { get: (url: string) => { calls.push({ url }); return of([]); }, post: (url: string, body: any) => { calls.push({ url, body }); return of({}); } } }
+  ] });
+  const component = runInInjectionContext(injector, () => new OrganizerComponent());
+  component.event = { ...component.event, isPrivate: true, title: 'Private soccer', locationId: 'pitch', startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString() };
+  component.initialPlayerMode = 'BOOK'; component.selectedPlayers.set([{ id: 'player', accountName: 'Player', displayName: 'Player' }]);
+  await component.createEvent(); await component.confirmCreation('PUBLISHED');
+  const create = calls.find(call => call.url === '/api/events')!; assert.equal(create.body.isPrivate, true); assert.equal(create.body.initialPlayerMode, 'INVITE');
+  const share = runInInjectionContext(injector, () => new EventShareComponent()); share.eventId = 'private'; share.organizerContext = true;
+  await share.prepare(); assert.ok(calls.some(call => call.url === '/api/organizer/events/private/share')); injector.destroy();
 });
 
 test('initial avatars handle blank names and Unicode without splitting surrogate pairs', () => {

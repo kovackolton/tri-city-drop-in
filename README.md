@@ -1,5 +1,7 @@
 # Tri-City Drop-In
 
+Latest feature: [private games with invite links](docs/private-games-review.md). Deploy the included database migration before releasing the new app revision.
+
 Branding: replace `apps/web/public/favicon.png` to customize the browser-tab icon. See [branding instructions](docs/branding.md).
 
 Production setup: [Deploy to GCP with GitHub Actions](docs/gcp-deployment-guide.md), covering Cloud Run, Cloud SQL, Firebase, keyless CI/CD, database migrations and rollback.

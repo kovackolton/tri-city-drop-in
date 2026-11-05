@@ -5,6 +5,8 @@ import { SharedGame, shareMessage, emailShareLink, emailShareText, emailCardHtml
 @Component({ selector: 'app-event-share', templateUrl: './event-share.component.html', styles: [':host { display: block; min-width: 0; } .share-options { padding: 1rem; margin-top: .75rem; border: 1px solid var(--border); border-radius: .8rem; background: var(--surface-muted); }'] })
 export class EventShareComponent implements OnChanges {
   @Input({ required: true }) eventId!: string;
+  @Input() inviteToken = '';
+  @Input() organizerContext = false;
   private readonly http = inject(HttpClient);
   readonly open = signal(false); readonly loading = signal(false); readonly data = signal<SharedGame | null>(null);
   readonly error = signal(''); readonly notice = signal('');
@@ -17,7 +19,7 @@ export class EventShareComponent implements OnChanges {
     if (this.open()) { this.open.set(false); return; }
     this.open.set(true); this.loading.set(true); this.error.set(''); this.notice.set('');
     const id = this.eventId, revision = ++this.revision;
-    try { const data = await firstValueFrom(this.http.get<SharedGame>(`/api/public/games/${encodeURIComponent(id)}`)); if (revision === this.revision && id === this.eventId) this.data.set(data); }
+    try { const data = await firstValueFrom(this.http.get<SharedGame>(this.organizerContext ? `/api/organizer/events/${encodeURIComponent(id)}/share` : this.inviteToken ? `/api/private/games/${encodeURIComponent(id)}?invite=${encodeURIComponent(this.inviteToken)}` : `/api/public/games/${encodeURIComponent(id)}`)); if (revision === this.revision && id === this.eventId) this.data.set(data); }
     catch { if (revision === this.revision) { this.data.set(null); this.error.set('This game cannot be shared right now. It may have started, ended or been cancelled. Try refreshing.'); } }
     finally { if (revision === this.revision) this.loading.set(false); }
   }

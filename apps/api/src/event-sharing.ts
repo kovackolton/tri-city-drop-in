@@ -1,11 +1,12 @@
-import { Controller, Get, Inject, Injectable, NotFoundException, Param, Res, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, Inject, Injectable, NotFoundException, Param, Res, Req, Query, Header, UseGuards, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Database } from './database';
+import { AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
 // Public sharing selects event/venue facts and anonymous seat statuses only.
 const select = {
-  id: true, title: true, description: true, startsAt: true, endsAt: true, capacity: true, priceCents: true, status: true,
+  id: true, isPrivate: true, privateInviteToken: true, title: true, description: true, startsAt: true, endsAt: true, capacity: true, priceCents: true, status: true,
   teamCount: true, teamBalancingEnabled: true, bibsProvided: true, shirtColorCount: true, minPlayers: true,
   maxGuestsPerUser: true, cancellationCutoffHours: true,
   location: { select: { id: true, name: true, city: true, address: true, timezone: true, photoUrl: true, photoCredit: true, mapEmbedUrl: true } },
@@ -40,13 +41,13 @@ export function previewMetadata(event: ShareEvent, origin: string, now = new Dat
   const state = availability(event, now);
   const when = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: event.location.timezone, timeZoneName: 'short' }).format(event.startsAt);
   const price = event.priceCents === 0 ? 'Free' : `USD ${(event.priceCents / 100).toFixed(2)} per player`;
-  return { url: `${origin}/games/${event.id}`, title: `${event.title} / ${state.open ? state.action : state.text}`, description: `${when} / ${event.location.name} / ${price} / ${state.text}. Availability can change.`, availability: state.text, action: state.action, open: state.open, when, price, image: photoUrl(event.location.photoUrl) ?? `${origin}/share/soccer-ball.png` };
+  return { url: event.isPrivate ? `${origin}/private-game/${event.id}/${event.privateInviteToken}` : `${origin}/games/${event.id}`, title: `${event.title} / ${state.open ? state.action : state.text}`, description: `${when} / ${event.location.name} / ${price} / ${state.text}. Availability can change.`, availability: state.text, action: state.action, open: state.open, when, price, image: photoUrl(event.location.photoUrl) ?? `${origin}/share/soccer-ball.png` };
 }
 export function renderPreview(event: ShareEvent | null, origin: string, now = new Date()) {
   const meta = event ? previewMetadata(event, origin, now) : { url: origin, title: 'Game unavailable / Tri-City Drop-In Soccer', description: 'This game is unavailable. Browse upcoming drop-in soccer games.', image: `${origin}/share/soccer-ball.png`, availability: 'Game unavailable', action: 'View upcoming games', open: false, when: '', price: '' };
   const fallback = `${origin}/share/soccer-ball.png`;
   const imageAlt = meta.image === fallback ? 'Soccer ball' : `Venue photo for ${event?.location.name}`;
-  const link = event && meta.open ? `${origin}/?event=${event.id}` : `${origin}/`;
+  const link = event && meta.open ? event.isPrivate ? `${origin}/?privateGame=${event.id}&invite=${event.privateInviteToken}` : `${origin}/?event=${event.id}` : `${origin}/`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${html(meta.title)}</title>
 <meta name="description" content="${html(meta.description)}"><meta property="og:type" content="website"><meta property="og:site_name" content="Tri-City Drop-In Soccer"><meta property="og:title" content="${html(meta.title)}"><meta property="og:description" content="${html(meta.description)}"><meta property="og:url" content="${html(meta.url)}"><meta property="og:image" content="${html(meta.image)}"><meta property="og:image:alt" content="${html(imageAlt)}">${meta.image === fallback ? '<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">' : ''}
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${html(meta.title)}"><meta name="twitter:description" content="${html(meta.description)}"><meta name="twitter:image" content="${html(meta.image)}"><link rel="canonical" href="${html(meta.url)}"><link rel="icon" type="image/png" href="${html(origin)}/favicon.png"><link rel="apple-touch-icon" href="${html(origin)}/favicon.png"><script src="${html(origin)}/theme-init.js"></script><link rel="stylesheet" href="${html(origin)}/styles.css">
@@ -56,16 +57,25 @@ export function renderPreview(event: ShareEvent | null, origin: string, now = ne
 @Injectable()
 export class EventSharingService {
   constructor(@Inject(Database) private readonly db: Database) {}
-  async event(id: string) {
-    if (!validId(id)) return null;
-    return this.db.event.findFirst({ where: { id, deletedAt: null, status: { in: ['PUBLISHED', 'CANCELLED', 'COMPLETED'] } }, select });
+  async event(id: string, invite?: string) {
+    if (!validId(id) || invite !== undefined && !/^[a-f0-9]{64}$/.test(invite)) return null;
+    return this.db.event.findFirst({ where: { id, deletedAt: null, ...(invite !== undefined ? { isPrivate: true, privateInviteToken: invite } : { isPrivate: false }), status: { in: ['PUBLISHED', 'CANCELLED', 'COMPLETED'] } }, select });
   }
-  async publicGame(id: string) {
-    const event = await this.event(id);
+  async publicGame(id: string, invite?: string) {
+    const event = await this.event(id, invite);
     if (!event || !availability(event).open) throw new NotFoundException('This game is no longer open for joining. It may have started, ended or been cancelled.');
+    return this.response(event);
+  }
+  async organizerGame(actorId: string, id: string, administrator = false) {
+    if (!validId(id)) throw new NotFoundException('Event not found.');
+    const event = await this.db.event.findFirst({ where: { id, deletedAt: null, ...(administrator ? {} : { organizerId: actorId }) }, select });
+    if (!event || !availability(event).open || event.status !== 'PUBLISHED') throw new NotFoundException('Only future published games can be shared.');
+    return this.response(event);
+  }
+  private response(event: ShareEvent) {
     const state = availability(event);
     return { game: {
-      id: event.id, title: event.title, description: event.description, startsAt: event.startsAt, endsAt: event.endsAt, capacity: event.capacity,
+      id: event.id, isPrivate: event.isPrivate, title: event.title, description: event.description, startsAt: event.startsAt, endsAt: event.endsAt, capacity: event.capacity,
       priceCents: event.priceCents, currency: 'USD', locationId: event.location.id, location: event.location.name, address: event.location.address, city: event.location.city, timezone: event.location.timezone,
       photoUrl: event.location.photoUrl, photoCredit: event.location.photoCredit, mapEmbedUrl: event.location.mapEmbedUrl,
       confirmed: state.confirmed, waitlisted: state.waitlisted, maxGuestsPerUser: event.maxGuestsPerUser, cancellationCutoffHours: event.cancellationCutoffHours,
@@ -81,13 +91,17 @@ function asset(name: string) {
 @Controller()
 export class EventSharingController {
   constructor(@Inject(EventSharingService) private readonly service: EventSharingService) {}
-  @Get('api/public/games/:id') game(@Param('id') id: string) { return this.service.publicGame(id); }
-  @Get('games/:id') async page(@Param('id') id: string, @Res() res: Response) {
-    const origin = siteOrigin(), event = await this.service.event(id);
+  @Get('api/public/games/:id') @Header('Cache-Control', 'no-store') game(@Param('id') id: string) { return this.service.publicGame(id); }
+  @Get('api/private/games/:id') @Header('Cache-Control', 'no-store') privateGame(@Param('id') id: string, @Query('invite') invite = '') { return this.service.publicGame(id, invite); }
+  @Get('api/organizer/events/:id/share') @UseGuards(FirebaseGuard, OrganizerGuard) @Header('Cache-Control', 'no-store') organizerShare(@Req() req: AuthRequest, @Param('id') id: string) { return this.service.organizerGame(req.user.id, id, req.user.role === 'ADMINISTRATOR'); }
+  @Get('private-game/:id/:invite') privatePage(@Param('id') id: string, @Param('invite') invite: string, @Res() res: Response) { return this.page(id, res, invite); }
+  @Get('private-game/:id') missingInvite(@Param('id') id: string, @Res() res: Response) { return this.page(id, res, ''); }
+  @Get('games/:id') async page(@Param('id') id: string, @Res() res: Response, invite?: string) {
+    const origin = siteOrigin(), event = await this.service.event(id, invite);
     res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self' https:; style-src 'self' 'unsafe-inline'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");
-    if (!event || !availability(event).open) res.setHeader('X-Robots-Tag', 'noindex');
+    if (invite !== undefined || !event || !availability(event).open) res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
     return res.status(event ? 200 : 404).send(renderPreview(event, origin));
   }
   @Get('share/soccer-ball.png') ball(@Res() res: Response) { return this.image(res, 'soccer-ball.png'); }
