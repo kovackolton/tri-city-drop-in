@@ -1,10 +1,12 @@
+import { HowToComponent } from './how-to/how-to.component';
+import { howToGuideFromHash } from './how-to/how-to-content';
 import { sharedEventId, privateGameTarget } from '../event-sharing';
 import { EventCardComponent } from './event-card/event-card.component';
 import { WaiverStore } from '../waiver.store';
 import { StrikesStore } from '../strikes.store';
 import { ThemeService } from '../theme.service';
 import { IconComponent } from './icon/icon.component';
-import { Component, ElementRef, ViewChild, effect, inject, OnInit, OnDestroy, signal, untracked } from '@angular/core';
+import { Component, ElementRef, ViewChild, HostListener, effect, inject, OnInit, OnDestroy, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../auth.service';
 import { OrganizerComponent } from './organizer/organizer.component';
@@ -20,7 +22,7 @@ import { NotificationsStore } from '../notifications.store';
 import { EventsStore, defaultGameFilters, activeGameFilterCount } from '../events.store';
 
 @Component({
-  selector: 'app-root', imports: [IconComponent, EventCardComponent, FormsModule, ProfileComponent, AvatarComponent, OrganizerComponent, MyGamesComponent, SignInComponent, AdminUsersComponent],
+  selector: 'app-root', imports: [HowToComponent, IconComponent, EventCardComponent, FormsModule, ProfileComponent, AvatarComponent, OrganizerComponent, MyGamesComponent, SignInComponent, AdminUsersComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss'
 })
@@ -36,12 +38,15 @@ export class AppComponent implements OnInit, OnDestroy {
   readonly store = inject(EventsStore);
   readonly auth = inject(AuthService);
   readonly registrations = inject(RegistrationsStore);
-  readonly page = signal<'games' | 'mygames' | 'profile' | 'organizer' | 'notifications' | 'signin' | 'users' | 'privategame'>('games');
+  readonly page = signal<'games' | 'mygames' | 'profile' | 'organizer' | 'notifications' | 'signin' | 'users' | 'privategame' | 'howto'>('games');
+  readonly howToGuideId = signal('start');
+  @HostListener('window:hashchange') restoreHowToLocation() { const id = howToGuideFromHash(window.location.hash); if (id) { this.howToGuideId.set(id); this.page.set('howto'); this.closeMobileNavigation(); } }
+  updateHowToLocation(id: string) { this.howToGuideId.set(id); const url = new URL(window.location.href); url.hash = 'how-to/' + id; window.history.replaceState(null, '', url.pathname + url.search + url.hash); }
   readonly mobileNavigationOpen = signal(false);
   @ViewChild('accountMenu') accountMenu?: ElementRef<HTMLDetailsElement>;
   pageLabel() {
     if (this.page() === 'organizer') return this.auth.profile()?.role === 'ADMINISTRATOR' ? 'Administrator workspace' : 'Organizer workspace';
-    return { games: 'Upcoming games', mygames: 'My games', profile: 'My profile', notifications: 'Notifications', signin: 'Sign in', users: 'Users', organizer: 'Organizer workspace', privategame: 'Private game' }[this.page()];
+    return { games: 'Upcoming games', mygames: 'My games', profile: 'My profile', notifications: 'Notifications', signin: 'Sign in', users: 'Users', organizer: 'Organizer workspace', privategame: 'Private game', howto: 'How to' }[this.page()];
   }
   toggleMobileNavigation() { this.mobileNavigationOpen.update(open => !open); }
   closeMobileNavigation(restoreFocus = false) {
@@ -92,9 +97,9 @@ export class AppComponent implements OnInit, OnDestroy {
       });
     });
   }
-  ngOnInit() { this.restoreSharedGame(); void this.store.load(); void this.store.loadFilters(); this.poll = setInterval(() => { void this.notifications.load(); void this.strikes.load(); }, 30000); }
+  ngOnInit() { this.restoreSharedGame(); this.restoreHowToLocation(); void this.store.load(); void this.store.loadFilters(); this.poll = setInterval(() => { void this.notifications.load(); void this.strikes.load(); }, 30000); }
   ngOnDestroy() { if (this.poll) clearInterval(this.poll); }
-  navigate(page: 'games' | 'mygames' | 'profile' | 'organizer' | 'notifications' | 'signin' | 'users' | 'privategame') { const fromMobileMenu = this.mobileNavigationOpen(); this.closeMobileNavigation(); this.profileSectionRequest.set(null); this.page.set(page); if (fromMobileMenu) requestAnimationFrame(() => document.getElementById('main-content')?.focus({ preventScroll: true })); if (page === 'games' && this.store.selectedInviteToken()) this.dismissSharedGame(); if (page === 'privategame' && this.store.selectedId()) void this.store.loadSelected(this.store.selectedId(), this.store.selectedInviteToken()); if (page === 'notifications') void this.notifications.load(); if (page === 'games') { this.restoreSharedGame(); requestAnimationFrame(() => document.getElementById('shared-game')?.scrollIntoView({ block: 'start' })); void this.store.load(); void this.store.loadFilters(); if (this.auth.profile()) void this.registrations.load(); } if (page === 'mygames') void this.registrations.load(); }
+  navigate(page: 'games' | 'mygames' | 'profile' | 'organizer' | 'notifications' | 'signin' | 'users' | 'privategame' | 'howto') { const fromMobileMenu = this.mobileNavigationOpen(); this.closeMobileNavigation(); this.profileSectionRequest.set(null); this.page.set(page); if (typeof window !== 'undefined') { if (page === 'howto') this.updateHowToLocation(this.howToGuideId()); else if (window.location.hash.startsWith('#how-to')) { const url = new URL(window.location.href); url.hash = ''; window.history.replaceState(null, '', url.pathname + url.search); } } if (fromMobileMenu) requestAnimationFrame(() => document.getElementById('main-content')?.focus({ preventScroll: true })); if (page === 'games' && this.store.selectedInviteToken()) this.dismissSharedGame(); if (page === 'privategame' && this.store.selectedId()) void this.store.loadSelected(this.store.selectedId(), this.store.selectedInviteToken()); if (page === 'notifications') void this.notifications.load(); if (page === 'games') { this.restoreSharedGame(); requestAnimationFrame(() => document.getElementById('shared-game')?.scrollIntoView({ block: 'start' })); void this.store.load(); void this.store.loadFilters(); if (this.auth.profile()) void this.registrations.load(); } if (page === 'mygames') void this.registrations.load(); }
   openProfileSection(section: 'strikes' | 'waiver') {
     this.closeMobileNavigation();
     this.profileSectionRequest.set({ section, id: ++this.profileRequestId }); this.page.set('profile');

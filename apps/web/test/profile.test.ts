@@ -28,6 +28,10 @@ import { EventShareComponent } from '../src/app/event-share/event-share.componen
 import { sharedEventId, privateGameTarget, shareMessage, SharedGame, emailShareLink, emailShareText, emailCardHtml } from '../src/event-sharing';
 import { EventsStore, defaultGameFilters, activeGameFilterCount } from '../src/events.store';
 import { RegistrationsStore, Seat } from '../src/registrations.store';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { howToGuides, visibleHowToGuides, searchHowToGuides, howToGuideFromHash, guideScreenshotPath } from '../src/app/how-to/how-to-content';
+import { HowToComponent } from '../src/app/how-to/how-to.component';
 
 test('organizer editing controls respect ownership and save draft transitions through the guarded endpoint', async () => {
   let profile: any = { id: 'owner', role: 'ORGANIZER' };
@@ -260,6 +264,40 @@ test('add-player search ignores a response for an event that is no longer open',
   const pending = component.searchExistingPlayers(); component.eventId = 'second'; component.ngOnChanges();
   response.next([{ id: 'old-player' }]); response.complete(); await pending;
   assert.equal(component.playerResults().length, 0); assert.equal(component.selectedPlayer(), null); assert.equal(component.showAddPlayer(), false); injector.destroy();
+});
+
+test('handbook visibility and search respect roles and direct restricted-guide selection falls back safely', () => {
+  const player = visibleHowToGuides('PLAYER'), organizer = visibleHowToGuides('ORGANIZER'), admin = visibleHowToGuides('ADMINISTRATOR');
+  assert.ok(player.some(guide => guide.id === 'payment-strikes')); assert.ok(!player.some(guide => guide.id === 'create-event'));
+  assert.ok(organizer.some(guide => guide.id === 'create-event')); assert.ok(!organizer.some(guide => guide.id === 'admin-users'));
+  assert.ok(admin.some(guide => guide.id === 'admin-users')); assert.equal(visibleHowToGuides(null).length, player.length);
+  assert.ok(searchHowToGuides('PLAYER', 'organizer workspace').every(guide => guide.audience === 'everyone'));
+  assert.ok(searchHowToGuides('PLAYER', '24 hours').some(guide => guide.id === 'payment-strikes'));
+  const profile = signal<any>({ role: 'ADMINISTRATOR' });
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile } }] });
+  const component = runInInjectionContext(injector, () => new HowToComponent()); component.guideId = 'admin-users'; assert.equal(component.guide().id, 'admin-users');
+  profile.set({ role: 'PLAYER' }); assert.equal(component.guide().id, 'start'); assert.equal(component.unavailable(), true);
+  component.openGuide('create-event'); assert.equal(component.guide().id, 'start');
+  component.openGuide('join-game'); assert.equal(component.guide().id, 'join-game'); assert.equal(component.unavailable(), false); injector.destroy();
+});
+
+test('handbook links resolve and every screenshot placeholder has a checklist entry', () => {
+  const checklist = readFileSync(resolve('../../docs/how-to-screenshot-checklist.md'), 'utf8');
+  const ids = new Set(howToGuides.map(guide => guide.id)); assert.equal(ids.size, howToGuides.length);
+  const images = new Set<string>();
+  for (const guide of howToGuides) {
+    for (const id of guide.related) assert.ok(ids.has(id), `Missing related guide ${id}`);
+    assert.equal(new Set(guide.sections.map(section => section.id)).size, guide.sections.length);
+    for (const section of guide.sections) {
+      if (!section.image) continue;
+      assert.ok(!images.has(section.image.id)); images.add(section.image.id);
+      assert.equal(guideScreenshotPath(section.image), `/images/how-to/${section.image.id}.png`);
+      assert.ok(checklist.includes(`**${section.image.id}.png**`), `Missing screenshot checklist item ${section.image.id}`);
+    }
+  }
+  assert.equal(howToGuideFromHash('#how-to/payment-strikes'), 'payment-strikes');
+  assert.equal(howToGuideFromHash('#how-to'), 'start'); assert.equal(howToGuideFromHash('#how-to/'), 'start');
+  assert.equal(howToGuideFromHash('#some-other-section'), null);
 });
 
 test('initial avatars handle blank names and Unicode without splitting surrogate pairs', () => {

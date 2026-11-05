@@ -1,5 +1,7 @@
 # Tri-City Drop-In
 
+In-app help: **How to** contains 26 role-specific user guides. See the [handbook review](docs/how-to-review.md) and [28-image screenshot checklist](docs/how-to-screenshot-checklist.md); add images under `apps/web/public/images/how-to/`.
+
 Latest workspace update: [add players after event creation](docs/add-players-review.md), with invitations or immediate bookings for public and private games.
 
 Latest feature: [private games with invite links](docs/private-games-review.md). Deploy the included database migration before releasing the new app revision.
