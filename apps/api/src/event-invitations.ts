@@ -13,12 +13,13 @@ export class EventInvitationsService {
     const users = await this.db.user.findMany({ where: { OR: [{ displayName: { contains: search.trim(), mode: 'insensitive' } }, { nickname: { contains: search.trim(), mode: 'insensitive' } }] }, select: { id: true, ...appearanceSelect, skillLevel: true, adminSkillLevel: true }, orderBy: [{ displayName: 'asc' }, { id: 'asc' }], take: 20 });
     return users.map(user => ({ id: user.id, ...appearance(user), accountName: user.displayName, skillLevel: user.skillLevel, adminSkillLevel: user.adminSkillLevel }));
   }
-  mine(userId: string) {
-    return this.db.eventInvitation.findMany({ where: { userId, status: 'PENDING', event: { deletedAt: null, status: 'PUBLISHED', startsAt: { gt: new Date() } } }, select: { id: true, event: { select: { id: true, title: true, startsAt: true, priceCents: true, location: true } } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 100 });
+  async mine(userId: string) {
+    const invitations = await this.db.eventInvitation.findMany({ where: { userId, status: 'PENDING', event: { deletedAt: null, status: 'PUBLISHED', startsAt: { gt: new Date() } } }, select: { id: true, event: { select: { id: true, isPrivate: true, privateInviteToken: true, title: true, startsAt: true, priceCents: true, location: true } } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 100 });
+    return invitations.map(({ event: { privateInviteToken, ...event }, ...invitation }) => ({ ...invitation, event, privateGameUrl: event.isPrivate ? `/private-game/${event.id}/${privateInviteToken}` : null }));
   }
   async respond(userId: string, id: string, action: 'accept' | 'decline', value?: unknown) {
     uuid(id);
-    const input = action === 'accept' ? object(value, ['expectedPriceCents', 'costAcknowledged']) : {};
+    const input = action === 'accept' ? object(value, ['expectedPriceCents', 'costAcknowledged', 'privateInviteToken']) : {};
     const price = action === 'accept' ? integer(input.expectedPriceCents, 'Expected price', 0, 2147483647) : 0;
     if (action === 'accept') costAcknowledgment(input.costAcknowledged, price);
     if (action === 'accept') await refreshPaymentStrikes(this.db, [userId]);
@@ -34,7 +35,7 @@ export class EventInvitationsService {
       let bookingId: string | null = null;
       if (action === 'accept') {
         if (event.deletedAt || event.status !== 'PUBLISHED' || event.startsAt <= new Date()) throw new ConflictException('This event is no longer open for registration.');
-        const seats = await this.signups.bookParty(tx, event, userId, [], price, 'PLAYER_INVITATION'); bookingId = seats[0].bookingId;
+        const seats = await this.signups.bookParty(tx, event, userId, [], price, 'PLAYER_INVITATION', typeof input.privateInviteToken === 'string' ? input.privateInviteToken : undefined); bookingId = seats[0].bookingId;
       }
       const updated = await tx.eventInvitation.update({ where: { id }, data: { status: target, bookingId } });
       await tx.notification.updateMany({ where: { userId, dedupeKey: `event-invitation:${id}`, readAt: null }, data: { readAt: new Date() } });

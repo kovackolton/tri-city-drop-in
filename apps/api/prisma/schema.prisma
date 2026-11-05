@@ -94,6 +94,8 @@ model Location {
 }
 
 model Event {
+  isPrivate Boolean @default(false)
+  privateInviteToken String? @unique
   id          String @id @default(uuid()) @db.Uuid
   title       String
   description String?

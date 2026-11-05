@@ -11,6 +11,7 @@ import { SignupComponent } from '../signup/signup.component';
 @Component({ selector: 'app-event-card', imports: [CurrencyPipe, LocationMapComponent, LocationThumbnailComponent, OrganizerContactComponent, EventGuidanceComponent, EventShareComponent, SignupComponent], templateUrl: './event-card.component.html', styleUrl: './event-card.component.scss' })
 export class EventCardComponent {
   @Input({ required: true }) game!: Game;
+  @Input() inviteToken = '';
   @Output() changed = new EventEmitter<void>(); @Output() signIn = new EventEmitter<void>();
   readonly auth = inject(AuthService); readonly time = eventTime;
 }

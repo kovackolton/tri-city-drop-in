@@ -13,6 +13,7 @@ import { RegistrationsStore } from '../../registrations.store';
 })
 export class SignupComponent {
   @Input({ required: true }) game!: Game;
+  @Input() inviteToken = '';
   @Output() changed = new EventEmitter<void>();
   readonly waiver = inject(WaiverStore);
   readonly strikes = inject(StrikesStore);
@@ -46,7 +47,7 @@ export class SignupComponent {
   }
   private async submit(costAcknowledged: boolean) {
     this.submitting.set(true);
-    try { if (await this.store.join(this.game.id, this.guests.map(name => name.trim()), this.game.priceCents, this.guestPaymentAcknowledged, costAcknowledged)) {
+    try { if (await (this.inviteToken ? this.store.join(this.game.id, this.guests.map(name => name.trim()), this.game.priceCents, this.guestPaymentAcknowledged, costAcknowledged, this.inviteToken) : this.store.join(this.game.id, this.guests.map(name => name.trim()), this.game.priceCents, this.guestPaymentAcknowledged, costAcknowledged))) {
       this.costConfirmation.set(null); this.guests = []; this.guestPaymentAcknowledged = false; this.changed.emit();
     } } finally { this.submitting.set(false); }
   }
