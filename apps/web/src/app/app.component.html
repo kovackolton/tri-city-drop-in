@@ -10,6 +10,7 @@
         @if (auth.profile()) { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'notifications'" [attr.aria-current]="page() === 'notifications' ? 'page' : null" (click)="navigate('notifications')">Notifications ({{ notifications.unread() }})</button><button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'mygames'" [attr.aria-current]="page() === 'mygames' ? 'page' : null" (click)="navigate('mygames')">My games</button><button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'profile'" [attr.aria-current]="page() === 'profile' ? 'page' : null" (click)="navigate('profile')">My profile</button> }
         @if ((auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'organizer'" [attr.aria-current]="page() === 'organizer' ? 'page' : null" (click)="navigate('organizer')">{{ auth.profile()?.role === 'ADMINISTRATOR' ? 'Administrator workspace' : 'Organizer workspace' }}</button> }
         @if (auth.profile()?.role === 'ADMINISTRATOR') { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'users'" [attr.aria-current]="page() === 'users' ? 'page' : null" (click)="openUsers()">Users</button> }
+        <button type="button" class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'howto'" [attr.aria-current]="page() === 'howto' ? 'page' : null" (click)="navigate('howto')">How to</button>
       </nav>
       <!-- <p class="mt-10 text-sm text-banner-muted">Good games. New faces.<br>Everyone belongs on the pitch.</p> -->
     </aside>
@@ -27,7 +28,7 @@
           <button type="button" class="icon-button" [attr.aria-pressed]="theme.dark()" [attr.aria-label]="theme.dark() ? 'Switch to light mode' : 'Switch to dark mode'" [title]="theme.dark() ? 'Switch to light mode' : 'Switch to dark mode'" (click)="theme.toggle()"><app-icon [name]="theme.dark() ? 'sun' : 'moon'" /></button>
         </div>
       </header>
-      <main id="main-content" tabindex="-1" class="max-w-6xl mx-auto p-6 md:p-10">
+      <main id="main-content" tabindex="-1" class="max-w-6xl mx-auto p-6 md:p-10" [class.documentation-main]="page() === 'howto'">
         @if (auth.profile() && (page() === 'profile' || page() === 'mygames') && strikes.report(); as report) { <section class="mb-5" [class.strike-alert]="report.count > 0" [class.blocked]="report.blocked" [class.notice]="report.count === 0" aria-label="Current strikes and game access" aria-live="polite"><div class="flex flex-wrap justify-between items-center gap-3"><div><p class="text-lg font-bold">{{ report.count }} current {{ report.count === 1 ? 'strike' : 'strikes' }} / 3 strike joining limit</p><p class="text-sm mt-1">{{ report.blocked ? 'NEW BOOKINGS BLOCKED. Review payment discrepancies and other strike reasons. Your existing games are kept.' : report.count ? 'Resolve payment discrepancies with your organizer. At 3 current strikes, new game bookings are blocked.' : waiver.accepted() ? 'No current strikes. You can join games.' : 'No current strikes. E-sign the waiver in My profile before joining games.' }}</p></div><button class="secondary" (click)="openProfileSection('strikes')">View strikes &amp; reasons</button></div></section> }
         @if (auth.profile() && (page() === 'profile' || page() === 'mygames') && strikes.error()) { <p role="alert" class="notice error mb-4">Strike status could not be refreshed. <button class="underline" (click)="strikes.load()">Retry strike status</button></p> }
         @if (auth.profile() && (page() === 'games' || page() === 'mygames' || page() === 'privategame') && !waiver.accepted() && (waiver.status() || waiver.error())) { <section class="strike-alert mb-5" aria-label="Waiver signature required"><div class="flex flex-wrap justify-between items-center gap-3"><div><p class="font-bold">E-sign the participation &amp; strike rules waiver before joining games</p><p class="text-sm mt-2">You can keep existing bookings and review payments. New game bookings require your agreement on My profile.</p></div><button type="button" class="primary" (click)="openProfileSection('waiver')">Review &amp; e-sign waiver</button></div></section> }
@@ -51,6 +52,7 @@
             @else if (!auth.error()) { <p role="status" class="notice">Finishing sign-in...</p> }
           </div>
         }
+        @else if (page() === 'howto') { <app-how-to [guideId]="howToGuideId()" (guideChanged)="updateHowToLocation($event)" /> }
         @else if (page() === 'users' && auth.profile()?.role === 'ADMINISTRATOR') { <app-admin-users [requestsOnly]="userRequestsOnly()" /> }
         @else if (page() === 'notifications' && auth.profile()) {
           <section aria-labelledby="notifications-heading">
