@@ -300,6 +300,22 @@ test('handbook links resolve and every screenshot placeholder has a checklist en
   assert.equal(howToGuideFromHash('#some-other-section'), null);
 });
 
+test('equipment creation keeps bib quantities alongside named shirts and defaults dark/light', async () => {
+  const requests: any[] = [];
+  const injector = Injector.create({ providers: [
+    { provide: AuthService, useValue: { profile: () => ({ id: 'owner', role: 'ORGANIZER' }) } },
+    { provide: HttpClient, useValue: { get: () => of([]), post: (_url: string, body: unknown) => { requests.push(body); return of({}); } } }
+  ] });
+  const component = runInInjectionContext(injector, () => new OrganizerComponent());
+  assert.deepEqual(component.event.shirtColors, ['dark', 'light']);
+  component.updateShirtColors(3); assert.deepEqual(component.event.shirtColors, ['dark', 'light', '']);
+  component.event.shirtColors[2] = 'red';
+  component.event = { ...component.event, title: 'Equipment game', locationId: 'pitch', bibsProvided: true, bibCount: 12, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString() };
+  await component.createEvent(); await component.confirmCreation('PUBLISHED');
+  assert.equal(requests[0].bibCount, 12); assert.equal(requests[0].shirtColorCount, 3); assert.deepEqual(requests[0].shirtColors, ['dark', 'light', 'red']);
+  assert.deepEqual(component.event.shirtColors, ['dark', 'light']); injector.destroy();
+});
+
 test('initial avatars handle blank names and Unicode without splitting surrogate pairs', () => {
   assert.equal(avatarInitial('  alex  '), 'A');
   assert.equal(avatarInitial('\u00c9lodie'), '\u00c9');

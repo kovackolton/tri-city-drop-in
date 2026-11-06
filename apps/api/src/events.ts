@@ -11,7 +11,7 @@ import { AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
 import { instant, integer, object, text, uuid } from './validation';
 import { randomBytes } from 'node:crypto';
 export function eventInput(value: unknown) {
-  const b = object(value, ['title', 'description', 'locationId', 'startsAt', 'endsAt', 'capacity', 'priceCents', 'maxGuestsPerUser', 'cancellationCutoffHours', 'status', 'bibsProvided', 'shirtColorCount', 'minPlayers', 'teamCount', 'teamBalancingEnabled', 'organizerContactEmail', 'organizerContactPhone', 'contactCallAllowed', 'contactTextAllowed', 'initialPlayerIds', 'initialPlayerMode', 'isPrivate']);
+  const b = object(value, ['title', 'description', 'locationId', 'startsAt', 'endsAt', 'capacity', 'priceCents', 'maxGuestsPerUser', 'cancellationCutoffHours', 'status', 'bibsProvided', 'bibCount', 'shirtColors', 'shirtColorCount', 'minPlayers', 'teamCount', 'teamBalancingEnabled', 'organizerContactEmail', 'organizerContactPhone', 'contactCallAllowed', 'contactTextAllowed', 'initialPlayerIds', 'initialPlayerMode', 'isPrivate']);
   if (b.isPrivate !== undefined && typeof b.isPrivate !== 'boolean') throw new BadRequestException('Private game must be a boolean.');
   const startsAt = instant(b.startsAt, 'Start time'), endsAt = instant(b.endsAt, 'End time');
   if (startsAt.getTime() <= Date.now() || endsAt <= startsAt) throw new BadRequestException('Choose a future start and an end after the start.');
@@ -40,7 +40,7 @@ export class EventsController {
     return events.filter(event => matchesEventDate(event.startsAt, event.location.timezone, filters)).map(({ signups, ...e }) => ({
       locationId: e.locationId, city: e.location.city, organizerId: e.organizerId, organizer: appearance(e.organizer), teamCount: e.teamCount, teamBalancingEnabled: e.teamBalancingEnabled, organizerContactEmail: e.organizerContactEmail, organizerContactPhone: e.organizerContactPhone, contactCallAllowed: e.contactCallAllowed, contactTextAllowed: e.contactTextAllowed, id: e.id, title: e.title, description: e.description, startsAt: e.startsAt, endsAt: e.endsAt,
       priceCents: e.priceCents, currency: e.currency, timezone: e.location.timezone, maxGuestsPerUser: e.maxGuestsPerUser, cancellationCutoffHours: e.cancellationCutoffHours,
-      bibsProvided: e.bibsProvided, shirtColorCount: e.shirtColorCount, minPlayers: e.minPlayers, capacity: e.capacity, location: e.location.name, address: e.location.address, photoUrl: e.location.photoUrl, photoCredit: e.location.photoCredit, mapEmbedUrl: e.location.mapEmbedUrl,
+      bibsProvided: e.bibsProvided, bibCount: e.bibCount, shirtColors: e.shirtColors, shirtColorCount: e.shirtColorCount, minPlayers: e.minPlayers, capacity: e.capacity, location: e.location.name, address: e.location.address, photoUrl: e.location.photoUrl, photoCredit: e.location.photoCredit, mapEmbedUrl: e.location.mapEmbedUrl,
       confirmed: signups.filter(s => s.status === 'CONFIRMED').length, waitlisted: signups.filter(s => s.status === 'WAITLISTED').length
     })).filter(event => !filters.spacesOnly || event.confirmed < event.capacity && event.waitlisted === 0).slice(0, 100);
   }
@@ -79,7 +79,7 @@ export class EventsController {
     return this.db.$transaction(async tx => {
       if (initial.ids.length !== await tx.user.count({ where: { id: { in: initial.ids } } })) throw new BadRequestException('A selected player no longer exists. Refresh the selection.');
       const event = await tx.event.create({ data: { ...data, privateInviteToken: data.isPrivate ? randomBytes(32).toString('hex') : null, organizerId: req.user.id } });
-      await tx.auditLog.create({ data: { actorId: req.user.id, eventId: event.id, action: 'EVENT_CREATED', details: { isPrivate: data.isPrivate, initialPlayerMode: initial.mode, initialPlayerIds: initial.ids, teamCount: data.teamCount, teamBalancingEnabled: data.teamBalancingEnabled, status: data.status, priceCents: data.priceCents, bibsProvided: data.bibsProvided, shirtColorCount: data.shirtColorCount, minPlayers: data.minPlayers } } });
+      await tx.auditLog.create({ data: { actorId: req.user.id, eventId: event.id, action: 'EVENT_CREATED', details: { isPrivate: data.isPrivate, initialPlayerMode: initial.mode, initialPlayerIds: initial.ids, teamCount: data.teamCount, teamBalancingEnabled: data.teamBalancingEnabled, status: data.status, priceCents: data.priceCents, bibsProvided: data.bibsProvided, bibCount: data.bibCount, shirtColors: data.shirtColors, shirtColorCount: data.shirtColorCount, minPlayers: data.minPlayers } } });
       if (initial.mode === 'BOOK') for (const userId of [...initial.ids].sort()) await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId}::uuid FOR UPDATE`;
       if (initial.mode === 'INVITE' && initial.ids.length) {
         await tx.eventInvitation.createMany({ data: initial.ids.map(userId => ({ eventId: event.id, userId })) });

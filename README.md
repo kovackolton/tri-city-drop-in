@@ -1,5 +1,7 @@
 # Tri-City Drop-In
 
+Equipment update: [bib quantities and named shirt colors](docs/equipment-counts-colors-review.md), including a database migration to run before deployment.
+
 In-app help: **How to** contains 26 role-specific user guides. See the [handbook review](docs/how-to-review.md) and [28-image screenshot checklist](docs/how-to-screenshot-checklist.md); add images under `apps/web/public/images/how-to/`.
 
 Latest workspace update: [add players after event creation](docs/add-players-review.md), with invitations or immediate bookings for public and private games.
