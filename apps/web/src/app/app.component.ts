@@ -6,7 +6,7 @@ import { WaiverStore } from '../waiver.store';
 import { StrikesStore } from '../strikes.store';
 import { ThemeService } from '../theme.service';
 import { IconComponent } from './icon/icon.component';
-import { Component, ElementRef, ViewChild, HostListener, effect, inject, OnInit, OnDestroy, signal, untracked } from '@angular/core';
+import { Component, ElementRef, ViewChild, HostListener, effect, inject, AfterViewInit, OnInit, OnDestroy, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../auth.service';
 import { OrganizerComponent } from './organizer/organizer.component';
@@ -26,7 +26,11 @@ import { EventsStore, defaultGameFilters, activeGameFilterCount } from '../event
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss'
 })
-export class AppComponent implements OnInit, OnDestroy {
+export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
+  private readonly hostElement = inject<ElementRef<HTMLElement>>(ElementRef);
+  private navigationObserver?: ResizeObserver;
+  @ViewChild('appSidebar') sidebarElement?: ElementRef<HTMLElement>;
+  @ViewChild('appHeader') headerElement?: ElementRef<HTMLElement>;
   readonly waiver = inject(WaiverStore);
   readonly profileSectionRequest = signal<{ section: 'strikes' | 'waiver'; id: number } | null>(null);
   private profileRequestId = 0;
@@ -98,7 +102,20 @@ export class AppComponent implements OnInit, OnDestroy {
     });
   }
   ngOnInit() { this.restoreSharedGame(); this.restoreHowToLocation(); void this.store.load(); void this.store.loadFilters(); this.poll = setInterval(() => { void this.notifications.load(); void this.strikes.load(); }, 30000); }
-  ngOnDestroy() { if (this.poll) clearInterval(this.poll); }
+  ngAfterViewInit() {
+    const updateOffsets = () => {
+      for (const [name, element] of [['--app-sidebar-height', this.sidebarElement], ['--app-header-height', this.headerElement]] as const) {
+        if (element) this.hostElement.nativeElement.style.setProperty(name, `${Math.ceil(element.nativeElement.getBoundingClientRect().height)}px`);
+      }
+    };
+    updateOffsets();
+    if (typeof ResizeObserver !== 'undefined') {
+      this.navigationObserver = new ResizeObserver(updateOffsets);
+      if (this.sidebarElement) this.navigationObserver.observe(this.sidebarElement.nativeElement);
+      if (this.headerElement) this.navigationObserver.observe(this.headerElement.nativeElement);
+    }
+  }
+  ngOnDestroy() { this.navigationObserver?.disconnect(); if (this.poll) clearInterval(this.poll); }
   navigate(page: 'games' | 'mygames' | 'profile' | 'organizer' | 'notifications' | 'signin' | 'users' | 'privategame' | 'howto') { const fromMobileMenu = this.mobileNavigationOpen(); this.closeMobileNavigation(); this.profileSectionRequest.set(null); this.page.set(page); if (typeof window !== 'undefined') { if (page === 'howto') this.updateHowToLocation(this.howToGuideId()); else if (window.location.hash.startsWith('#how-to')) { const url = new URL(window.location.href); url.hash = ''; window.history.replaceState(null, '', url.pathname + url.search); } } if (fromMobileMenu) requestAnimationFrame(() => document.getElementById('main-content')?.focus({ preventScroll: true })); if (page === 'games' && this.store.selectedInviteToken()) this.dismissSharedGame(); if (page === 'privategame' && this.store.selectedId()) void this.store.loadSelected(this.store.selectedId(), this.store.selectedInviteToken()); if (page === 'notifications') void this.notifications.load(); if (page === 'games') { this.restoreSharedGame(); requestAnimationFrame(() => document.getElementById('shared-game')?.scrollIntoView({ block: 'start' })); void this.store.load(); void this.store.loadFilters(); if (this.auth.profile()) void this.registrations.load(); } if (page === 'mygames') void this.registrations.load(); }
   openProfileSection(section: 'strikes' | 'waiver') {
     this.closeMobileNavigation();

@@ -1,5 +1,5 @@
 <div class="min-h-screen md:grid md:grid-cols-[240px_1fr]">
-    <aside class="app-sidebar bg-sidebar text-on-sidebar p-7 md:min-h-screen" (keydown.escape)="closeMobileNavigation(true)">
+    <aside #appSidebar class="app-sidebar bg-sidebar text-on-sidebar p-7 md:min-h-screen" (keydown.escape)="closeMobileNavigation(true)">
       <div class="sidebar-top">
       <a href="/" class="text-xl font-black tracking-tight">TRI-CITY <span class="text-brand-highlight">&#8599;</span><span class="block text-xs tracking-[.25em] font-normal mt-1">DROP-IN SOCCER</span></a>
         <button id="mobile-navigation-toggle" type="button" class="mobile-navigation-toggle" [attr.aria-expanded]="mobileNavigationOpen()" aria-controls="main-navigation" [attr.aria-label]="mobileNavigationOpen() ? 'Close navigation' : 'Open navigation'" (click)="toggleMobileNavigation()"><app-icon [name]="mobileNavigationOpen() ? 'close' : 'menu'" /><span>Menu</span></button>
@@ -15,7 +15,7 @@
       <!-- <p class="mt-10 text-sm text-banner-muted">Good games. New faces.<br>Everyone belongs on the pitch.</p> -->
     </aside>
     <div class="min-w-0">
-      <header class="app-header flex flex-wrap gap-4 justify-between items-center border-b border-default bg-surface px-6 py-5 md:px-10">
+      <header #appHeader class="app-header flex flex-wrap gap-4 justify-between items-center border-b border-default bg-surface px-6 py-5 md:px-10">
         <span class="header-tagline text-sm text-muted">The Beautiful Game</span>
         <div class="header-actions flex flex-wrap gap-3 items-center justify-end">
           @if (!auth.ready()) { <span role="status">Checking your session...</span> }
