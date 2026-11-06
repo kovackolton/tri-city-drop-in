@@ -1,4 +1,7 @@
 .header-actions { margin-left: auto; }
+:host { --app-header-height: 85px; --app-sidebar-height: 115px; --app-scroll-offset: calc(var(--app-header-height) + 1rem); }
+.app-sidebar { position: sticky; top: 0; z-index: 40; align-self: start; height: 100dvh; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.app-header { position: sticky; top: 0; z-index: 30; }
 .documentation-main { max-width: none; margin-inline: 0; padding: 0; }
 .documentation-main > .notice { margin: 1rem; }
 .icon-button { display: inline-flex; align-items: center; justify-content: center; position: relative; width: 44px; height: 44px; border: 1px solid var(--border); border-radius: .8rem; background: var(--surface); color: var(--text); flex-shrink: 0; }
@@ -9,7 +12,9 @@
 
 .mobile-navigation-toggle, .mobile-current-page { display: none; }
 @media (max-width: 767.98px) {
-  .app-sidebar { padding: 1rem; }
+  :host { --app-scroll-offset: calc(var(--app-sidebar-height) + var(--app-header-height) + 1rem); }
+  .app-sidebar { padding: 1rem; height: auto; max-height: calc(100dvh - var(--app-header-height)); }
+  .app-header { top: var(--app-sidebar-height); }
   .sidebar-top { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
   .mobile-navigation-toggle { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-width: 44px; min-height: 44px; padding: .6rem .75rem; border: 1px solid currentColor; border-radius: .7rem; flex-shrink: 0; }
   .mobile-navigation-toggle:hover { background: var(--nav-active); }

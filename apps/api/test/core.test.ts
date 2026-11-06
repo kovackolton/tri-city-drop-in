@@ -202,17 +202,20 @@ test('guest bookings require explicit payment responsibility even for free and w
 
 test('event equipment and targets validate and remain advisory settings', () => {
   const base = valid();
-  assert.deepEqual(eventGuidanceInput({}, 20), { bibsProvided: false, shirtColorCount: 2, minPlayers: null });
+  assert.deepEqual(eventGuidanceInput({}, 20), { bibsProvided: false, bibCount: null, shirtColors: ['dark', 'light'], shirtColorCount: 2, minPlayers: null });
   const bibs = eventInput({ ...base, bibsProvided: true, shirtColorCount: 3, minPlayers: 10 });
-  assert.equal(bibs.bibsProvided, true); assert.equal(bibs.shirtColorCount, null); assert.equal(bibs.minPlayers, 10);
+  assert.equal(bibs.bibsProvided, true); assert.equal(bibs.shirtColorCount, 3); assert.equal(bibs.minPlayers, 10);
+  const both = eventInput({ ...base, bibsProvided: true, bibCount: 12, shirtColorCount: 2, shirtColors: ['dark', 'light'] });
+  assert.equal(both.bibCount, 12); assert.deepEqual(both.shirtColors, ['dark', 'light']);
+  for (const invalid of [{ bibCount: -1 }, { bibCount: 1.5 }, { shirtColors: ['dark'] }, { shirtColors: ['dark', 'DARK'] }, { shirtColors: ['dark', ''] }]) assert.throws(() => eventInput({ ...base, ...invalid }));
   const shirts = eventInput({ ...base, bibsProvided: false, shirtColorCount: 3, minPlayers: 1 });
   assert.equal(shirts.shirtColorCount, 3);
   for (const input of [{ bibsProvided: 'true' }, { bibsProvided: null }, { shirtColorCount: 0 }, { shirtColorCount: 11 }, { shirtColorCount: 1.5 }, { bibsProvided: false, shirtColorCount: null }, { minPlayers: 0 }, { minPlayers: 21 }, { minPlayers: 2.5 }, { minPlayers: '10' }]) assert.throws(() => eventInput({ ...base, ...input }));
 });
 test('guidance edits preserve unknown legacy settings and reject impossible targets after capacity changes', () => {
-  const legacy = { bibsProvided: null, shirtColorCount: null, minPlayers: null };
+  const legacy = { bibsProvided: null, bibCount: null, shirtColors: [], shirtColorCount: null, minPlayers: null };
   assert.deepEqual(eventGuidanceInput({}, 20, legacy), legacy);
-  assert.deepEqual(eventGuidanceInput({ bibsProvided: false }, 20, { bibsProvided: true, shirtColorCount: null, minPlayers: null }), { bibsProvided: false, shirtColorCount: 2, minPlayers: null });
+  assert.deepEqual(eventGuidanceInput({ bibsProvided: false }, 20, { bibsProvided: true, shirtColorCount: null, minPlayers: null }), { bibsProvided: false, bibCount: null, shirtColors: [], shirtColorCount: 2, minPlayers: null });
   assert.throws(() => eventGuidanceInput({}, 5, { ...legacy, minPlayers: 10 }));
   assert.equal(eventGuidanceInput({ minPlayers: null }, 5, { ...legacy, minPlayers: 10 }).minPlayers, null);
 });

@@ -1,5 +1,7 @@
 # Mobile navigation
 
+The app sidebar and top account/header bar now stay anchored during page scrolling. Desktop uses a viewport-height independently scrollable sidebar and a sticky header. On phones the header stacks below the anchored mobile menu, with measured offsets updated when the menu or header changes size. Long navigation remains scrollable within the viewport. Documentation navigation stays below the header; section/booking jumps include the combined navigation offset so their headings remain visible. Production build, 43 frontend checks and browser scrolling/anchor checks at phone, tablet and desktop widths passed.
+
 Below 768 CSS pixels the main navigation is collapsed behind a 44px-minimum Menu button. The current page remains visible below the brand, even while navigation is closed. Desktop retains the sidebar. All navigation entries expose their active page, and the button exposes expanded state and the controlled navigation region.
 
 The menu expands in the normal page flow, so it does not obscure content or require a modal focus trap. Choosing a destination closes it and focuses main content; Escape from within the navigation closes it and returns focus to the toggle. Other profile/payment navigation paths and sign-out also close it. The button uses existing theme colors and existing focus styling. Production Angular build and 34 frontend logic checks passed. Actual mobile-browser and screen-reader checks remain manual.

@@ -741,7 +741,15 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       await service.cancel(users[16].id, e.id, seats[0].bookingId);
       assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).status, 'PUBLISHED');
       await administration.edit(users[0].id, e.id, { bibsProvided: true });
-      const bibs = await db.event.findUniqueOrThrow({ where: { id: e.id } }); assert.equal(bibs.bibsProvided, true); assert.equal(bibs.shirtColorCount, null); assert.equal(bibs.minPlayers, 5);
+      const bibs = await db.event.findUniqueOrThrow({ where: { id: e.id } }); assert.equal(bibs.bibsProvided, true); assert.equal(bibs.shirtColorCount, 3); assert.equal(bibs.minPlayers, 5);
+      await administration.edit(users[0].id, e.id, { bibCount: 8, shirtColorCount: 2, shirtColors: ['dark', 'light'] });
+      const equipment = (await events.events()).find(game => game.id === e.id)!;
+      assert.equal(equipment.bibCount, 8); assert.deepEqual(equipment.shirtColors, ['dark', 'light']);
+      assert.deepEqual((await service.mine(users[16].id)).find(seat => seat.eventId === e.id)?.event.shirtColors, ['dark', 'light']);
+      assert.deepEqual((await new EventSharingService(db).publicGame(e.id)).game.shirtColors, ['dark', 'light']);
+      const auditsBefore = await db.auditLog.count({ where: { eventId: e.id } });
+      await administration.edit(users[0].id, e.id, { bibCount: 8, shirtColorCount: 2, shirtColors: ['dark', 'light'] });
+      assert.equal(await db.auditLog.count({ where: { eventId: e.id } }), auditsBefore);
       await assert.rejects(administration.edit(users[0].id, e.id, { capacity: 3 }), /target cannot exceed/);
       await administration.edit(users[0].id, e.id, { capacity: 3, minPlayers: 2, bibsProvided: false, shirtColorCount: 2 });
       await administration.edit(users[0].id, e.id, { minPlayers: null });

@@ -60,3 +60,6 @@ aside :focus-visible, .game-header :focus-visible { outline-color: var(--focus-o
   app-event-teams, app-organizer-seat { display: block; min-width: 0; }
   app-event-teams section, app-event-teams li { min-width: 0; overflow-wrap: anywhere; }
 }
+
+/* Keep programmatic section/booking jumps clear of anchored navigation. */
+[id][tabindex="-1"] { scroll-margin-top: var(--app-scroll-offset, 1rem); }
