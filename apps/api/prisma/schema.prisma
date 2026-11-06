@@ -108,6 +108,8 @@ model Event {
   endsAt      DateTime @db.Timestamptz(3)
   capacity    Int
   bibsProvided Boolean?
+  bibCount Int?
+  shirtColors String[] @default([])
   shirtColorCount Int?
   minPlayers Int?
   teamCount Int @default(2)

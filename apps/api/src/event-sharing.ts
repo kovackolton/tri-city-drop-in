@@ -7,7 +7,7 @@ import { AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
 // Public sharing selects event/venue facts and anonymous seat statuses only.
 const select = {
   id: true, isPrivate: true, privateInviteToken: true, title: true, description: true, startsAt: true, endsAt: true, capacity: true, priceCents: true, status: true,
-  teamCount: true, teamBalancingEnabled: true, bibsProvided: true, shirtColorCount: true, minPlayers: true,
+  teamCount: true, teamBalancingEnabled: true, bibsProvided: true, bibCount: true, shirtColors: true, shirtColorCount: true, minPlayers: true,
   maxGuestsPerUser: true, cancellationCutoffHours: true,
   location: { select: { id: true, name: true, city: true, address: true, timezone: true, photoUrl: true, photoCredit: true, mapEmbedUrl: true } },
   signups: { where: { status: { in: ['CONFIRMED', 'WAITLISTED'] } }, select: { status: true } }
@@ -79,7 +79,7 @@ export class EventSharingService {
       priceCents: event.priceCents, currency: 'USD', locationId: event.location.id, location: event.location.name, address: event.location.address, city: event.location.city, timezone: event.location.timezone,
       photoUrl: event.location.photoUrl, photoCredit: event.location.photoCredit, mapEmbedUrl: event.location.mapEmbedUrl,
       confirmed: state.confirmed, waitlisted: state.waitlisted, maxGuestsPerUser: event.maxGuestsPerUser, cancellationCutoffHours: event.cancellationCutoffHours,
-      teamCount: event.teamCount, teamBalancingEnabled: event.teamBalancingEnabled, bibsProvided: event.bibsProvided, shirtColorCount: event.shirtColorCount, minPlayers: event.minPlayers
+      teamCount: event.teamCount, teamBalancingEnabled: event.teamBalancingEnabled, bibsProvided: event.bibsProvided, bibCount: event.bibCount, shirtColors: event.shirtColors, shirtColorCount: event.shirtColorCount, minPlayers: event.minPlayers
     }, share: previewMetadata(event, siteOrigin()) };
   }
 }
