@@ -1,13 +1,27 @@
-import { ConflictException, Controller, Inject, Injectable, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common';
-import { AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
+import { Body, ForbiddenException, ConflictException, Controller, Inject, Injectable, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { AdministratorGuard, AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
 import { Database } from './database';
-import { uuid } from './validation';
+import { object, uuid } from './validation';
 
 @Injectable()
 export class EventManagementService {
   constructor(@Inject(Database) private readonly db: Database) {}
+  async completeReview(actorId: string, id: string, value: unknown) {
+    uuid(id); const body = object(value, ['playersHadOpportunity']);
+    if (body.playersHadOpportunity !== true) throw new ConflictException('Confirm all players had an opportunity to address payment discrepancies.');
+    return this.db.$transaction(async tx => {
+      if ((await tx.user.findUnique({ where: { id: actorId }, select: { role: true } }))?.role !== 'ADMINISTRATOR') throw new ForbiddenException('Only administrators can complete event reviews.');
+      await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${id}::uuid FOR UPDATE`;
+      if (!await tx.event.findUnique({ where: { id } })) throw new NotFoundException('Event not found.');
+      const existing = await tx.auditLog.findFirst({ where: { eventId: id, action: 'EVENT_REVIEW_COMPLETED' } });
+      if (existing) return { reviewStatus: 'COMPLETED', reviewCompletedAt: existing.createdAt };
+      const audit = await tx.auditLog.create({ data: { actorId, eventId: id, action: 'EVENT_REVIEW_COMPLETED', details: { playersHadOpportunity: true } } });
+      return { reviewStatus: 'COMPLETED', reviewCompletedAt: audit.createdAt };
+    }, { maxWait: 10000, timeout: 15000 });
+  }
   async transition(actorId: string, id: string, action: 'cancel' | 'complete', administrator = false) {
     uuid(id);
+    if (action === 'complete' && !administrator) throw new ForbiddenException('Only administrators can mark completion.');
     return this.db.$transaction(async tx => {
       await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${id}::uuid FOR UPDATE`;
       const event = await tx.event.findUnique({ where: { id } });
@@ -34,5 +48,6 @@ export class EventManagementService {
 export class EventManagementController {
   constructor(@Inject(EventManagementService) private readonly service: EventManagementService) {}
   @Post(':id/cancel') cancel(@Req() req: AuthRequest, @Param('id') id: string) { return this.service.transition(req.user.id, id, 'cancel', req.user.role === 'ADMINISTRATOR'); }
-  @Post(':id/complete') complete(@Req() req: AuthRequest, @Param('id') id: string) { return this.service.transition(req.user.id, id, 'complete', req.user.role === 'ADMINISTRATOR'); }
+  @Post(':id/review/complete') @UseGuards(AdministratorGuard) completeReview(@Req() req: AuthRequest, @Param('id') id: string, @Body() body: unknown) { return this.service.completeReview(req.user.id, id, body); }
+  @Post(':id/complete') @UseGuards(AdministratorGuard) complete(@Req() req: AuthRequest, @Param('id') id: string) { return this.service.transition(req.user.id, id, 'complete', req.user.role === 'ADMINISTRATOR'); }
 }

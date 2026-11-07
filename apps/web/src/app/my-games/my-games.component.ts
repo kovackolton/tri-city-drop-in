@@ -1,3 +1,6 @@
+import { CalendarPickerComponent } from '../calendar-picker/calendar-picker.component';
+import { FormsModule } from '@angular/forms';
+import { CalendarSelection, calendarDate, matchesCalendar } from '../../calendar';
 import { OrganizerContactComponent } from '../organizer-contact/organizer-contact.component';
 import { EventGuidanceComponent } from '../event-guidance/event-guidance.component';
 import { LocationMapComponent } from '../location-map/location-map.component';
@@ -12,7 +15,7 @@ import { AvatarComponent } from '../avatar/avatar.component';
 import { EventInvitationsComponent } from '../event-invitations/event-invitations.component';
 import { PlayersComponent } from '../players/players.component';
 @Component({
-  selector: 'app-my-games', imports: [CurrencyPipe, PaymentReviewComponent, PlayersComponent, AvatarComponent, LocationMapComponent, LocationThumbnailComponent, EventGuidanceComponent, OrganizerContactComponent, EventInvitationsComponent],
+  selector: 'app-my-games', imports: [CalendarPickerComponent, FormsModule, CurrencyPipe, PaymentReviewComponent, PlayersComponent, AvatarComponent, LocationMapComponent, LocationThumbnailComponent, EventGuidanceComponent, OrganizerContactComponent, EventInvitationsComponent],
   templateUrl: './my-games.component.html',
   styleUrl: './my-games.component.scss'
 })
@@ -24,6 +27,21 @@ export class MyGamesComponent implements OnChanges {
   readonly confirming = signal('');
   readonly playersEvent = signal('');
   readonly showPast = signal(false);
+  calendar: CalendarSelection = { period: 'all', date: calendarDate(new Date()) };
+  search = ''; location = ''; organizer = ''; bookingStatus = ''; paymentFilter = '';
+  locations() { return [...new Set(this.store.seats().map(seat => seat.event.location.name))].sort(); }
+  organizers() { return [...new Set(this.store.seats().map(seat => seat.event.organizer.displayName))].sort(); }
+  needsPayment(host: Seat) { return this.party(host).some(seat => seat.status === 'CONFIRMED' && ['PUBLISHED', 'COMPLETED'].includes(seat.event.status) && Date.parse(seat.event.endsAt) <= Date.now() && seat.payment && seat.payment.amountCents > 0 && !['VOID', 'NOT_REQUIRED'].includes(seat.payment.status) && seat.payment.playerPaid === null); }
+  matches(host: Seat) {
+    const query = this.search.trim().toLowerCase();
+    return matchesCalendar(host.event.startsAt, host.event.location?.timezone ?? 'UTC', this.calendar)
+      && (!query || `${host.event.title} ${host.event.location.name} ${host.event.location.city ?? ''}`.toLowerCase().includes(query))
+      && (!this.location || host.event.location.name === this.location)
+      && (!this.organizer || host.event.organizer.displayName === this.organizer)
+      && (!this.bookingStatus || host.status === this.bookingStatus)
+      && (!this.paymentFilter || (this.paymentFilter === 'needs' ? this.needsPayment(host) : this.party(host).some(seat => seat.payment && seat.payment.amountCents > 0 && !['VOID', 'NOT_REQUIRED'].includes(seat.payment.status) && seat.payment.playerPaid === (this.paymentFilter === 'paid'))));
+  }
+  clearFilters() { this.calendar = { period: 'all', date: calendarDate(new Date()) }; this.search = ''; this.location = ''; this.organizer = ''; this.bookingStatus = ''; this.paymentFilter = ''; }
   readonly time = eventTime;
   month(value: string, zone: string) { return new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: zone }).format(new Date(value)); }
   day(value: string, zone: string) { return new Intl.DateTimeFormat('en-US', { day: 'numeric', timeZone: zone }).format(new Date(value)); }
@@ -35,7 +53,7 @@ export class MyGamesComponent implements OnChanges {
       const previous = grouped.get(seat.eventId);
       if (!previous || previous.status === 'CANCELLED' && seat.status !== 'CANCELLED') grouped.set(seat.eventId, seat);
     }
-    const hosts = [...grouped.values()];
+    const hosts = [...grouped.values()].filter(host => this.matches(host));
     return [
       { id: 'upcoming', games: hosts.filter(seat => Date.parse(seat.event.endsAt) > now).sort((a, b) => Date.parse(a.event.startsAt) - Date.parse(b.event.startsAt)) },
       { id: 'past', games: hosts.filter(seat => Date.parse(seat.event.endsAt) <= now).sort((a, b) => Date.parse(b.event.startsAt) - Date.parse(a.event.startsAt)) }

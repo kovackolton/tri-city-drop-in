@@ -1,3 +1,5 @@
+import { CalendarPickerComponent } from '../calendar-picker/calendar-picker.component';
+import { CalendarSelection, calendarDate, matchesCalendar } from '../../calendar';
 import { EventShareComponent } from '../event-share/event-share.component';
 import { EventGuidanceComponent } from '../event-guidance/event-guidance.component';
 import { Component, OnInit, inject, signal } from '@angular/core';
@@ -14,7 +16,7 @@ import { AvatarComponent } from '../avatar/avatar.component';
 import { OrganizerContactComponent } from '../organizer-contact/organizer-contact.component';
 
 @Component({
-  selector: 'app-organizer', imports: [DialogComponent, AvatarComponent, OrganizerContactComponent, EventShareComponent, FormsModule, CurrencyPipe, RosterComponent, LocationsComponent, EventGuidanceComponent],
+  selector: 'app-organizer', imports: [CalendarPickerComponent, DialogComponent, AvatarComponent, OrganizerContactComponent, EventShareComponent, FormsModule, CurrencyPipe, RosterComponent, LocationsComponent, EventGuidanceComponent],
   templateUrl: './organizer.component.html',
   styleUrl: './organizer.component.scss'
 })
@@ -31,6 +33,12 @@ export class OrganizerComponent implements OnInit {
   readonly events = signal<ManagedEvent[]>([]);
   readonly eventScope = signal<'mine' | 'all'>('mine');
   readonly overview = signal<EventOverview[]>([]);
+  calendar: CalendarSelection = { period: 'all', date: calendarDate(new Date()) };
+  eventSearch = ''; eventHistory = 'all'; eventReview = ''; eventStatus = ''; eventLocation = '';
+  selectEventHistory(value: string) { this.eventHistory = value; void this.load(); }
+  calendarChanged(selection: CalendarSelection) { this.calendar = selection; void this.load(); }
+  clearEventFilters() { this.calendar = { period: 'all', date: calendarDate(new Date()) }; this.eventSearch = ''; this.eventHistory = 'all'; this.eventReview = ''; this.eventStatus = ''; this.eventLocation = ''; void this.load(); }
+  visibleOverview() { return this.overview().filter(game => matchesCalendar(game.startsAt, game.location.timezone, this.calendar) && (!this.eventSearch.trim() || `${game.title} ${game.organizer.displayName} ${game.location.name}`.toLowerCase().includes(this.eventSearch.trim().toLowerCase()))); }
   private loadRevision = 0;
   minimalView() { return this.eventScope() === 'all' && this.auth.profile()?.role !== 'ADMINISTRATOR'; }
   async selectEventScope(scope: 'mine' | 'all') {
@@ -38,6 +46,16 @@ export class OrganizerComponent implements OnInit {
     this.eventScope.set(scope); this.events.set([]); this.overview.set([]);
     this.rosterEvent.set(''); this.cancelling.set(''); this.deleting.set('');
     await this.load();
+  }
+  readonly expandedEvent = signal('');
+  readonly reviewCompletion = signal<ManagedEvent | null>(null);
+  playersHadOpportunity = false;
+  toggleEvent(id: string) { this.expandedEvent.set(this.expandedEvent() === id ? '' : id); this.rosterEvent.set(''); }
+  reviewLabel(game: ManagedEvent) { return game.reviewStatus === 'COMPLETED' ? 'Completed' : game.reviewStatus === 'IN_PROGRESS' ? 'In progress' : 'Needs review'; }
+  startReviewCompletion(game: ManagedEvent) { this.playersHadOpportunity = false; this.reviewCompletion.set(game); this.error.set(''); }
+  async completeReview() {
+    const game = this.reviewCompletion(); if (!game || !this.playersHadOpportunity || this.auth.profile()?.role !== 'ADMINISTRATOR') return;
+    await this.act(async () => { await firstValueFrom(this.http.post(`/api/organizer/events/${game.id}/review/complete`, { playersHadOpportunity: true })); this.reviewCompletion.set(null); }, 'Event review completed. Payment and strike records are unchanged.');
   }
   readonly rosterEvent = signal('');
   readonly busy = signal(false);
@@ -71,13 +89,13 @@ export class OrganizerComponent implements OnInit {
     this.event.shirtColorCount = count;
     if (Number.isInteger(count) && count! >= 1 && count! <= 10) this.event.shirtColors = Array.from({ length: count! }, (_, i) => this.event.shirtColors[i] ?? ['dark', 'light'][i] ?? '');
   }
-  ngOnInit() { void this.load(); }
+  ngOnInit() { if (this.auth.profile()?.role === 'ADMINISTRATOR') this.eventScope.set('all'); void this.load(); }
   async load() {
     const revision = ++this.loadRevision;
     const minimal = this.minimalView();
     this.loading.set(true); this.error.set('');
     try {
-      const [locations, events] = await Promise.all([firstValueFrom(this.http.get<Location[]>('/api/locations')), firstValueFrom(this.http.get<ManagedEvent[] | EventOverview[]>(minimal ? '/api/organizer/events/overview' : '/api/organizer/events?scope=' + this.eventScope()))]);
+      const [locations, events] = await Promise.all([firstValueFrom(this.http.get<Location[]>('/api/locations')), firstValueFrom(this.http.get<ManagedEvent[] | EventOverview[]>(minimal ? '/api/organizer/events/overview' : '/api/organizer/events', { params: minimal ? { period: this.calendar.period, date: this.calendar.date, search: this.eventSearch } : { scope: this.eventScope(), period: this.calendar.period, date: this.calendar.date, search: this.eventSearch, history: this.eventHistory, review: this.eventReview, status: this.eventStatus, locationId: this.eventLocation } }))]);
       if (revision !== this.loadRevision) return;
       this.locations.set(locations);
       if (minimal) { this.overview.set(events as EventOverview[]); this.events.set([]); }
@@ -117,7 +135,7 @@ export class OrganizerComponent implements OnInit {
   }
   cancelEdit() { this.fieldErrors.set({}); this.choosingStatus.set(false); this.showEventForm.set(false); this.selectedPlayers.set([]); this.playerResults.set([]); this.playerSearch = ''; this.initialPlayerMode = 'INVITE'; this.editingId.set(''); this.original = null; this.event = { isPrivate: false, title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, bibCount: null as number | null, shirtColors: ['dark', 'light'], shirtColorCount: 2 as number | null, minPlayers: null as number | null, teamCount: 2, teamBalancingEnabled: false, organizerContactEmail: '', organizerContactPhone: '', contactCallAllowed: false, contactTextAllowed: false }; }
   localTime(value: string) { const d = new Date(value); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
-  canEdit(game: ManagedEvent) { const profile = this.auth.profile(); return !!profile && (profile.role === 'ADMINISTRATOR' || profile.role === 'ORGANIZER' && game.organizerId === profile.id) && ['DRAFT', 'PUBLISHED'].includes(game.status); }
+  canEdit(game: ManagedEvent) { const profile = this.auth.profile(); return !game.deletedAt && !!profile && (profile.role === 'ADMINISTRATOR' || profile.role === 'ORGANIZER' && game.organizerId === profile.id) && ['DRAFT', 'PUBLISHED'].includes(game.status); }
   canReturnToDraft(game: ManagedEvent) { return this.canEdit(game) && game.status === 'PUBLISHED' && Date.parse(game.startsAt) > Date.now(); }
   canDraftWhileEditing() { return !!this.original && this.canReturnToDraft(this.original); }
   edit(game: ManagedEvent) {
@@ -128,9 +146,9 @@ export class OrganizerComponent implements OnInit {
     this.event = { isPrivate: game.isPrivate ?? false, title: game.title, description: game.description ?? '', locationId: game.location.id, startsAt: this.localTime(game.startsAt), endsAt: this.localTime(game.endsAt), capacity: game.capacity, price: (game.priceCents / 100).toFixed(2), maxGuestsPerUser: game.maxGuestsPerUser, cancellationCutoffHours: game.cancellationCutoffHours, status: game.status, bibsProvided: game.bibsProvided ?? false, bibCount: game.bibCount ?? null, shirtColors: Array.from({ length: game.shirtColorCount ?? 2 }, (_, i) => game.shirtColors?.[i] ?? ['dark', 'light'][i] ?? ''), shirtColorCount: game.shirtColorCount ?? 2, minPlayers: game.minPlayers ?? null, teamCount: game.teamCount ?? 2, teamBalancingEnabled: game.teamBalancingEnabled ?? false, organizerContactEmail: game.organizerContactEmail ?? '', organizerContactPhone: game.organizerContactPhone ?? '', contactCallAllowed: game.contactCallAllowed ?? false, contactTextAllowed: game.contactTextAllowed ?? false };
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
-  canShare(game: ManagedEvent) { return game.status === 'PUBLISHED' && Date.parse(game.startsAt) > Date.now(); }
-  canCancel(game: ManagedEvent) { return ['DRAFT', 'PUBLISHED'].includes(game.status) && new Date(game.startsAt) > new Date(); }
-  canComplete(game: ManagedEvent) { return game.status === 'PUBLISHED' && new Date(game.endsAt) <= new Date(); }
+  canShare(game: ManagedEvent) { return !game.deletedAt && game.status === 'PUBLISHED' && Date.parse(game.startsAt) > Date.now(); }
+  canCancel(game: ManagedEvent) { return !game.deletedAt && ['DRAFT', 'PUBLISHED'].includes(game.status) && new Date(game.startsAt) > new Date(); }
+  canComplete(game: ManagedEvent) { return this.auth.profile()?.role === 'ADMINISTRATOR' && game.reviewStatus !== 'COMPLETED'; }
   async transition(id: string, action: 'cancel' | 'complete') { await this.act(() => firstValueFrom(this.http.post(`/api/organizer/events/${id}/${action}`, {})), action === 'cancel' ? 'Event cancelled; players notified in the app.' : 'Event completed.'); this.cancelling.set(''); }
   async remove(id: string) { await this.act(() => firstValueFrom(this.http.delete('/api/admin/events/' + id)), 'Event deleted; history retained.'); this.deleting.set(''); }
   async publish(id: string) { await this.act(() => firstValueFrom(this.http.post(`/api/events/${id}/publish`, {})), 'Event published.'); }

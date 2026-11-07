@@ -1,0 +1,11 @@
+<button type="button" class="secondary calendar-toggle" [attr.aria-expanded]="mobileOpen" (click)="mobileOpen = !mobileOpen">Calendar: {{ selection.period === 'all' ? 'all dates' : selection.period + ' of ' + selection.date }} {{ mobileOpen ? '(hide)' : '(show)' }}</button>
+<section class="calendar" [class.mobile-closed]="!mobileOpen" aria-label="Filter games by calendar date">
+  <div class="calendar-heading"><strong aria-live="polite">{{ title() }}</strong><div><button type="button" aria-label="Previous month" (click)="move(-1)">&#8249;</button><button type="button" aria-label="Next month" (click)="move(1)">&#8250;</button></div></div>
+  <label class="calendar-mode">Show<select aria-label="Calendar date range" [ngModel]="selection.period" (ngModelChange)="mode($event)"><option value="all">All dates</option><option value="day">Selected day</option><option value="week">Selected week</option></select></label>
+  <div class="calendar-grid" #dates>
+    @for (day of weekdays; track $index) { <span class="weekday" aria-hidden="true">{{ day }}</span> }
+    @for (day of days(); track day.key) { <button type="button" [attr.data-date]="day.key" [attr.aria-label]="day.label" [attr.aria-pressed]="selected(day.key)" [attr.aria-current]="today(day.key) ? 'date' : null" [class.outside]="day.outside" [class.chosen]="selected(day.key)" [class.today]="today(day.key)" (click)="choose(day.key)" (keydown)="keyboard($event, day.key, dates)">{{ day.day }}</button> }
+  </div>
+  <div class="calendar-footer"><button type="button" class="secondary" (click)="goToday()">Today</button><button type="button" class="secondary" (click)="mode('all')">All dates</button></div>
+  <p class="text-xs text-muted mt-3">Dates follow the venue timezone. Weeks start Monday.</p>
+</section>
