@@ -6,8 +6,7 @@ import { Database } from './database';
 import { integer, object, uuid } from './validation';
 import { appearance, appearanceSelect } from './profile-fields';
 export function combinedRating(self: number | null, admin: number | null): number {
-  if (self !== null && admin !== null) return (self + admin) / 2;
-  return self ?? admin ?? 3;
+  return admin ?? self ?? 3;
 }
 export function balanceTeams(players: { id: string; rating: number | null }[], count: number) {
   const teams = Array.from({ length: count }, (_, index) => ({ number: index + 1, ids: [] as string[], total: 0 }));
@@ -97,7 +96,7 @@ export class TeamsService {
       const players = seats.map(seat => ({ id: seat.id, teamNumber: seat.teamNumber, rating: seat.guestNumber ? null : combinedRating(seat.user.skillLevel, seat.user.adminSkillLevel) }));
       const teams = reshuffle ? reshuffleTeams(players, event.teamCount) : balanceTeams(players, event.teamCount);
       for (const team of teams) if (team.ids.length) await tx.signup.updateMany({ where: { id: { in: team.ids } }, data: { teamNumber: team.number } });
-      await tx.auditLog.create({ data: { actorId, eventId: id, action: reshuffle ? 'TEAMS_RESHUFFLED' : 'TEAMS_AUTO_BALANCED', details: { ratingMethod: 'MEAN_SELF_ADMIN_AVAILABLE', neutralRating: 3, teams } } });
+      await tx.auditLog.create({ data: { actorId, eventId: id, action: reshuffle ? 'TEAMS_RESHUFFLED' : 'TEAMS_AUTO_BALANCED', details: { ratingMethod: 'ADMIN_THEN_SELF_AVAILABLE', neutralRating: 3, teams } } });
       return teams.map(team => ({ number: team.number, count: team.ids.length }));
     }, { maxWait: 10000, timeout: 15000 });
   }

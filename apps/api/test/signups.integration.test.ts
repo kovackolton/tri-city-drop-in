@@ -952,7 +952,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       await requests.setRole(adminUser.id, adminUser.id, { role: 'PLAYER' });
       await assert.rejects(requests.setRole(adminUser.id, adminUser.id, { role: 'ADMINISTRATOR' }), /Administrator access/);
     });
-    await t.test('balance and reshuffle use both ratings, single ratings and neutral guest estimates', async () => {
+    await t.test('balance and reshuffle prioritize administrator ratings with self and neutral fallbacks', async () => {
       const e = await event(6); await teams.settings(users[0].id, e.id, { teamCount: 2, teamBalancingEnabled: true });
       const ratings = [[5, 2], [null, 5], [1, null], [null, null]] as const;
       for (const [index, rating] of ratings.entries()) {
@@ -960,14 +960,14 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
         await service.join(player.id, e.id, { guests: index === 0 ? ['Guest'] : [], costAcknowledged: true, expectedPriceCents: 1000, guestPaymentAcknowledged: true });
       }
       const seats = await db.signup.findMany({ where: { eventId: e.id }, include: { user: true } });
-      const expected = new Map(seats.map(seat => [seat.id, seat.guestNumber ? 3 : seat.user.skillLevel !== null && seat.user.adminSkillLevel !== null ? (seat.user.skillLevel + seat.user.adminSkillLevel) / 2 : seat.user.skillLevel ?? seat.user.adminSkillLevel ?? 3]));
+      const expected = new Map(seats.map(seat => [seat.id, seat.guestNumber ? 3 : seat.user.adminSkillLevel ?? seat.user.skillLevel ?? 3]));
       for (const shuffle of [false, true]) {
         await teams.balance(users[0].id, e.id, false, shuffle);
         const audit = await db.auditLog.findFirstOrThrow({ where: { eventId: e.id, action: shuffle ? 'TEAMS_RESHUFFLED' : 'TEAMS_AUTO_BALANCED' } });
         const details = audit.details as { ratingMethod: string; teams: { ids: string[]; total: number }[] };
-        assert.equal(details.ratingMethod, 'MEAN_SELF_ADMIN_AVAILABLE');
+        assert.equal(details.ratingMethod, 'ADMIN_THEN_SELF_AVAILABLE');
         for (const team of details.teams) assert.equal(team.total, team.ids.reduce((sum, id) => sum + expected.get(id)!, 0));
-        assert.equal(details.teams.reduce((sum, team) => sum + team.total, 0), 15.5);
+        assert.equal(details.teams.reduce((sum, team) => sum + team.total, 0), 14);
       }
     });
     await t.test('overdue payment reminders are per booking, include guests, stop after either answer and stay private', async () => {
