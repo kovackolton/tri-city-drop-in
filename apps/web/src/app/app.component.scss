@@ -28,7 +28,6 @@
 
 .desktop-account { display: contents; }
 .mobile-account { display: none; }
-.game-filters > summary { cursor: pointer; font-weight: 700; color: var(--accent); }
 .filter-count { display: inline-block; margin-left: .5rem; padding: .2rem .6rem; border-radius: 999px; font-size: .75rem; color: var(--badge-text); background: var(--badge-bg); }
 @media (max-width: 767.98px) {
   .header-tagline, .desktop-account { display: none; }

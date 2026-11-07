@@ -1,3 +1,4 @@
+import { IconComponent } from '../icon/icon.component';
 import { Component, EventEmitter, Input, Output, inject, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -7,7 +8,7 @@ import { DialogComponent } from '../dialog/dialog.component';
 import { Game } from '../../models';
 import { RegistrationsStore } from '../../registrations.store';
 @Component({
-  selector: 'app-signup', imports: [FormsModule, CurrencyPipe, DialogComponent],
+  selector: 'app-signup', imports: [IconComponent, FormsModule, CurrencyPipe, DialogComponent],
   templateUrl: './signup.component.html',
   styleUrl: './signup.component.scss'
 })

@@ -1,9 +1,10 @@
+import { IconComponent } from '../icon/icon.component';
 import { Component, Input, OnChanges, OnInit, inject, signal } from '@angular/core';
 import { CurrencyPipe, DatePipe } from '@angular/common';
 import { StrikesStore } from '../../strikes.store';
 import { eventTime } from '../../models';
 import { contactEmailLink, contactPhoneLink } from '../../avatar';
-@Component({ selector: 'app-strike-panel', imports: [DatePipe, CurrencyPipe], templateUrl: './strike-panel.component.html' })
+@Component({ selector: 'app-strike-panel', imports: [IconComponent, DatePipe, CurrencyPipe], templateUrl: './strike-panel.component.html' })
 export class StrikePanelComponent implements OnInit, OnChanges {
   @Input() openRequest = 0;
   readonly open = signal(false);

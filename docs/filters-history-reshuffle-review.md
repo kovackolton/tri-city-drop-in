@@ -20,7 +20,7 @@ New cancellations record PLAYER, ORGANIZER or EVENT on each affected seat. Organ
 
 Under View players -> Teams, enabled rating-based events now have Reshuffle & rebalance beside the existing deterministic Auto-balance action. Both require organizer confirmation and only the owner or an administrator may run them before the event ends.
 
-Reshuffling samples fresh, evenly sized candidate rosters, evaluates average self-rating spread and prefers fewer repeated teammate pairs. It compares actual teammate groups, not just swapped team labels. The deterministic balance is included as a quality baseline; candidates within one rating point of the best sampled average spread can trade some balance for new teammates. Guests and unrated players still use 3/5. This is approximate and can produce similar rosters when few alternatives exist.
+Reshuffling samples fresh, evenly sized candidate rosters, evaluates average balancing-rating spread (administrator rating first, then self-rating, then 3/5) and prefers fewer repeated teammate pairs. It compares actual teammate groups, not just swapped team labels. The deterministic balance is included as a quality baseline; candidates within one rating point of the best sampled average spread can trade some balance for new teammates. Guests and unrated players still use 3/5. This is approximate and can produce similar rosters when few alternatives exist.
 
 Only confirmed seats participate, each exactly once, and team sizes differ by at most one. Ratings stay private to staff. The existing event-row lock, assignment cleanup and eligibility rules remain. TEAMS_RESHUFFLED audit entries record the operation. Organizers retain their manual assignment dropdowns and final say; later joins do not silently rearrange saved teams.
 

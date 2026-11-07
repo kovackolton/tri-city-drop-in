@@ -1,3 +1,4 @@
+import { IconComponent } from '../icon/icon.component';
 import { Component, Input, OnChanges, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
@@ -5,7 +6,7 @@ import { AvatarComponent } from '../avatar/avatar.component';
 import { message } from '../../auth.service';
 interface Player { teamNumber: number | null; id: string; name: string; isGuest: boolean; status: 'CONFIRMED' | 'WAITLISTED'; avatarUrl: string | null; avatarColor: string; guestOf: string | null; }
 @Component({
-  selector: 'app-players', imports: [AvatarComponent],
+  selector: 'app-players', imports: [IconComponent, AvatarComponent],
   templateUrl: './players.component.html',
   styleUrl: './players.component.scss'
 })

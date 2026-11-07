@@ -1,3 +1,4 @@
+import { IconComponent } from '../icon/icon.component';
 import { Component, EventEmitter, Input, OnChanges, Output, ViewChild, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -11,7 +12,7 @@ import { OrganizerSeat, OrganizerSeatComponent } from '../organizer-seat/organiz
 import { DatePipe } from '@angular/common';
 @Component({
   selector: 'app-roster',
-  imports: [FormsModule, PaymentReviewComponent, OrganizerSeatComponent, DatePipe, AvatarComponent, EventTeamsComponent],
+  imports: [IconComponent, FormsModule, PaymentReviewComponent, OrganizerSeatComponent, DatePipe, AvatarComponent, EventTeamsComponent],
   templateUrl: './roster.component.html',
   styleUrl: './roster.component.scss'
 })
@@ -20,6 +21,7 @@ export class RosterComponent implements OnChanges {
   readonly phoneLink = contactPhoneLink;
   @Input({ required: true }) eventId!: string;
   @Input() eventStatus = '';
+  @Input() archived = false;
   @Input() startsAt = '';
   @Input() priceCents = 0;
   @Input() isPrivate = false;
@@ -47,7 +49,7 @@ export class RosterComponent implements OnChanges {
   readonly addError = signal(''); readonly addNotice = signal('');
   playerSearch = ''; addMode: 'INVITE' | 'BOOK' = 'INVITE';
   private playerSearchRevision = 0;
-  canAddPlayers() { return ['DRAFT', 'PUBLISHED'].includes(this.eventStatus) && Date.parse(this.startsAt) > Date.now(); }
+  canAddPlayers() { return !this.archived && ['DRAFT', 'PUBLISHED'].includes(this.eventStatus) && Date.parse(this.startsAt) > Date.now(); }
   toggleAddPlayer() { if (this.addingPlayer()) return; this.showAddPlayer.update(open => !open); }
   async searchExistingPlayers() {
     if (this.searchingPlayers() || this.addingPlayer() || this.playerSearch.trim().length < 2) return;
