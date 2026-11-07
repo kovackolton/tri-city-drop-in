@@ -74,3 +74,5 @@ aside :focus-visible, .game-header :focus-visible { outline-color: var(--focus-o
 @media (min-width: 1200px) { .calendar-layout { grid-template-columns: minmax(0, 1fr) 280px; } .calendar-aside { grid-column: 2; grid-row: 1; position: sticky; top: calc(var(--app-header-height, 80px) + 16px); } .calendar-content { grid-column: 1; grid-row: 1; } }
 
 .game-filters > summary { cursor: pointer; font-weight: 700; color: var(--accent); }
+
+button.refresh-icon-button.refresh-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 44px; min-width: 44px; height: 44px; padding: 0; vertical-align: middle; flex-shrink: 0; }

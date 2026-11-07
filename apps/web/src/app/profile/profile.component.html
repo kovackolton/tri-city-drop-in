@@ -22,8 +22,8 @@
   <section class="panel max-w-2xl mt-6"><h2 class="text-lg font-bold">Want to organize games?</h2><p class="text-sm text-muted mt-2">Request organizer access. An administrator can grant access, clear the request, or leave it pending.</p>
     @if (requestLoading()) { <p role="status" class="text-sm mt-3">Checking your request...</p> }
     @else if (request()?.status === 'PENDING') { <p role="status" class="notice mt-4">Your organizer request is pending administrator review.</p> }
-    @else if (request()?.status === 'GRANTED') { <p class="mt-3">Your access was granted.</p><button class="primary mt-3" (click)="auth.refreshProfile()">Refresh access</button> }
+    @else if (request()?.status === 'GRANTED') { <p class="mt-3">Your access was granted.</p><button class="primary mt-3 refresh-icon-button" (click)="auth.refreshProfile()" aria-label="Refresh access" title="Refresh access"><app-icon name="refresh" /></button> }
     @else { @if (request()?.status === 'CLEARED') { <p class="text-sm mt-3">Your previous request was cleared.</p> }<button class="secondary mt-4" [disabled]="requesting()" (click)="requestOrganizer()">{{ requesting() ? 'Sending request...' : 'Request organizer role' }}</button> }
-    @if (requestError()) { <p role="alert" class="notice error mt-3">{{ requestError() }}</p><button class="secondary mt-2" (click)="loadRequest()">Refresh request</button> }
+    @if (requestError()) { <p role="alert" class="notice error mt-3">{{ requestError() }}</p><button class="secondary mt-2 refresh-icon-button" (click)="loadRequest()" aria-label="Refresh request" title="Refresh request"><app-icon name="refresh" /></button> }
   </section>
 }

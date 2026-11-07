@@ -1,4 +1,4 @@
-<section class="mt-4" aria-label="Event teams"><div class="flex flex-wrap gap-3 justify-between items-center"><div><h3 class="font-bold">Teams</h3>@if (data(); as teams) { <p class="text-xs text-muted mt-1">{{ teams.teamCount }} teams &middot; {{ teams.players.length }} confirmed players &middot; Balancing {{ teams.teamBalancingEnabled ? 'on' : 'off' }}</p> }</div><button class="secondary" [disabled]="busy()" (click)="load()">Refresh teams</button></div>
+<section class="mt-4" aria-label="Event teams"><div class="flex flex-wrap gap-3 justify-between items-center"><div><h3 class="font-bold">Teams</h3>@if (data(); as teams) { <p class="text-xs text-muted mt-1">{{ teams.teamCount }} teams &middot; {{ teams.players.length }} confirmed players &middot; Balancing {{ teams.teamBalancingEnabled ? 'on' : 'off' }}</p> }</div><button class="secondary refresh-icon-button" [disabled]="busy()" (click)="load()" aria-label="Refresh teams" title="Refresh teams"><app-icon name="refresh" /></button></div>
 @if (error()) { <p role="alert" class="notice error mt-3">{{ error() }}</p> }
 @if (notice()) { <p role="status" class="notice mt-3">{{ notice() }}</p> }
 @if (data(); as teams) {
