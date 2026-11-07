@@ -1,18 +1,20 @@
-<div class="flex flex-wrap justify-between items-center gap-3"><div><p class="eyebrow">YOUR TIME ON THE PITCH</p><h1 class="text-3xl font-bold mt-1">My games</h1></div><button class="secondary" [disabled]="store.busy() || store.loading()" (click)="store.load()">Refresh</button></div>
+<div class="flex flex-wrap justify-between items-center gap-3"><div><p class="eyebrow">YOUR TIME ON THE PITCH</p><h1 class="text-3xl font-bold mt-1">My games</h1></div><button class="secondary refresh-icon-button" [disabled]="store.busy() || store.loading()" (click)="store.load()" aria-label="Refresh" title="Refresh"><app-icon name="refresh" /></button></div>
 <p class="mt-3 text-muted">Game details, your party, and the people you'll play alongside.</p>
 <app-event-invitations (changed)="store.load()" />
+<div class="page-tabs mt-5" role="group" aria-label="My games views"><button class="secondary" [class.selected]="!showPast()" [attr.aria-pressed]="!showPast()" (click)="showPast.set(false)">Upcoming games</button><button class="secondary" [class.selected]="showPast()" [attr.aria-pressed]="showPast()" (click)="showPast.set(true)">Past games &amp; payments</button></div>
+<div class="calendar-layout mt-5"><aside class="calendar-aside"><app-calendar-picker [selection]="calendar" (selectionChange)="calendar = $event" /></aside><div class="calendar-content">
+<details class="panel game-filters"><summary>Filter my games</summary><div class="filter-toolbar mt-4">
+<label>Search<input type="search" [(ngModel)]="search" placeholder="Game, venue or city" maxlength="80"></label>
+<label>Location<select [(ngModel)]="location"><option value="">All locations</option>@for (name of locations(); track name) { <option [value]="name">{{ name }}</option> }</select></label>
+<label>Organizer<select [(ngModel)]="organizer"><option value="">All organizers</option>@for (name of organizers(); track name) { <option [value]="name">{{ name }}</option> }</select></label>
+<label>Booking<select [(ngModel)]="bookingStatus"><option value="">All bookings</option><option value="CONFIRMED">Confirmed</option><option value="WAITLISTED">Waitlisted</option><option value="CANCELLED">Cancelled</option></select></label>
+<label>My payment report<select [(ngModel)]="paymentFilter"><option value="">All payment states</option><option value="needs">Needs my payment report</option><option value="paid">I reported paid</option><option value="unpaid">I reported not paid</option></select></label><button class="secondary" (click)="clearFilters()">Clear filters</button></div></details>
+@if (showPast()) { <p class="notice mt-4">Report whether you paid from your party's payment controls below. Your report helps the organizer reconcile payments; only their received-payment record resolves payment strikes.</p> }
 @for (group of gameGroups(); track group.id) {
-  @if (group.id === 'upcoming' || group.games.length) {
+  @if ((group.id === 'past') === showPast()) {
     <section class="mt-7" [attr.aria-labelledby]="group.id + '-games-heading'">
-      @if (group.id === 'upcoming') { <h2 id="upcoming-games-heading" class="text-xl font-bold">Upcoming games</h2> }
-      @else {
-        <div class="border-t border-default pt-6 flex flex-wrap items-center justify-between gap-3">
-          <h2 id="past-games-heading" class="text-xl font-bold">Past games</h2>
-          <button type="button" class="secondary" [attr.aria-expanded]="showPast()" aria-controls="past-games-list" (click)="showPast.set(!showPast())">{{ showPast() ? 'Hide past games' : 'Show past games' }} ({{ group.games.length }})</button>
-        </div>
-      }
-      <div [id]="group.id + '-games-list'" [hidden]="group.id === 'past' && !showPast()">
-      @if (group.id === 'upcoming' || showPast()) {
+      <h2 [id]="group.id + '-games-heading'" class="text-xl font-bold">{{ showPast() ? 'Past games & payments' : 'Upcoming games' }} <span class="text-sm text-muted">({{ group.games.length }})</span></h2>
+      <div [id]="group.id + '-games-list'">
       @for (host of group.games; track host.id) {
   <article class="game-card mt-6" tabindex="-1" [attr.aria-label]="host.event.title" [id]="'my-game-' + host.eventId">
     <header class="game-header">
@@ -59,10 +61,11 @@
       }
     </div>
   </article>
-      } @empty { @if (!store.loading()) { <p class="panel mt-6">You have no upcoming games. Browse upcoming games to join.</p> } }
-      }
+      } @empty { @if (!store.loading()) { <p class="panel mt-6">{{ showPast() ? "No past games match these filters." : "No upcoming bookings match these filters. Browse Upcoming games to join." }}</p> } }
       </div>
     </section>
   }
 }
 @if (store.loading()) { <p role="status" class="mt-4">Loading bookings...</p> }
+
+</div></div>

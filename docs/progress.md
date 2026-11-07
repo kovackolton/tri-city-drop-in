@@ -28,7 +28,7 @@ App colors live in `apps/web/src/theme.css`, with light/dark palettes shared acr
 
 ## Previous milestone: unified Users and combined rating balance
 
-Users now combines administrator ratings and full role selection (Player, Organizer or Administrator), with confirmations, audit records and in-app notifications. The separate Player ratings navigation is removed. Auto-balance and reshuffle equally average self/admin ratings, use the sole available rating, or fall back to 3/5 for unrated players and guests. Current-session access refreshes after self role changes. API and frontend builds, 35 API unit tests, 44 PostgreSQL scenarios and 14 frontend logic tests passed. Browser review remains manual. See [Users and ratings review](admin-ratings-review.md).
+Users now combines administrator ratings and full role selection (Player, Organizer or Administrator), with confirmations, audit records and in-app notifications. The separate Player ratings navigation is removed. Auto-balance and reshuffle prioritize the administrator rating, then the self-rating, or fall back to 3/5 for unrated players and guests. Current-session access refreshes after self role changes. API and frontend builds, 35 API unit tests, 44 PostgreSQL scenarios and 14 frontend logic tests passed. Browser review remains manual. See [Users and ratings review](admin-ratings-review.md).
 
 ## Previous milestone: filters, grouped history and team reshuffle
 

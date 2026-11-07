@@ -1,3 +1,4 @@
+import { IconComponent } from '../icon/icon.component';
 import { Component, EventEmitter, Input, OnChanges, Output, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -7,7 +8,7 @@ import { AvatarComponent } from '../avatar/avatar.component';
 import { DialogComponent } from '../dialog/dialog.component';
 interface TeamPlayer { id: string; displayName: string; accountName: string; isGuest: boolean; rating: number | null; adminRating: number | null; teamNumber: number | null; avatarUrl: string | null; avatarColor: string; }
 interface TeamData { teamCount: number; teamBalancingEnabled: boolean; editable: boolean; players: TeamPlayer[]; }
-@Component({ selector: 'app-event-teams', imports: [FormsModule, AvatarComponent, DialogComponent], templateUrl: './event-teams.component.html' })
+@Component({ selector: 'app-event-teams', imports: [IconComponent, FormsModule, AvatarComponent, DialogComponent], templateUrl: './event-teams.component.html' })
 export class EventTeamsComponent implements OnChanges {
   @Input({ required: true }) eventId!: string;
   @Output() changed = new EventEmitter<void>();

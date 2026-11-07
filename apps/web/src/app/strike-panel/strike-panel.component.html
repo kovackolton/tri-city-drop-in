@@ -1,6 +1,6 @@
 <section id="strikes-section" tabindex="-1" class="panel mt-5" aria-label="Strikes and joining eligibility">
   <div class="flex flex-wrap justify-between items-center gap-3"><div><h2 class="text-xl font-bold">Strikes &amp; joining access</h2>@if (strikes.report(); as report) { <p class="text-sm text-muted mt-2">{{ report.count }} current strikes{{ report.blocked ? ' / new bookings blocked' : '' }}</p> }</div><button type="button" class="secondary" [attr.aria-expanded]="open()" aria-controls="strike-details" (click)="open.set(!open())">{{ open() ? 'Hide strike details' : 'View strikes & joining access' }}</button></div>
-  @if (open()) { <div id="strike-details" class="border-t border-divider pt-4 mt-4"><button type="button" class="secondary" [disabled]="strikes.loading()" (click)="strikes.load()">Refresh strikes</button>
+  @if (open()) { <div id="strike-details" class="border-t border-divider pt-4 mt-4"><button type="button" class="secondary refresh-icon-button" [disabled]="strikes.loading()" (click)="strikes.load()" aria-label="Refresh strikes" title="Refresh strikes"><app-icon name="refresh" /></button>
   @if (strikes.error()) { <p role="alert" class="notice error mt-4">{{ strikes.error() }}</p> }
   @if (strikes.loading()) { <p role="status" class="text-sm text-muted mt-3">Checking current strikes...</p> }
   @if (strikes.report(); as report) {

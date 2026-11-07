@@ -78,12 +78,12 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
     });
     await t.test('completion enforces end time and administrator access and retains financial review', async () => {
       const e = await event(2); await join(1, e.id);
-      await assert.rejects(management.transition(users[0].id, e.id, 'complete'), /have ended/);
+      await assert.rejects(management.transition(users[0].id, e.id, 'complete', true), /have ended/);
       await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000) } });
       await assert.rejects(management.transition(users[0].id, e.id, 'cancel'), /Only future/);
-      await assert.rejects(management.transition(users[2].id, e.id, 'complete'), /Event not found/);
+      await assert.rejects(management.transition(users[2].id, e.id, 'complete'), /Only administrators/);
       await management.transition(users[2].id, e.id, 'complete', true);
-      await management.transition(users[0].id, e.id, 'complete');
+      await management.transition(users[2].id, e.id, 'complete', true);
       assert.equal(await db.signup.count({ where: { eventId: e.id, status: 'CONFIRMED' } }), 1);
       assert.equal(await db.paymentObligation.count({ where: { signup: { eventId: e.id }, status: 'UNPAID' } }), 1);
     });
@@ -725,6 +725,77 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.equal(second.items.length, 1); assert.equal(second.nextCursor, null);
       assert.equal(new Set([...first.items, ...second.items].map(user => user.id)).size, 51);
     });
+    await t.test('user directory filters and sorting apply across pages and include joined dates and current strike access', async () => {
+      const options = { sort: 'name', direction: 'asc' };
+      const first = await requests.users('PageFixture', false, undefined, options);
+      const second = await requests.users('PageFixture', false, first.nextCursor!, options);
+      const names = [...first.items, ...second.items].map(user => user.accountName);
+      assert.deepEqual(names, [...names].sort()); assert.equal(first.totalCount, 51);
+      assert.ok(first.items.every(user => user.createdAt instanceof Date));
+      const adminUser = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'DirectorySort admin', role: 'ADMINISTRATOR' } });
+      const player = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'DirectorySort player', adminSkillLevel: 4 } });
+      for (let i = 0; i < 3; i++) await strikes.permanent(adminUser.id, player.id, { note: `Directory incident ${i}`, requestId: randomUUID() });
+      const blocked = await requests.users('DirectorySort', false, undefined, { role: 'PLAYER', rating: 'rated', access: 'blocked' });
+      assert.equal(blocked.totalCount, 1); assert.equal(blocked.items[0].id, player.id); assert.equal(blocked.items[0].strikeCount, 3);
+      assert.equal((await requests.users('DirectorySort', false, undefined, { rating: 'unrated' })).items[0].id, adminUser.id);
+      for (const bad of [{ role: 'OWNER' }, { sort: 'password' }, { direction: 'sideways' }, { access: 'all-access' }]) await assert.rejects(requests.users('', false, undefined, bad), /valid user filters/);
+    });
+    await t.test('workspace calendar and follow-up queues count only reviewable confirmed seats and respect ownership', async () => {
+      const e = await event(2); await db.event.update({ where: { id: e.id }, data: { title: 'ReviewQueueFixture' } });
+      const seats = await join(1, e.id, ['Guest']); await join(2, e.id);
+      await db.event.update({ where: { id: e.id }, data: { startsAt: new Date('2026-01-02T01:00:00Z'), endsAt: new Date('2026-01-02T02:00:00Z') } });
+      const controller = new EventsController(db, service), req = { user: users[0] } as AuthRequest;
+      const query = { search: 'ReviewQueueFixture', history: 'past', review: 'either', period: 'day', date: '2026-01-01' };
+      const queue = await controller.ownEvents(req, 'mine', query);
+      assert.equal(queue.length, 1); assert.equal(queue[0].attendancePending, 2); assert.equal(queue[0].paymentPending, 2);
+      assert.equal((await controller.ownEvents(req, 'mine', { ...query, date: '2026-01-02' })).length, 0);
+      assert.equal((await controller.ownEvents({ user: users[3] } as AuthRequest, 'all', query)).length, 0);
+      await payments.review(users[0].id, seats[0].id, 'organizer', { paid: false });
+      await payments.review(users[0].id, seats[1].id, 'organizer', { paid: true });
+      assert.equal((await controller.ownEvents(req, 'mine', { ...query, review: 'payment' })).length, 0);
+      await db.signup.updateMany({ where: { eventId: e.id, status: 'CONFIRMED' }, data: { attendance: 'PRESENT' } });
+      assert.equal((await controller.ownEvents(req, 'mine', query)).length, 0);
+      await assert.rejects(controller.ownEvents(req, 'mine', { review: 'invalid' }), /valid event filters/);
+    });
+    await t.test('review states follow attendance history and only explicit administrator sign-off completes them at any time', async () => {
+      const adminUser = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Review admin', role: 'ADMINISTRATOR' } });
+      const player = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Review player' } });
+      const e = await event(2); const seats = await service.join(player.id, e.id, { guests: [], costAcknowledged: true, expectedPriceCents: 1000 });
+      await db.event.update({ where: { id: e.id }, data: { title: 'ReviewStateFixture', startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000) } });
+      const controller = new EventsController(db, service), req = { user: users[0] } as AuthRequest;
+      const query = { search: 'ReviewStateFixture' };
+      assert.equal((await controller.ownEvents(req, 'mine', { ...query, review: 'needs_review' }))[0].reviewStatus, 'NEEDS_REVIEW');
+      await payments.review(users[0].id, seats[0].id, 'organizer', { paid: false });
+      assert.equal((await controller.ownEvents(req, 'mine', query))[0].reviewStatus, 'NEEDS_REVIEW');
+      await organizer.attendance(users[0].id, seats[0].id, { attendance: 'PRESENT' });
+      await organizer.attendance(users[0].id, seats[0].id, { attendance: 'UNMARKED' });
+      assert.equal((await controller.ownEvents(req, 'mine', { ...query, review: 'in_progress' }))[0].reviewStatus, 'IN_PROGRESS');
+      await assert.rejects(management.completeReview(users[0].id, e.id, { playersHadOpportunity: true }), /Only administrators/);
+      for (const playersHadOpportunity of [undefined, false, 'true']) await assert.rejects(management.completeReview(adminUser.id, e.id, { playersHadOpportunity }), /Confirm all players/);
+      await Promise.all([management.completeReview(adminUser.id, e.id, { playersHadOpportunity: true }), management.completeReview(adminUser.id, e.id, { playersHadOpportunity: true })]);
+      const completed = (await controller.ownEvents(req, 'mine', { ...query, review: 'completed' }))[0];
+      assert.equal(completed.reviewStatus, 'COMPLETED'); assert.equal(completed.reviewCompletedBy, adminUser.displayName);
+      assert.equal((await db.paymentObligation.findUniqueOrThrow({ where: { signupId: seats[0].id } })).organizerPaid, false);
+      assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).status, 'PUBLISHED');
+      assert.equal(await db.auditLog.count({ where: { eventId: e.id, action: 'EVENT_REVIEW_COMPLETED' } }), 1);
+      const future = await event(2); await management.completeReview(adminUser.id, future.id, { playersHadOpportunity: true });
+      assert.equal((await db.event.findUniqueOrThrow({ where: { id: future.id } })).status, 'PUBLISHED');
+    });
+    await t.test('admin All events retains deleted free and paid past games without restoring discovery or organizer access', async () => {
+      const controller = new EventsController(db, service);
+      const req = { user: { ...users[1], role: 'ADMINISTRATOR' } } as AuthRequest;
+      const ids: string[] = [];
+      for (const price of [0, 1000]) {
+        const e = await event(2, price); ids.push(e.id);
+        await db.event.update({ where: { id: e.id }, data: { title: 'DeletedHistoryFixture', startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000) } });
+        await administration.remove(users[0].id, e.id);
+      }
+      const all = await controller.ownEvents(req, 'all', { history: 'past', search: 'DeletedHistoryFixture' });
+      assert.deepEqual(all.map(game => game.id).sort(), ids.sort()); assert.ok(all.every(game => game.deletedAt));
+      assert.equal((await controller.ownEvents(req, 'mine', { history: 'past', search: 'DeletedHistoryFixture' })).length, 0);
+      assert.equal((await controller.ownEvents({ user: users[0] } as AuthRequest, 'all', { history: 'past', search: 'DeletedHistoryFixture' })).length, 0);
+      assert.ok(!(await controller.events()).some(game => ids.includes(game.id)));
+    });
     await t.test('equipment and minimum targets persist and display counts without blocking below-target games', async () => {
       const events = new EventsController(db);
       const e = await events.create({ user: users[0] } as AuthRequest, { title: 'Advisory target game', locationId: location.id, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString(), capacity: 6, priceCents: 0, maxGuestsPerUser: 1, status: 'DRAFT', bibsProvided: false, shirtColorCount: 3, minPlayers: 5 });
@@ -755,7 +826,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       await administration.edit(users[0].id, e.id, { minPlayers: null });
       assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).minPlayers, null);
       await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000), minPlayers: 2 } });
-      assert.equal((await management.transition(users[0].id, e.id, 'complete')).status, 'COMPLETED');
+      assert.equal((await management.transition(users[0].id, e.id, 'complete', true)).status, 'COMPLETED');
     });
     await t.test('team assignment and balancing are owner-only, use confirmed players and stay private', async () => {
       const e = await event(4); await join(1, e.id); await join(2, e.id, ['Guest']); await join(3, e.id); const waiting = await join(4, e.id);
@@ -952,7 +1023,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       await requests.setRole(adminUser.id, adminUser.id, { role: 'PLAYER' });
       await assert.rejects(requests.setRole(adminUser.id, adminUser.id, { role: 'ADMINISTRATOR' }), /Administrator access/);
     });
-    await t.test('balance and reshuffle use both ratings, single ratings and neutral guest estimates', async () => {
+    await t.test('balance and reshuffle prioritize administrator ratings with self and neutral fallbacks', async () => {
       const e = await event(6); await teams.settings(users[0].id, e.id, { teamCount: 2, teamBalancingEnabled: true });
       const ratings = [[5, 2], [null, 5], [1, null], [null, null]] as const;
       for (const [index, rating] of ratings.entries()) {
@@ -960,14 +1031,14 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
         await service.join(player.id, e.id, { guests: index === 0 ? ['Guest'] : [], costAcknowledged: true, expectedPriceCents: 1000, guestPaymentAcknowledged: true });
       }
       const seats = await db.signup.findMany({ where: { eventId: e.id }, include: { user: true } });
-      const expected = new Map(seats.map(seat => [seat.id, seat.guestNumber ? 3 : seat.user.skillLevel !== null && seat.user.adminSkillLevel !== null ? (seat.user.skillLevel + seat.user.adminSkillLevel) / 2 : seat.user.skillLevel ?? seat.user.adminSkillLevel ?? 3]));
+      const expected = new Map(seats.map(seat => [seat.id, seat.guestNumber ? 3 : seat.user.adminSkillLevel ?? seat.user.skillLevel ?? 3]));
       for (const shuffle of [false, true]) {
         await teams.balance(users[0].id, e.id, false, shuffle);
         const audit = await db.auditLog.findFirstOrThrow({ where: { eventId: e.id, action: shuffle ? 'TEAMS_RESHUFFLED' : 'TEAMS_AUTO_BALANCED' } });
         const details = audit.details as { ratingMethod: string; teams: { ids: string[]; total: number }[] };
-        assert.equal(details.ratingMethod, 'MEAN_SELF_ADMIN_AVAILABLE');
+        assert.equal(details.ratingMethod, 'ADMIN_THEN_SELF_AVAILABLE');
         for (const team of details.teams) assert.equal(team.total, team.ids.reduce((sum, id) => sum + expected.get(id)!, 0));
-        assert.equal(details.teams.reduce((sum, team) => sum + team.total, 0), 15.5);
+        assert.equal(details.teams.reduce((sum, team) => sum + team.total, 0), 14);
       }
     });
     await t.test('overdue payment reminders are per booking, include guests, stop after either answer and stay private', async () => {

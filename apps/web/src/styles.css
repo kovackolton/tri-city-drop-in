@@ -63,3 +63,16 @@ aside :focus-visible, .game-header :focus-visible { outline-color: var(--focus-o
 
 /* Keep programmatic section/booking jumps clear of anchored navigation. */
 [id][tabindex="-1"] { scroll-margin-top: var(--app-scroll-offset, 1rem); }
+
+.calendar-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+.calendar-content { min-width: 0; }
+.calendar-aside { min-width: 0; width: 100%; max-width: 360px; }
+.page-tabs { display: flex; flex-wrap: wrap; gap: .5rem; }
+.page-tabs .selected { font-weight: 700; text-decoration: underline; text-underline-offset: .3em; box-shadow: inset 0 0 0 1px var(--secondary-border); }
+.filter-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; }
+.filter-toolbar > label { flex: 1 1 150px; min-width: 0; }
+@media (min-width: 1200px) { .calendar-layout { grid-template-columns: minmax(0, 1fr) 280px; } .calendar-aside { grid-column: 2; grid-row: 1; position: sticky; top: calc(var(--app-header-height, 80px) + 16px); } .calendar-content { grid-column: 1; grid-row: 1; } }
+
+.game-filters > summary { cursor: pointer; font-weight: 700; color: var(--accent); }
+
+button.refresh-icon-button.refresh-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 44px; min-width: 44px; height: 44px; padding: 0; vertical-align: middle; flex-shrink: 0; }

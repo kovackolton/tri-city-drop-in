@@ -6,6 +6,6 @@
       @if (status.acceptance; as acceptance) { <p role="status" class="notice mt-5">Signed as {{ acceptance.signedName }} ({{ acceptance.signedEmail }}) on {{ acceptance.acceptedAt | date:'medium' }}. Accepted version: {{ acceptance.version }}.</p> }
       @else { <div class="strike-alert mt-5"><p class="font-bold">Electronic acknowledgment</p><p class="text-sm mt-2">By pressing I agree, I electronically sign this waiver for my signed-in account and agree to the participation, payment, guest responsibility and strike rules above. I acknowledge that the strike system helps organizers avoid stress and uncertainty about collecting funds that may be needed to reserve locations for play. I understand that I cannot make new bookings until I agree.</p><button type="button" class="primary mt-4" [disabled]="waiver.signing() || waiver.loading()" (click)="waiver.agree()">{{ waiver.signing() ? 'Recording agreement...' : 'I agree' }}</button></div> }
     }
-    @if (waiver.error()) { <p role="alert" class="notice error mt-4">{{ waiver.error() }}</p><button type="button" class="secondary mt-3" [disabled]="waiver.signing() || waiver.loading()" (click)="waiver.load()">Refresh waiver</button> }
+    @if (waiver.error()) { <p role="alert" class="notice error mt-4">{{ waiver.error() }}</p><button type="button" class="secondary mt-3 refresh-icon-button" [disabled]="waiver.signing() || waiver.loading()" (click)="waiver.load()" aria-label="Refresh waiver" title="Refresh waiver"><app-icon name="refresh" /></button> }
   </div> }
 </section>

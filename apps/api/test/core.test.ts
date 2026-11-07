@@ -262,8 +262,8 @@ test('reshuffling seeks new teammates while retaining rating-aware balance and e
 });
 
 
-test('balancing score averages available self and administrator ratings without rounding', () => {
-  assert.equal(combinedRating(1, 5), 3); assert.equal(combinedRating(2, 5), 3.5);
+test('balancing score prioritizes administrator rating then self rating then neutral', () => {
+  assert.equal(combinedRating(1, 5), 5); assert.equal(combinedRating(2, 5), 5);
   assert.equal(combinedRating(4, null), 4); assert.equal(combinedRating(null, 2), 2);
   assert.equal(combinedRating(null, null), 3);
 });

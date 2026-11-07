@@ -53,19 +53,31 @@ export class EventsController {
     return { locations, organizers: users.map(user => ({ id: user.id, name: user.nickname ?? user.displayName })) };
   }
   @Get('organizer/events') @UseGuards(FirebaseGuard, OrganizerGuard)
-  async ownEvents(@Req() req: AuthRequest, @Query('scope') scope = 'mine') {
+  async ownEvents(@Req() req: AuthRequest, @Query('scope') scope = 'mine', @Query() query: Record<string, unknown> = {}) {
     if (!['mine', 'all'].includes(scope)) throw new BadRequestException('Choose My events or All events.');
-    const events = await this.db.event.findMany({ where: { deletedAt: null, ...(req.user.role === 'ADMINISTRATOR' && scope === 'all' ? {} : { organizerId: req.user.id }) }, include: { location: true, organizer: { select: appearanceSelect }, _count: { select: { signups: { where: { status: 'CONFIRMED' } } } } }, orderBy: { startsAt: 'desc' }, take: 100 });
-    return events.map(({ _count, organizer, privateInviteToken: _invite, ...event }) => ({ ...event, organizer: { ...appearance(organizer), accountName: organizer.displayName }, confirmed: _count.signups }));
+    const filters = eventFilters(query);
+    const period = query['history'] ?? 'all', review = query['review'] ?? '', status = query['status'] ?? '';
+    if (!['all', 'upcoming', 'past'].includes(period as string) || !['', 'attendance', 'payment', 'either', 'needs_review', 'in_progress', 'completed'].includes(review as string) || !['', 'DRAFT', 'PUBLISHED', 'COMPLETED', 'CANCELLED'].includes(status as string)) throw new BadRequestException('Choose valid event filters.');
+    const now = new Date();
+    const events = await this.db.event.findMany({ where: { ...(req.user.role === 'ADMINISTRATOR' && scope === 'all' ? { AND: [{ OR: [{ deletedAt: null }, { endsAt: { lte: now } }] }] } : { deletedAt: null, organizerId: req.user.id }), ...(period === 'past' ? { endsAt: { lte: now } } : period === 'upcoming' ? { endsAt: { gt: now } } : {}), ...(status ? { status: status as 'DRAFT' | 'PUBLISHED' | 'COMPLETED' | 'CANCELLED' } : {}), ...(filters.locationId ? { locationId: filters.locationId } : {}), ...(filters.search ? { OR: [{ title: { contains: filters.search, mode: 'insensitive' } }, { location: { name: { contains: filters.search, mode: 'insensitive' } } }, { organizer: { displayName: { contains: filters.search, mode: 'insensitive' } } }] } : {}) }, include: { location: true, organizer: { select: appearanceSelect }, auditLogs: { where: { action: { in: ['ATTENDANCE_UPDATED', 'EVENT_REVIEW_COMPLETED'] } }, select: { action: true, createdAt: true, actor: { select: { displayName: true } } }, orderBy: { createdAt: 'desc' } }, signups: { where: { status: 'CONFIRMED' }, select: { attendance: true, payment: { select: { amountCents: true, status: true, organizerPaid: true } } } } }, orderBy: [{ startsAt: 'desc' }, { id: 'desc' }] });
+    return events.filter(event => matchesEventDate(event.startsAt, event.location.timezone, filters)).map(({ signups, organizer, auditLogs, privateInviteToken: _invite, ...event }) => {
+      const reviewable = !event.deletedAt && ['PUBLISHED', 'COMPLETED'].includes(event.status) && event.endsAt <= now;
+      const attendancePending = reviewable ? signups.filter(seat => seat.attendance === 'UNMARKED').length : 0;
+      const paymentPending = reviewable ? signups.filter(seat => seat.payment && seat.payment.amountCents > 0 && !['VOID', 'NOT_REQUIRED'].includes(seat.payment.status) && seat.payment.organizerPaid === null).length : 0;
+      const completion = auditLogs.find(log => log.action === 'EVENT_REVIEW_COMPLETED');
+      const reviewStatus = completion ? 'COMPLETED' : auditLogs.some(log => log.action === 'ATTENDANCE_UPDATED') ? 'IN_PROGRESS' : 'NEEDS_REVIEW';
+      return { ...event, organizer: { ...appearance(organizer), accountName: organizer.displayName }, confirmed: signups.length, attendancePending, paymentPending, reviewStatus, reviewCompletedAt: completion?.createdAt ?? null, reviewCompletedBy: completion?.actor.displayName ?? null };
+    }).filter(event => !review || (['needs_review', 'in_progress', 'completed'].includes(review as string) ? event.reviewStatus === String(review).toUpperCase() : review === 'attendance' ? event.attendancePending > 0 : review === 'payment' ? event.paymentPending > 0 : event.attendancePending > 0 || event.paymentPending > 0)).slice(0, 100);
   }
   @Get('organizer/events/overview') @UseGuards(FirebaseGuard, OrganizerGuard)
-  async eventOverview() {
+  async eventOverview(@Query() query: Record<string, unknown> = {}) {
+    const filters = eventFilters(query);
     const events = await this.db.event.findMany({
       where: { deletedAt: null, isPrivate: false, status: 'PUBLISHED', endsAt: { gt: new Date() } },
       select: { id: true, title: true, startsAt: true, endsAt: true, organizer: { select: { displayName: true, nickname: true } }, location: { select: { name: true, city: true, timezone: true } } },
-      orderBy: [{ startsAt: 'asc' }, { id: 'asc' }], take: 100
+      orderBy: [{ startsAt: 'asc' }, { id: 'asc' }]
     });
-    return events.map(({ organizer, ...event }) => ({ ...event, organizer: { displayName: organizer.nickname ?? organizer.displayName } }));
+    return events.filter(event => matchesEventDate(event.startsAt, event.location.timezone, filters) && (!filters.search || `${event.title} ${event.location.name} ${event.organizer.nickname ?? event.organizer.displayName}`.toLowerCase().includes(filters.search.toLowerCase()))).slice(0, 100).map(({ organizer, ...event }) => ({ ...event, organizer: { displayName: organizer.nickname ?? organizer.displayName } }));
   }
   @Get('locations') @UseGuards(FirebaseGuard, OrganizerGuard)
   locations() { return this.db.location.findMany({ orderBy: { name: 'asc' }, take: 500 }); }

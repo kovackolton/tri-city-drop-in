@@ -1,3 +1,5 @@
+import { CalendarPickerComponent } from './calendar-picker/calendar-picker.component';
+import { CalendarSelection } from '../calendar';
 import { HowToComponent } from './how-to/how-to.component';
 import { howToGuideFromHash } from './how-to/how-to-content';
 import { sharedEventId, privateGameTarget } from '../event-sharing';
@@ -22,7 +24,7 @@ import { NotificationsStore } from '../notifications.store';
 import { EventsStore, defaultGameFilters, activeGameFilterCount } from '../events.store';
 
 @Component({
-  selector: 'app-root', imports: [HowToComponent, IconComponent, EventCardComponent, FormsModule, ProfileComponent, AvatarComponent, OrganizerComponent, MyGamesComponent, SignInComponent, AdminUsersComponent],
+  selector: 'app-root', imports: [CalendarPickerComponent, HowToComponent, IconComponent, EventCardComponent, FormsModule, ProfileComponent, AvatarComponent, OrganizerComponent, MyGamesComponent, SignInComponent, AdminUsersComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss'
 })
@@ -65,6 +67,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly filtersOpen = signal(false);
   activeFilterCount() { return activeGameFilterCount(this.store.filters()); }
   cities() { return [...new Set(this.store.locations().map(location => location.city).filter((city): city is string => !!city))].sort((a, b) => a.localeCompare(b)); }
+  calendarChanged(selection: CalendarSelection) { this.filters = { ...this.filters, ...selection }; this.applyFilters(); }
   applyFilters() { this.filtersOpen.set(false); void this.store.load(this.filters); }
   resetFilters() { this.filters = defaultGameFilters(); this.applyFilters(); }
   refreshGames() { void this.store.load(); void this.store.loadFilters(); if (this.store.selectedId()) void this.store.loadSelected(this.store.selectedId(), this.store.selectedInviteToken()); }

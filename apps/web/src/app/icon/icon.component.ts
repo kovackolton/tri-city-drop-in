@@ -3,6 +3,7 @@ import { Component, Input } from '@angular/core';
   selector: 'app-icon',
   template: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
     @switch (name) {
+      @case ('refresh') { <path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 6.1A8 8 0 0 1 19.4 9M4.6 15a8 8 0 0 0 13.3 2.9"/> }
       @case ('menu') { <path d="M4 6h16M4 12h16M4 18h16"/> }
       @case ('close') { <path d="m6 6 12 12M6 18 18 6"/> }
       @case ('bell') { <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/> }
@@ -13,4 +14,4 @@ import { Component, Input } from '@angular/core';
   </svg>`,
   styles: [':host { display: inline-flex; flex-shrink: 0; }']
 })
-export class IconComponent { @Input({ required: true }) name!: 'bell' | 'settings' | 'sun' | 'moon' | 'menu' | 'close'; }
+export class IconComponent { @Input({ required: true }) name!: 'bell' | 'settings' | 'sun' | 'moon' | 'menu' | 'close' | 'refresh'; }

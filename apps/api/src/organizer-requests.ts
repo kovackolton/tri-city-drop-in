@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { BadRequestException, Body, Patch, ConflictException, ForbiddenException, Controller, Get, Inject, Injectable, NotFoundException, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AdministratorGuard, AuthRequest, FirebaseGuard } from './auth';
 import { Database } from './database';
@@ -25,23 +26,37 @@ export class OrganizerRequestsService {
       return request;
     }, { maxWait: 10000, timeout: 15000 });
   }
-  async users(search = '', pending = false, cursor?: string) {
+  async users(search = '', pending = false, cursor?: string, options: Record<string, unknown> = {}) {
     if (typeof search !== 'string' || search.length > 80) throw new BadRequestException('Search must be at most 80 characters.');
     if (cursor) { if (typeof cursor !== 'string') throw new BadRequestException('Use a valid user cursor.'); uuid(cursor); }
-    const where = {
+    const role = options['role'] || '', rating = options['rating'] || '', access = options['access'] || '', sort = options['sort'] || 'joined', direction = options['direction'] || 'desc';
+    if (!['', 'PLAYER', 'ORGANIZER', 'ADMINISTRATOR'].includes(role as string) || !['', 'rated', 'unrated'].includes(rating as string) || !['', 'strikes', 'blocked'].includes(access as string) || !['name', 'joined', 'email', 'role', 'rating'].includes(sort as string) || !['asc', 'desc'].includes(direction as string)) throw new BadRequestException('Choose valid user filters and sorting.');
+    const where: Prisma.UserWhereInput = {
+      ...(role ? { role: role as 'PLAYER' | 'ORGANIZER' | 'ADMINISTRATOR' } : {}),
+      ...(rating ? { adminSkillLevel: rating === 'unrated' ? null : { not: null } } : {}),
       ...(pending ? { organizerRequests: { some: { status: 'PENDING' } } } : {}),
       ...(search.trim() ? { OR: ['displayName', 'nickname', 'email'].map(field => ({ [field]: { contains: search.trim(), mode: 'insensitive' as const } })) } : {})
     };
-    const [users, pendingCount] = await this.db.$transaction([
-      this.db.user.findMany({ where, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}), take: 51, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        select: { id: true, ...appearanceSelect, email: true, role: true, contactEmail: true, phone: true, skillLevel: true, adminSkillLevel: true, organizerRequests: { where: { status: 'PENDING' }, select: { id: true, requestedAt: true }, take: 1 } } }),
-      this.db.organizerRequest.count({ where: { status: 'PENDING' } })
+    if (access) {
+      const matching = await this.db.user.findMany({ where, select: { id: true } });
+      const ids = matching.map(user => user.id);
+      await refreshPaymentStrikes(this.db, ids);
+      const counts = await this.db.strike.groupBy({ by: ['userId'], where: { ...currentStrikes(), userId: { in: ids } }, _count: true });
+      where.id = { in: counts.filter(row => row._count >= (access === 'blocked' ? 3 : 1)).map(row => row.userId) };
+    }
+    const order = direction as 'asc' | 'desc';
+    const orderBy: Prisma.UserOrderByWithRelationInput[] = [sort === 'name' ? { displayName: order } : sort === 'email' ? { email: order } : sort === 'role' ? { role: order } : sort === 'rating' ? { adminSkillLevel: { sort: order, nulls: 'last' } } : { createdAt: order }, { id: order }];
+    const [users, pendingCount, totalCount] = await this.db.$transaction([
+      this.db.user.findMany({ where, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}), take: 51, orderBy,
+        select: { id: true, createdAt: true, ...appearanceSelect, email: true, role: true, contactEmail: true, phone: true, skillLevel: true, adminSkillLevel: true, organizerRequests: { where: { status: 'PENDING' }, select: { id: true, requestedAt: true }, take: 1 } } }),
+      this.db.organizerRequest.count({ where: { status: 'PENDING' } }),
+      this.db.user.count({ where })
     ]);
     const page = users.slice(0, 50);
     const ids = page.map(user => user.id);
     await refreshPaymentStrikes(this.db, ids);
     const strikes = await this.db.strike.groupBy({ by: ['userId'], where: { ...currentStrikes(), userId: { in: ids } }, _count: true });
-    return { pendingCount, nextCursor: users.length > 50 ? page[49].id : null, items: page.map(user => ({ id: user.id, ...appearance(user), accountName: user.displayName, nickname: user.nickname, email: user.email, contactEmail: user.contactEmail ?? user.email, phone: user.phone, role: user.role, strikeCount: strikes.find(row => row.userId === user.id)?._count ?? 0, skillLevel: user.skillLevel, adminSkillLevel: user.adminSkillLevel, organizerRequest: user.organizerRequests[0] ?? null })) };
+    return { pendingCount, totalCount, nextCursor: users.length > 50 ? page[49].id : null, items: page.map(user => ({ id: user.id, createdAt: user.createdAt, ...appearance(user), accountName: user.displayName, nickname: user.nickname, email: user.email, contactEmail: user.contactEmail ?? user.email, phone: user.phone, role: user.role, strikeCount: strikes.find(row => row.userId === user.id)?._count ?? 0, skillLevel: user.skillLevel, adminSkillLevel: user.adminSkillLevel, organizerRequest: user.organizerRequests[0] ?? null })) };
   }
   async rate(actorId: string, id: string, value: unknown) {
     uuid(id);
@@ -139,9 +154,9 @@ export class OrganizerRequestsController {
 @Controller('api/admin') @UseGuards(FirebaseGuard, AdministratorGuard)
 export class AdminUsersController {
   constructor(@Inject(OrganizerRequestsService) private readonly service: OrganizerRequestsService) {}
-  @Get('users') users(@Query('search') search?: string, @Query('pending') pending?: string, @Query('cursor') cursor?: string) {
+  @Get('users') users(@Query('search') search?: string, @Query('pending') pending?: string, @Query('cursor') cursor?: string, @Query() options: Record<string, unknown> = {}) {
     if (pending !== undefined && !['true', 'false'].includes(pending)) throw new BadRequestException('Pending must be true or false.');
-    return this.service.users(search, pending === 'true', cursor);
+    return this.service.users(search, pending === 'true', cursor, options);
   }
   @Patch('users/:id/role') setRole(@Req() req: AuthRequest, @Param('id') id: string, @Body() b: unknown) { return this.service.setRole(req.user.id, id, b); }
   @Patch('users/:id/rating') rate(@Req() req: AuthRequest, @Param('id') id: string, @Body() b: unknown) { return this.service.rate(req.user.id, id, b); }
