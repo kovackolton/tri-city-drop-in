@@ -1,3 +1,4 @@
+import { IconComponent } from '../icon/icon.component';
 import { Component, EventEmitter, Input, OnChanges, Output, ViewChild, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -11,7 +12,7 @@ import { OrganizerSeat, OrganizerSeatComponent } from '../organizer-seat/organiz
 import { DatePipe } from '@angular/common';
 @Component({
   selector: 'app-roster',
-  imports: [FormsModule, PaymentReviewComponent, OrganizerSeatComponent, DatePipe, AvatarComponent, EventTeamsComponent],
+  imports: [IconComponent, FormsModule, PaymentReviewComponent, OrganizerSeatComponent, DatePipe, AvatarComponent, EventTeamsComponent],
   templateUrl: './roster.component.html',
   styleUrl: './roster.component.scss'
 })

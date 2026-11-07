@@ -1,3 +1,4 @@
+import { IconComponent } from '../icon/icon.component';
 import { CalendarPickerComponent } from '../calendar-picker/calendar-picker.component';
 import { CalendarSelection, calendarDate, matchesCalendar } from '../../calendar';
 import { EventShareComponent } from '../event-share/event-share.component';
@@ -16,7 +17,7 @@ import { AvatarComponent } from '../avatar/avatar.component';
 import { OrganizerContactComponent } from '../organizer-contact/organizer-contact.component';
 
 @Component({
-  selector: 'app-organizer', imports: [CalendarPickerComponent, DialogComponent, AvatarComponent, OrganizerContactComponent, EventShareComponent, FormsModule, CurrencyPipe, RosterComponent, LocationsComponent, EventGuidanceComponent],
+  selector: 'app-organizer', imports: [IconComponent, CalendarPickerComponent, DialogComponent, AvatarComponent, OrganizerContactComponent, EventShareComponent, FormsModule, CurrencyPipe, RosterComponent, LocationsComponent, EventGuidanceComponent],
   templateUrl: './organizer.component.html',
   styleUrl: './organizer.component.scss'
 })

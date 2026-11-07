@@ -1,3 +1,4 @@
+import { IconComponent } from '../icon/icon.component';
 import { Component, EventEmitter, Input, OnInit, Output, effect, inject, signal } from '@angular/core';
 import { FormsModule, NgForm } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -8,7 +9,7 @@ import { WaiverPanelComponent } from '../waiver-panel/waiver-panel.component';
 import { StrikePanelComponent } from '../strike-panel/strike-panel.component';
 import { avatarColors } from '../../avatar';
 interface OrganizerRequest { id: string; status: 'PENDING' | 'GRANTED' | 'CLEARED'; }
-@Component({ selector: 'app-profile', imports: [FormsModule, AvatarComponent, StrikePanelComponent, WaiverPanelComponent], templateUrl: './profile.component.html' })
+@Component({ selector: 'app-profile', imports: [IconComponent, FormsModule, AvatarComponent, StrikePanelComponent, WaiverPanelComponent], templateUrl: './profile.component.html' })
 export class ProfileComponent implements OnInit {
   @Input() sectionRequest: { section: 'strikes' | 'waiver'; id: number } | null = null;
   readonly auth = inject(AuthService);

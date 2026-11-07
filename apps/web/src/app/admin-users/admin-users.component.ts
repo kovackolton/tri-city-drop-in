@@ -1,3 +1,4 @@
+import { IconComponent } from '../icon/icon.component';
 import { Component, Input, OnChanges, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
@@ -10,7 +11,7 @@ import { AvatarComponent } from '../avatar/avatar.component';
 type UserRole = 'PLAYER' | 'ORGANIZER' | 'ADMINISTRATOR';
 interface AdminUser { id: string; createdAt: string; displayName: string; accountName: string; nickname: string | null; email: string; contactEmail: string; phone: string | null; role: UserRole; strikeCount: number; skillLevel: number | null; adminSkillLevel: number | null; avatarUrl: string | null; avatarColor: string; organizerRequest: { id: string; requestedAt: string } | null; }
 interface UserPage { items: AdminUser[]; nextCursor: string | null; pendingCount: number; totalCount: number; }
-@Component({ selector: 'app-admin-users', imports: [FormsModule, AvatarComponent, DatePipe, DialogComponent], templateUrl: './admin-users.component.html', styleUrl: './admin-users.component.scss' })
+@Component({ selector: 'app-admin-users', imports: [IconComponent, FormsModule, AvatarComponent, DatePipe, DialogComponent], templateUrl: './admin-users.component.html', styleUrl: './admin-users.component.scss' })
 export class AdminUsersComponent implements OnChanges {
   @Input() requestsOnly = false;
   readonly strikeUser = signal<AdminUser | null>(null);

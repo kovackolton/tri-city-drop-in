@@ -1,5 +1,5 @@
 <section class="border-t border-divider mt-5 pt-5" aria-label="Game players">
-  <div class="flex flex-wrap justify-between items-center gap-3"><div><h3 class="font-bold">The lineup</h3><p class="text-xs text-muted mt-1">Players and guests joining this game.</p></div><button class="secondary" [disabled]="loading()" (click)="load()">Refresh players</button></div>
+  <div class="flex flex-wrap justify-between items-center gap-3"><div><h3 class="font-bold">The lineup</h3><p class="text-xs text-muted mt-1">Players and guests joining this game.</p></div><button class="secondary refresh-icon-button" [disabled]="loading()" (click)="load()" aria-label="Refresh players" title="Refresh players"><app-icon name="refresh" /></button></div>
   @if (loading()) { <p role="status" class="text-sm mt-3">Loading players...</p> }
   @if (error()) { <p role="alert" class="notice error mt-3">{{ error() }}</p> }
   @if (!loading() && !error()) {

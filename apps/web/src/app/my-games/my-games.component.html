@@ -1,4 +1,4 @@
-<div class="flex flex-wrap justify-between items-center gap-3"><div><p class="eyebrow">YOUR TIME ON THE PITCH</p><h1 class="text-3xl font-bold mt-1">My games</h1></div><button class="secondary" [disabled]="store.busy() || store.loading()" (click)="store.load()">Refresh</button></div>
+<div class="flex flex-wrap justify-between items-center gap-3"><div><p class="eyebrow">YOUR TIME ON THE PITCH</p><h1 class="text-3xl font-bold mt-1">My games</h1></div><button class="secondary refresh-icon-button" [disabled]="store.busy() || store.loading()" (click)="store.load()" aria-label="Refresh" title="Refresh"><app-icon name="refresh" /></button></div>
 <p class="mt-3 text-muted">Game details, your party, and the people you'll play alongside.</p>
 <app-event-invitations (changed)="store.load()" />
 <div class="page-tabs mt-5" role="group" aria-label="My games views"><button class="secondary" [class.selected]="!showPast()" [attr.aria-pressed]="!showPast()" (click)="showPast.set(false)">Upcoming games</button><button class="secondary" [class.selected]="showPast()" [attr.aria-pressed]="showPast()" (click)="showPast.set(true)">Past games &amp; payments</button></div>
