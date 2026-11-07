@@ -20,6 +20,7 @@ export class RosterComponent implements OnChanges {
   readonly phoneLink = contactPhoneLink;
   @Input({ required: true }) eventId!: string;
   @Input() eventStatus = '';
+  @Input() archived = false;
   @Input() startsAt = '';
   @Input() priceCents = 0;
   @Input() isPrivate = false;
@@ -47,7 +48,7 @@ export class RosterComponent implements OnChanges {
   readonly addError = signal(''); readonly addNotice = signal('');
   playerSearch = ''; addMode: 'INVITE' | 'BOOK' = 'INVITE';
   private playerSearchRevision = 0;
-  canAddPlayers() { return ['DRAFT', 'PUBLISHED'].includes(this.eventStatus) && Date.parse(this.startsAt) > Date.now(); }
+  canAddPlayers() { return !this.archived && ['DRAFT', 'PUBLISHED'].includes(this.eventStatus) && Date.parse(this.startsAt) > Date.now(); }
   toggleAddPlayer() { if (this.addingPlayer()) return; this.showAddPlayer.update(open => !open); }
   async searchExistingPlayers() {
     if (this.searchingPlayers() || this.addingPlayer() || this.playerSearch.trim().length < 2) return;

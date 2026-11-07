@@ -30,3 +30,9 @@ summary { cursor: pointer; font-size: .8rem; font-weight: 600; color: var(--acce
   #organizer-event-form form > .primary { width: 100%; }
   .event-form-section { padding: .75rem; }
 }
+
+.event-compact-header { border-radius: calc(1rem - 1px); }
+.event-expand { border: 1px solid var(--banner-border); border-radius: .7rem; padding: .7rem 1rem; background: var(--banner-tile); color: var(--on-banner); font-size: .85rem; min-height: 44px; }
+.review-badge { border: 1px solid var(--banner-border); border-radius: 999px; padding: .3rem .7rem; font-size: .75rem; font-weight: 700; background: var(--banner-tile); }
+.review-badge.review-complete { background: var(--success-bg); color: var(--success-text); border-color: var(--success-border); }
+@media (max-width: 600px) { .event-compact-header { flex-wrap: wrap; } .event-expand { width: 100%; } }

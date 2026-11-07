@@ -8,9 +8,9 @@ import { StrikeReport } from '../../strikes.store';
 import { DialogComponent } from '../dialog/dialog.component';
 import { AvatarComponent } from '../avatar/avatar.component';
 type UserRole = 'PLAYER' | 'ORGANIZER' | 'ADMINISTRATOR';
-interface AdminUser { id: string; displayName: string; accountName: string; nickname: string | null; email: string; contactEmail: string; phone: string | null; role: UserRole; strikeCount: number; skillLevel: number | null; adminSkillLevel: number | null; avatarUrl: string | null; avatarColor: string; organizerRequest: { id: string; requestedAt: string } | null; }
-interface UserPage { items: AdminUser[]; nextCursor: string | null; pendingCount: number; }
-@Component({ selector: 'app-admin-users', imports: [FormsModule, AvatarComponent, DatePipe, DialogComponent], templateUrl: './admin-users.component.html' })
+interface AdminUser { id: string; createdAt: string; displayName: string; accountName: string; nickname: string | null; email: string; contactEmail: string; phone: string | null; role: UserRole; strikeCount: number; skillLevel: number | null; adminSkillLevel: number | null; avatarUrl: string | null; avatarColor: string; organizerRequest: { id: string; requestedAt: string } | null; }
+interface UserPage { items: AdminUser[]; nextCursor: string | null; pendingCount: number; totalCount: number; }
+@Component({ selector: 'app-admin-users', imports: [FormsModule, AvatarComponent, DatePipe, DialogComponent], templateUrl: './admin-users.component.html', styleUrl: './admin-users.component.scss' })
 export class AdminUsersComponent implements OnChanges {
   @Input() requestsOnly = false;
   readonly strikeUser = signal<AdminUser | null>(null);
@@ -77,21 +77,27 @@ export class AdminUsersComponent implements OnChanges {
   readonly pendingCount = signal(0);
   readonly nextCursor = signal<string | null>(null);
   readonly confirming = signal<{ id: string; action: 'grant' | 'clear'; name: string } | null>(null);
+  readonly expandedUser = signal('');
+  readonly totalCount = signal(0);
+  roleFilter = ''; ratingFilter = ''; accessFilter = ''; sort = 'name'; direction = 'asc';
   search = ''; pendingOnly = false;
-  private loadedFilter = { search: '', pending: false };
+  private loadedFilter = { search: '', pending: false, role: '', rating: '', access: '', sort: 'name', direction: 'asc' };
   ngOnChanges() { this.pendingOnly = this.requestsOnly; void this.load(); }
   async load(more = false) {
     if (this.loading()) return;
     this.loading.set(true); this.error.set(''); this.roleConfirmation.set(null); this.confirming.set(null);
-    const filter = more ? this.loadedFilter : { search: this.search, pending: this.pendingOnly };
+    const filter = more ? this.loadedFilter : { search: this.search, pending: this.pendingOnly, role: this.roleFilter, rating: this.ratingFilter, access: this.accessFilter, sort: this.sort, direction: this.direction };
     try {
-      const page = await firstValueFrom(this.http.get<UserPage>('/api/admin/users', { params: { search: filter.search, pending: String(filter.pending), ...(more && this.nextCursor() ? { cursor: this.nextCursor()! } : {}) } }));
+      const page = await firstValueFrom(this.http.get<UserPage>('/api/admin/users', { params: { search: filter.search, pending: String(filter.pending), role: filter.role, rating: filter.rating, access: filter.access, sort: filter.sort, direction: filter.direction, ...(more && this.nextCursor() ? { cursor: this.nextCursor()! } : {}) } }));
       if (!more) { this.loadedFilter = filter; this.ratingDrafts = {}; this.roleDrafts = {}; }
       for (const user of page.items) { this.ratingDrafts[user.id] = user.adminSkillLevel; this.roleDrafts[user.id] = user.role; }
-      this.users.set(more ? [...this.users(), ...page.items] : page.items); this.nextCursor.set(page.nextCursor); this.pendingCount.set(page.pendingCount);
+      this.users.set(more ? [...this.users(), ...page.items] : page.items); this.nextCursor.set(page.nextCursor); this.pendingCount.set(page.pendingCount); this.totalCount.set(page.totalCount ?? this.users().length);
     } catch (error) { this.error.set(message(error)); }
     finally { this.loading.set(false); }
   }
+  sortBy(sort: string) { this.direction = this.sort === sort && this.direction === 'asc' ? 'desc' : 'asc'; this.sort = sort; void this.load(); }
+  ariaSort(sort: string): 'ascending' | 'descending' | 'none' { return this.sort !== sort ? 'none' : this.direction === 'asc' ? 'ascending' : 'descending'; }
+  clearFilters() { this.search = ''; this.pendingOnly = false; this.roleFilter = ''; this.ratingFilter = ''; this.accessFilter = ''; this.sort = 'name'; this.direction = 'asc'; void this.load(); }
   filter(pending: boolean) { this.pendingOnly = pending; this.confirming.set(null); void this.load(); }
   async saveRating(user: AdminUser) {
     if (this.busy() || this.loading()) return;

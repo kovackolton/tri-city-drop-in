@@ -1,4 +1,7 @@
 import '@angular/compiler';
+import { matchesCalendar, venueDate } from '../src/calendar';
+import { LocationsComponent } from '../src/app/locations/locations.component';
+import { CalendarPickerComponent } from '../src/app/calendar-picker/calendar-picker.component';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Injector, runInInjectionContext, signal } from '@angular/core';
@@ -89,24 +92,24 @@ test('event creation waits for a modal status choice, preserves input on cancel 
 
 test('workspace defaults to My events, uses minimal organizer overview and retains full admin views without stale responses', async () => {
   let profile: any = { id: 'owner', role: 'ORGANIZER' };
-  const requests: { url: string; response: Subject<any> }[] = [];
+  const requests: { url: string; options: any; response: Subject<any> }[] = [];
   const injector = Injector.create({ providers: [
     { provide: AuthService, useValue: { profile: () => profile } },
-    { provide: HttpClient, useValue: { get: (url: string) => { if (url === '/api/locations') return of([]); const response = new Subject<any>(); requests.push({ url, response }); return response; } } }
+    { provide: HttpClient, useValue: { get: (url: string, options: any) => { if (url === '/api/locations') return of([]); const response = new Subject<any>(); requests.push({ url, options, response }); return response; } } }
   ] });
   const component = runInInjectionContext(injector, () => new OrganizerComponent());
   assert.equal(component.eventScope(), 'mine');
-  const initial = component.load(); assert.equal(requests[0].url, '/api/organizer/events?scope=mine');
+  const initial = component.load(); assert.equal(requests[0].url, '/api/organizer/events'); assert.equal(requests[0].options.params.scope, 'mine');
   component.rosterEvent.set('old'); const overview = component.selectEventScope('all');
   assert.equal(component.rosterEvent(), ''); assert.equal(component.minimalView(), true); assert.equal(requests[1].url, '/api/organizer/events/overview');
   requests[1].response.next([{ id: 'summary' }]); requests[1].response.complete(); await overview;
   requests[0].response.next([{ id: 'stale-private-event' }]); requests[0].response.complete(); await initial;
   assert.equal(component.events().length, 0); assert.equal(component.overview()[0].id, 'summary');
   profile = { id: 'admin', role: 'ADMINISTRATOR' };
-  const all = component.load(); assert.equal(requests[2].url, '/api/organizer/events?scope=all');
+  const all = component.load(); assert.equal(requests[2].url, '/api/organizer/events'); assert.equal(requests[2].options.params.scope, 'all');
   requests[2].response.next([{ id: 'managed' }]); requests[2].response.complete(); await all;
   assert.equal(component.minimalView(), false); assert.equal(component.events()[0].id, 'managed'); assert.equal(component.overview().length, 0);
-  const mine = component.selectEventScope('mine'); assert.equal(requests[3].url, '/api/organizer/events?scope=mine');
+  const mine = component.selectEventScope('mine'); assert.equal(requests[3].url, '/api/organizer/events');
   requests[3].response.next([]); requests[3].response.complete(); await mine; injector.destroy();
 });
 
@@ -655,4 +658,56 @@ test('event sharing fetches fresh public metadata and ignores results for a prev
   const fresh = component.prepare(); responses[1].next(data); responses[1].complete(); await fresh;
   assert.equal(component.data()?.share.availability, '6 spots available'); assert.ok(shareMessage(data.share).includes('USD 12.00')); assert.ok(shareMessage(data.share).includes('6 spots available'));
   await component.prepare(); assert.equal(component.open(), false); injector.destroy();
+});
+
+
+test('calendar uses venue dates and Monday weeks across DST and year boundaries', () => {
+  assert.equal(venueDate('2027-01-01T01:00:00Z', 'America/New_York'), '2026-12-31');
+  assert.equal(matchesCalendar('2027-01-01T01:00:00Z', 'America/New_York', { period: 'day', date: '2026-12-31' }), true);
+  assert.equal(matchesCalendar('2026-11-02T04:30:00Z', 'America/New_York', { period: 'week', date: '2026-11-01' }), true);
+  assert.equal(matchesCalendar('2026-11-02T05:00:00Z', 'America/New_York', { period: 'week', date: '2026-11-01' }), false);
+  const calendar = new CalendarPickerComponent(); calendar.selection = { period: 'day', date: '2028-02-29' }; calendar.ngOnChanges();
+  assert.equal(calendar.days().length, 42); assert.ok(calendar.days().some(day => day.key === '2028-02-29' && !day.outside));
+  calendar.move(1); assert.match(calendar.title(), /March 2028/);
+  let emitted: any; calendar.selectionChange.subscribe(value => emitted = value);
+  calendar.selection = { period: 'week', date: '2028-02-29' }; calendar.choose('2028-03-07');
+  assert.deepEqual(emitted, { period: 'week', date: '2028-03-07' });
+});
+
+test('My games payment queue includes unreported guest seats and excludes free, cancelled and reviewed seats', () => {
+  const event = { title: 'Payment queue', startsAt: '2026-01-01T20:00:00Z', endsAt: '2026-01-01T21:00:00Z', status: 'COMPLETED', location: { name: 'Pitch', timezone: 'UTC' }, organizer: { displayName: 'Alex' } };
+  const payment = { amountCents: 1200, status: 'PAID', playerPaid: true, organizerPaid: true };
+  const host: any = { id: 'host', eventId: 'game', bookingId: 'party', guestNumber: 0, status: 'CONFIRMED', event, payment };
+  const guest: any = { ...host, id: 'guest', guestNumber: 1, payment: { ...payment, playerPaid: null } };
+  const seats: any[] = [host, guest];
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: {} }, { provide: RegistrationsStore, useValue: { seats: () => seats } }] });
+  const component = runInInjectionContext(injector, () => new MyGamesComponent()); component.paymentFilter = 'needs';
+  assert.equal(component.gameGroups()[1].games.length, 1);
+  guest.payment.playerPaid = false; assert.equal(component.gameGroups()[1].games.length, 0);
+  guest.payment.playerPaid = null; guest.payment.amountCents = 0; assert.equal(component.needsPayment(host), false);
+  guest.payment.amountCents = 1200; guest.status = 'CANCELLED'; assert.equal(component.needsPayment(host), false);
+  guest.status = 'CONFIRMED'; component.clearFilters(); component.calendar = { period: 'day', date: '2026-01-02' }; assert.equal(component.gameGroups()[1].games.length, 0);
+});
+
+
+test('workspace cards collapse, administrator review requires acknowledgement, and archived history stays protected', async () => {
+  let profile: any = { id: 'admin', role: 'ADMINISTRATOR' }; const posts: any[] = [];
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => profile } }, { provide: HttpClient, useValue: { get: () => of([]), post: (url: string, body: unknown) => { posts.push({ url, body }); return of({}); } } }] });
+  const component = runInInjectionContext(injector, () => new OrganizerComponent()); component.ngOnInit();
+  assert.equal(component.eventScope(), 'all'); assert.equal(component.expandedEvent(), ''); component.toggleEvent('event'); assert.equal(component.expandedEvent(), 'event'); component.toggleEvent('event'); assert.equal(component.expandedEvent(), '');
+  const game: any = { id: 'event', organizerId: 'admin', status: 'PUBLISHED', startsAt: new Date(Date.now() + 86400000).toISOString(), deletedAt: new Date().toISOString(), reviewStatus: 'NEEDS_REVIEW' };
+  assert.equal(component.canEdit(game), false); assert.equal(component.canShare(game), false); assert.equal(component.canCancel(game), false);
+  component.startReviewCompletion(game); await component.completeReview(); assert.equal(posts.length, 0);
+  component.playersHadOpportunity = true; await component.completeReview(); assert.deepEqual(posts[0], { url: '/api/organizer/events/event/review/complete', body: { playersHadOpportunity: true } });
+  profile = { id: 'organizer', role: 'ORGANIZER' }; assert.equal(component.canComplete(game), false); component.startReviewCompletion(game); component.playersHadOpportunity = true; await component.completeReview(); assert.equal(posts.length, 1);
+  injector.destroy();
+});
+
+test('location filters search names, addresses and city, filter media, and reset', () => {
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: {} }, { provide: HttpClient, useValue: {} }] });
+  const component = runInInjectionContext(injector, () => new LocationsComponent());
+  component.locations.set([{ id: 'a', name: 'West pitch', address: 'Main Street', city: 'Midland', timezone: 'UTC', photoUrl: 'https://example.invalid/a.jpg' }, { id: 'b', name: 'Arena', address: 'First Street', city: 'Bay City', timezone: 'UTC', mapEmbedUrl: 'https://www.google.com/maps/embed?pb=x' }]);
+  component.search = 'main'; assert.equal(component.filteredLocations()[0].id, 'a'); component.search = ''; component.city = 'Bay City'; component.media = 'map'; assert.equal(component.filteredLocations()[0].id, 'b'); component.media = 'photo'; assert.equal(component.filteredLocations().length, 0); component.clearFilters(); assert.equal(component.filteredLocations().length, 2);
+  assert.equal(readFileSync(resolve('src/app/my-games/my-games.component.html'), 'utf8').includes('class="panel game-filters" open'), false);
+  injector.destroy();
 });

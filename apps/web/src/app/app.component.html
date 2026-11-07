@@ -84,6 +84,7 @@
           </section> }
           <section aria-labelledby="games-heading" class="mt-10">
             <div class="flex justify-between items-center mb-5"><h2 id="games-heading" class="text-xl font-bold">Upcoming games</h2><button class="secondary" [disabled]="store.loading()" (click)="refreshGames()">Refresh</button></div>
+            <div class="calendar-layout"><aside class="calendar-aside"><app-calendar-picker [selection]="store.filters()" (selectionChange)="calendarChanged($event)" /></aside><div class="calendar-content">
             <details class="game-filters panel mb-5" [open]="filtersOpen()" (toggle)="filtersOpen.set($any($event.target).open)"><summary>Filters <span class="filter-count">{{ activeFilterCount() }} active</span></summary>
             <form class="mt-4" (ngSubmit)="applyFilters()" aria-label="Filter upcoming games">
               <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4"><label>When<select name="period" [(ngModel)]="filters.period"><option value="all">All upcoming dates</option><option value="day">Specific day</option><option value="week">Week of selected date</option></select></label>@if (filters.period !== 'all') { <label>{{ filters.period === 'day' ? 'Day' : 'A date in the week' }}<input name="filterDate" type="date" [(ngModel)]="filters.date" required></label> }
@@ -106,6 +107,7 @@
               } @empty { <div class="rounded-2xl border border-dashed border-default p-8 text-muted">No upcoming games match these filters. Try clearing or adjusting them.</div> }
               </div>
             }
+            </div></div>
           </section>
         }
       </main>
