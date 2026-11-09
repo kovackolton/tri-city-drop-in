@@ -735,3 +735,17 @@ test('payment username fields build full profile URLs, avoid duplicate Cashtag p
   component.event.organizerPaypalUrl = 'https://www.paypal.com/paypalme/ExistingHost'; assert.equal(component.paymentUsername('paypal'), 'ExistingHost');
   component.setPaymentUsername('cashapp', ''); assert.equal(component.event.organizerCashAppUrl, ''); assert.equal(component.paymentUsername('cashapp'), ''); injector.destroy();
 });
+
+
+test('event eligibility choices remain organizer-only and are included in creation payloads', async () => {
+  const bodies: any[] = []; const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => ({ id: 'owner', role: 'ORGANIZER' }) } }, { provide: HttpClient, useValue: { get: () => of([]), post: (_url: string, body: any) => { bodies.push(body); return of({}); } } }] });
+  const component = runInInjectionContext(injector, () => new OrganizerComponent()); component.event = { ...component.event, title: 'Game', locationId: 'pitch', startsAt: '2030-01-01T20:00:00Z', endsAt: '2030-01-01T21:00:00Z' }; component.skillRestricted = true; component.skillThreshold = 3; component.skillDirection = 'below'; await component.createEvent('PUBLISHED'); assert.equal(bodies[0].maximumSkillLevel, 3); assert.equal(bodies[0].minimumSkillLevel, null);
+  component.skillRestricted = true; component.skillThreshold = 6; await component.createEvent('PUBLISHED'); assert.equal(bodies.length, 1);
+  assert.ok(!JSON.stringify(howToGuides).includes('minimumSkillLevel')); injector.destroy();
+});
+
+test('audience reset drops restricted results and ignores stale list, facet and selected responses', async () => {
+  const requests: Subject<any>[] = []; const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: { get: () => { const response = new Subject<any>(); requests.push(response); return response; } } }, EventsStore] }); const store = injector.get(EventsStore);
+  const list = store.load(), facets = store.loadFilters(), selected = store.loadSelected('game'); store.resetAudience();
+  requests[0].next([{ id: 'old' }]); requests[0].complete(); requests[1].next({ locations: [{ id: 'old' }], organizers: [] }); requests[1].complete(); requests[2].next({ game: { id: 'old' } }); requests[2].complete(); await Promise.all([list, facets, selected]); assert.deepEqual(store.events(), []); assert.deepEqual(store.locations(), []); assert.equal(store.selectedGame(), null); injector.destroy();
+});

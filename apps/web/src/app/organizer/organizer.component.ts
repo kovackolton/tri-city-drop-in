@@ -27,6 +27,7 @@ export class OrganizerComponent implements OnInit {
   readonly auth = inject(AuthService);
   readonly view = signal<'events' | 'locations'>('events');
   readonly showEventForm = signal(false);
+  skillRestricted = false; skillDirection: 'above' | 'below' = 'above'; skillThreshold = 3;
   readonly choosingStatus = signal(false);
   readonly cancelling = signal('');
   readonly editingId = signal(''); readonly deleting = signal('');
@@ -143,6 +144,7 @@ export class OrganizerComponent implements OnInit {
   }
   async createEvent(chosenStatus?: 'DRAFT' | 'PUBLISHED') {
     if (this.busy()) return;
+    if (this.skillRestricted && (!Number.isInteger(this.skillThreshold) || this.skillThreshold < 1 || this.skillThreshold > 5)) { this.error.set('Choose a skill level from 1 to 5.'); return; }
     const price = this.event.price.trim();
     if (!/^\d+(\.\d{1,2})?$/.test(price)) { this.error.set('Enter a nonnegative USD price with at most two decimal places.'); return; }
     const [dollars, cents = ''] = price.split('.');
@@ -154,18 +156,19 @@ export class OrganizerComponent implements OnInit {
     if (!this.editingId() && !chosenStatus) { this.error.set(''); this.choosingStatus.set(true); return; }
     await this.act(async () => {
       const { price: _, status, isPrivate, ...event } = this.event;
-      const payload = { ...event, bibCount: event.bibsProvided ? event.bibCount : null, shirtColors: event.shirtColors.slice(0, event.shirtColorCount ?? 0), startsAt: this.original && this.event.startsAt === this.localTime(this.original.startsAt) ? this.original.startsAt : startsAt.toISOString(), endsAt: this.original && this.event.endsAt === this.localTime(this.original.endsAt) ? this.original.endsAt : endsAt.toISOString(), priceCents };
+      const payload = { ...event, minimumSkillLevel: this.skillRestricted && this.skillDirection === 'above' ? this.skillThreshold : null, maximumSkillLevel: this.skillRestricted && this.skillDirection === 'below' ? this.skillThreshold : null, bibCount: event.bibsProvided ? event.bibCount : null, shirtColors: event.shirtColors.slice(0, event.shirtColorCount ?? 0), startsAt: this.original && this.event.startsAt === this.localTime(this.original.startsAt) ? this.original.startsAt : startsAt.toISOString(), endsAt: this.original && this.event.endsAt === this.localTime(this.original.endsAt) ? this.original.endsAt : endsAt.toISOString(), priceCents };
       await firstValueFrom(this.editingId() ? this.http.patch('/api/organizer/events/' + this.editingId(), { ...payload, ...(status === 'DRAFT' ? { status } : {}) }) : this.http.post('/api/events', { ...payload, isPrivate, status: chosenStatus, initialPlayers: this.selectedPlayers().map(player => ({ userId: player.id, mode: player.mode })) }));
       this.cancelEdit();
     }, 'Event saved.');
   }
-  cancelEdit() { this.resetOrganizerSearch(); this.fieldErrors.set({}); this.choosingStatus.set(false); this.showEventForm.set(false); this.selectedPlayers.set([]); this.editingId.set(''); this.original = null; this.event = { coOrganizerIds: [] as string[], isPrivate: false, title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, bibCount: null as number | null, shirtColors: ['dark', 'light'], shirtColorCount: 2 as number | null, minPlayers: null as number | null, teamCount: 2, teamBalancingEnabled: false, organizerContactEmail: '', organizerContactPhone: '', organizerVenmoUrl: '', organizerCashAppUrl: '', organizerPaypalUrl: '', contactCallAllowed: false, contactTextAllowed: false }; }
+  cancelEdit() { this.skillRestricted = false; this.skillDirection = 'above'; this.skillThreshold = 3; this.resetOrganizerSearch(); this.fieldErrors.set({}); this.choosingStatus.set(false); this.showEventForm.set(false); this.selectedPlayers.set([]); this.editingId.set(''); this.original = null; this.event = { coOrganizerIds: [] as string[], isPrivate: false, title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, bibCount: null as number | null, shirtColors: ['dark', 'light'], shirtColorCount: 2 as number | null, minPlayers: null as number | null, teamCount: 2, teamBalancingEnabled: false, organizerContactEmail: '', organizerContactPhone: '', organizerVenmoUrl: '', organizerCashAppUrl: '', organizerPaypalUrl: '', contactCallAllowed: false, contactTextAllowed: false }; }
   localTime(value: string) { const d = new Date(value); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
   canEdit(game: ManagedEvent) { const profile = this.auth.profile(); return !game.deletedAt && !!profile && (profile.role === 'ADMINISTRATOR' || profile.role === 'ORGANIZER' && (game.organizerId === profile.id || !!game.coOrganizerIds?.includes(profile.id))) && ['DRAFT', 'PUBLISHED'].includes(game.status); }
   canReturnToDraft(game: ManagedEvent) { return this.canEdit(game) && game.status === 'PUBLISHED' && Date.parse(game.startsAt) > Date.now(); }
   canDraftWhileEditing() { return !!this.original && this.canReturnToDraft(this.original); }
   edit(game: ManagedEvent) {
     if (!this.canEdit(game)) return;
+    this.skillRestricted = game.minimumSkillLevel != null || game.maximumSkillLevel != null; this.skillDirection = game.maximumSkillLevel != null ? 'below' : 'above'; this.skillThreshold = game.minimumSkillLevel ?? game.maximumSkillLevel ?? 3;
     this.resetOrganizerSearch();
     this.selectedOrganizers.set((game.coOrganizers ?? []).map(user => ({ ...user, accountName: user.accountName ?? user.displayName })));
     this.fieldErrors.set({});

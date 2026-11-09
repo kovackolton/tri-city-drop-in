@@ -1,3 +1,4 @@
+import { assertEventEligibility, visibleEvents, eligibleUsers } from './event-eligibility';
 import { Event, Prisma } from '@prisma/client';
 import { playerSelections } from './event-options';
 import { managedEvents } from './event-organizers';
@@ -19,7 +20,8 @@ export class EventInvitationsService {
     return users.map(user => ({ id: user.id, ...appearance(user), accountName: user.displayName, skillLevel: user.skillLevel, adminSkillLevel: user.adminSkillLevel }));
   }
   async mine(userId: string) {
-    const invitations = await this.db.eventInvitation.findMany({ where: { userId, status: 'PENDING', event: { deletedAt: null, status: 'PUBLISHED', startsAt: { gt: new Date() } } }, select: { id: true, event: { select: { id: true, isPrivate: true, privateInviteToken: true, title: true, startsAt: true, priceCents: true, location: true } } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 100 });
+    const viewer = await this.db.user.findUnique({ where: { id: userId }, select: { skillLevel: true, adminSkillLevel: true } });
+    const invitations = await this.db.eventInvitation.findMany({ where: { userId, status: 'PENDING', event: { AND: [visibleEvents(viewer)], deletedAt: null, status: 'PUBLISHED', startsAt: { gt: new Date() } } }, select: { id: true, event: { select: { id: true, isPrivate: true, privateInviteToken: true, title: true, startsAt: true, priceCents: true, location: true } } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 100 });
     return invitations.map(({ event: { privateInviteToken, ...event }, ...invitation }) => ({ ...invitation, event, privateGameUrl: event.isPrivate ? `/private-game/${event.id}/${privateInviteToken}` : null }));
   }
   async addPlayer(actorId: string, eventId: string, value: unknown, administrator = false) {
@@ -54,6 +56,7 @@ export class EventInvitationsService {
       if (mode === 'INVITE') throw new ConflictException('This player already has an active booking.');
       return { mode, status: current.status, bookingId: current.bookingId, draft: event.status === 'DRAFT', alreadyAdded: true };
     }
+    assertEventEligibility(event, await tx.user.findUnique({ where: { id: userId }, select: { skillLevel: true, adminSkillLevel: true } }));
     if (mode === 'INVITE') {
       const previous = await tx.eventInvitation.findUnique({ where: { eventId_userId: { eventId, userId } } });
       if (previous?.status === 'PENDING') return { mode, status: 'PENDING', draft: event.status === 'DRAFT', alreadyAdded: true };
@@ -74,7 +77,7 @@ export class EventInvitationsService {
     return { mode, status: seats[0].status, bookingId: seats[0].bookingId, draft: event.status === 'DRAFT', alreadyAdded: false };
   }
   private async bulkCandidates(tx: Prisma.TransactionClient, event: Event, actorId: string, minimum: number) {
-    const users = await tx.user.findMany({ where: { id: { notIn: [actorId, event.organizerId, ...event.coOrganizerIds] }, OR: [{ adminSkillLevel: { gte: minimum } }, { adminSkillLevel: null, skillLevel: { gte: minimum } }], signups: { none: { eventId: event.id, status: { in: ['CONFIRMED', 'WAITLISTED'] } } }, eventInvitations: { none: { eventId: event.id } } }, select: { id: true }, orderBy: { id: 'asc' }, take: 1001 });
+    const users = await tx.user.findMany({ where: { AND: [eligibleUsers(event)], id: { notIn: [actorId, event.organizerId, ...event.coOrganizerIds] }, OR: [{ adminSkillLevel: { gte: minimum } }, { adminSkillLevel: null, skillLevel: { gte: minimum } }], signups: { none: { eventId: event.id, status: { in: ['CONFIRMED', 'WAITLISTED'] } } }, eventInvitations: { none: { eventId: event.id } } }, select: { id: true }, orderBy: { id: 'asc' }, take: 1001 });
     if (users.length > 1000) throw new ConflictException('More than 1000 players match. Choose a higher minimum skill.');
     return users.map(user => user.id);
   }

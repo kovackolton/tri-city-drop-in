@@ -1,13 +1,15 @@
+import { eligibleForEvent, restrictedEvent } from './event-eligibility';
 import { managedEvents } from './event-organizers';
 import { Controller, Get, Inject, Injectable, NotFoundException, Param, Res, Req, Query, Header, UseGuards, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Database } from './database';
-import { AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
+import { AuthRequest, FirebaseGuard, OptionalFirebaseGuard, OrganizerGuard } from './auth';
 // Public sharing selects event/venue facts and anonymous seat statuses only.
 const select = {
   id: true, isPrivate: true, privateInviteToken: true, title: true, description: true, startsAt: true, endsAt: true, capacity: true, priceCents: true, status: true,
+  minimumSkillLevel: true, maximumSkillLevel: true,
   organizerVenmoUrl: true, organizerCashAppUrl: true, organizerPaypalUrl: true,
   teamCount: true, teamBalancingEnabled: true, bibsProvided: true, bibCount: true, shirtColors: true, shirtColorCount: true, minPlayers: true,
   maxGuestsPerUser: true, cancellationCutoffHours: true,
@@ -59,12 +61,18 @@ export function renderPreview(event: ShareEvent | null, origin: string, now = ne
 @Injectable()
 export class EventSharingService {
   constructor(@Inject(Database) private readonly db: Database) {}
-  async event(id: string, invite?: string) {
+  private async lookup(id: string, invite?: string) {
     if (!validId(id) || invite !== undefined && !/^[a-f0-9]{64}$/.test(invite)) return null;
     return this.db.event.findFirst({ where: { id, deletedAt: null, ...(invite !== undefined ? { isPrivate: true, privateInviteToken: invite } : { isPrivate: false }), status: { in: ['PUBLISHED', 'CANCELLED', 'COMPLETED'] } }, select });
   }
-  async publicGame(id: string, invite?: string) {
-    const event = await this.event(id, invite);
+  async event(id: string, invite?: string, viewer?: AuthRequest['user']) {
+    const event = await this.lookup(id, invite); return event && eligibleForEvent(event, viewer) ? event : null;
+  }
+  async preview(id: string, invite?: string) {
+    const event = await this.lookup(id, invite); return event && restrictedEvent(event) ? 'invitation' as const : event;
+  }
+  async publicGame(id: string, invite?: string, viewer?: AuthRequest['user']) {
+    const event = await this.event(id, invite, viewer);
     if (!event || !availability(event).open) throw new NotFoundException('This game is no longer open for joining. It may have started, ended or been cancelled.');
     return this.response(event);
   }
@@ -94,17 +102,22 @@ function asset(name: string) {
 @Controller()
 export class EventSharingController {
   constructor(@Inject(EventSharingService) private readonly service: EventSharingService) {}
-  @Get('api/public/games/:id') @Header('Cache-Control', 'no-store') game(@Param('id') id: string) { return this.service.publicGame(id); }
-  @Get('api/private/games/:id') @Header('Cache-Control', 'no-store') privateGame(@Param('id') id: string, @Query('invite') invite = '') { return this.service.publicGame(id, invite); }
+  @Get('api/public/games/:id') @UseGuards(OptionalFirebaseGuard) @Header('Cache-Control', 'no-store') game(@Param('id') id: string, @Req() req?: AuthRequest) { return this.service.publicGame(id, undefined, req?.user); }
+  @Get('api/private/games/:id') @UseGuards(OptionalFirebaseGuard) @Header('Cache-Control', 'no-store') privateGame(@Param('id') id: string, @Query('invite') invite = '', @Req() req?: AuthRequest) { return this.service.publicGame(id, invite, req?.user); }
   @Get('api/organizer/events/:id/share') @UseGuards(FirebaseGuard, OrganizerGuard) @Header('Cache-Control', 'no-store') organizerShare(@Req() req: AuthRequest, @Param('id') id: string) { return this.service.organizerGame(req.user.id, id, req.user.role === 'ADMINISTRATOR'); }
   @Get('private-game/:id/:invite') privatePage(@Param('id') id: string, @Param('invite') invite: string, @Res() res: Response) { return this.page(id, res, invite); }
   @Get('private-game/:id') missingInvite(@Param('id') id: string, @Res() res: Response) { return this.page(id, res, ''); }
   @Get('games/:id') async page(@Param('id') id: string, @Res() res: Response, invite?: string) {
-    const origin = siteOrigin(), event = await this.service.event(id, invite);
+    const origin = siteOrigin(), preview = await this.service.preview(id, invite);
+    const event = preview === 'invitation' ? null : preview;
     res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self' https:; style-src 'self' 'unsafe-inline'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");
     if (invite !== undefined || !event || !availability(event).open) res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+    if (preview === 'invitation') {
+      const target = invite === undefined ? `${origin}/?event=${encodeURIComponent(id)}` : `${origin}/?privateGame=${encodeURIComponent(id)}&invite=${encodeURIComponent(invite)}`;
+      return res.status(200).send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Game invitation</title><meta name="robots" content="noindex,nofollow,noarchive"><meta property="og:title" content="Game invitation"><meta property="og:description" content="Open the app to view this game."><meta property="og:image" content="${html(origin)}/share/soccer-ball.png"><link rel="stylesheet" href="${html(origin)}/styles.css"></head><body><main style="max-width:40rem;margin:3rem auto;padding:1.5rem"><h1>Game invitation</h1><p>Open the app and sign in to view this game.</p><a class="primary" href="${html(target)}">Open game</a></main></body></html>`);
+    }
     return res.status(event ? 200 : 404).send(renderPreview(event, origin));
   }
   @Get('share/soccer-ball.png') ball(@Res() res: Response) { return this.image(res, 'soccer-ball.png'); }

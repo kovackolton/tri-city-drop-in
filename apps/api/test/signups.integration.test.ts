@@ -897,6 +897,45 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       const privateGame = await controller.create(req, { title: 'Private payment fixture', locationId: location.id, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString(), capacity: 2, maxGuestsPerUser: 0, priceCents: 0, status: 'PUBLISHED', isPrivate: true, ...links });
       const stored = await db.event.findUniqueOrThrow({ where: { id: privateGame.id } }); assert.equal((await sharing.publicGame(privateGame.id, stored.privateInviteToken!)).game.organizerPaypalUrl, links.organizerPaypalUrl);
     });
+    await t.test('skill eligibility personalizes discovery and facets, blocks direct/private joining and preserves existing bookings', async () => {
+      const make = (self: number | null, admin: number | null) => createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Eligibility player', skillLevel: self, adminSkillLevel: admin } });
+      const low = await make(5, 2), high = await make(1, 4), boundary = await make(3, null), unknown = await make(null, null);
+      const venue = await db.location.create({ data: { name: 'Restricted fixture pitch', address: 'Fixture only', timezone: 'UTC', city: 'Restricted fixture city' } });
+      const controller = new EventsController(db, service), sharing = new EventSharingService(db), req = { user: users[0] } as AuthRequest;
+      const input = { title: 'Restricted fixture title', locationId: venue.id, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString(), capacity: 10, maxGuestsPerUser: 0, priceCents: 0, status: 'PUBLISHED', minimumSkillLevel: 3 };
+      const e = await controller.create(req, input), highReq = { user: high } as AuthRequest;
+      for (const viewer of [undefined, { user: low }, { user: unknown }]) { assert.ok(!(await controller.events({}, viewer as AuthRequest)).some(game => game.id === e.id)); assert.ok(!(await controller.filters(viewer as AuthRequest)).locations.some(location => location.id === venue.id)); }
+      for (const viewer of [high, boundary]) assert.ok((await controller.events({}, { user: viewer } as AuthRequest)).some(game => game.id === e.id));
+      assert.ok((await controller.filters(highReq)).locations.some(location => location.id === venue.id));
+      assert.equal(await sharing.event(e.id), null); assert.equal(await sharing.preview(e.id), 'invitation'); assert.equal((await sharing.publicGame(e.id, undefined, high)).game.id, e.id);
+      await assert.rejects(sharing.publicGame(e.id, undefined, low)); await assert.rejects(service.join(low.id, e.id, { guests: [], expectedPriceCents: 0 }), /unavailable/);
+      await assert.rejects(invitations.addPlayer(users[0].id, e.id, { userId: unknown.id, mode: 'BOOK', expectedPriceCents: 0 }), /unavailable/);
+      const seats = await service.join(boundary.id, e.id, { guests: [], expectedPriceCents: 0 });
+      await db.user.update({ where: { id: boundary.id }, data: { adminSkillLevel: 1 } });
+      assert.equal((await service.mine(boundary.id)).find(seat => seat.id === seats[0].id)?.status, 'CONFIRMED');
+      await administration.edit(users[0].id, e.id, { minimumSkillLevel: null, maximumSkillLevel: 2 });
+      assert.ok((await controller.events({}, { user: low } as AuthRequest)).some(game => game.id === e.id)); assert.ok(!(await controller.events({}, highReq)).some(game => game.id === e.id));
+      const privateEvent = await controller.create(req, { ...input, isPrivate: true }); const stored = await db.event.findUniqueOrThrow({ where: { id: privateEvent.id } });
+      await assert.rejects(sharing.publicGame(privateEvent.id, stored.privateInviteToken!, low));
+      await assert.rejects(service.join(low.id, privateEvent.id, { guests: [], expectedPriceCents: 0, privateInviteToken: stored.privateInviteToken! }), /unavailable/);
+      assert.equal((await sharing.publicGame(privateEvent.id, stored.privateInviteToken!, high)).game.id, privateEvent.id);
+      const responses: string[] = []; const fake = { status() { return this; }, setHeader() {}, send(body: string) { responses.push(body); return body; } };
+      await new EventSharingController(sharing).page(e.id, fake); assert.ok(responses[0].includes('Game invitation')); assert.ok(!responses[0].includes(input.title)); assert.ok(!responses[0].includes(venue.name));
+      assert.ok((await controller.ownEvents(req)).some(game => game.id === e.id));
+    });
+    await t.test('restricted invitations and bulk requests honor eligibility and publishing remains quiet for newly ineligible players', async () => {
+      const player = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Eligible invitee', skillLevel: 4 } });
+      const low = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Ineligible invitee', skillLevel: 1 } });
+      const controller = new EventsController(db, service), req = { user: users[0] } as AuthRequest;
+      const e = await controller.create(req, { title: 'Restricted draft invitation', locationId: location.id, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString(), capacity: 6, maxGuestsPerUser: 0, priceCents: 0, status: 'DRAFT', minimumSkillLevel: 4, initialPlayers: [{ userId: player.id, mode: 'INVITE' }] });
+      await assert.rejects(invitations.addPlayer(users[0].id, e.id, { userId: low.id, mode: 'INVITE' }), /unavailable/);
+      await db.user.update({ where: { id: player.id }, data: { adminSkillLevel: 1 } }); await controller.publish(req, e.id);
+      assert.equal(await db.notification.count({ where: { userId: player.id, kind: 'EVENT_INVITATION', payload: { path: ['eventId'], equals: e.id } } }), 0);
+      assert.ok(!(await invitations.mine(player.id)).some(invitation => invitation.event.id === e.id));
+      await assert.rejects(invitations.respond(player.id, (await db.eventInvitation.findUniqueOrThrow({ where: { eventId_userId: { eventId: e.id, userId: player.id } } })).id, 'accept', { expectedPriceCents: 0, costAcknowledged: true }), /unavailable/);
+      const preview = await invitations.bulkInvite(users[0].id, e.id, { minimumSkill: 1 }, false, true);
+      const snapshot = await db.auditLog.findUniqueOrThrow({ where: { id: (preview as any).previewId } }); assert.ok(!(snapshot.details as any).userIds.includes(low.id));
+    });
     await t.test('equipment and minimum targets persist and display counts without blocking below-target games', async () => {
       const events = new EventsController(db);
       const e = await events.create({ user: users[0] } as AuthRequest, { title: 'Advisory target game', locationId: location.id, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString(), capacity: 6, priceCents: 0, maxGuestsPerUser: 1, status: 'DRAFT', bibsProvided: false, shirtColorCount: 3, minPlayers: 5 });
@@ -1314,7 +1353,8 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       const oldOrigin = process.env.PUBLIC_SITE_ORIGIN, oldDist = process.env.WEB_DIST_PATH, oldConfig = process.env.PUBLIC_FIREBASE_CONFIG;
       process.env.PUBLIC_SITE_ORIGIN = 'https://soccer.example.test'; process.env.WEB_DIST_PATH = resolve('../web/dist/web/browser');
       process.env.PUBLIC_FIREBASE_CONFIG = JSON.stringify({ apiKey: 'public-key', authDomain: 'example.test', projectId: 'test-project', appId: 'test-app', private_key: 'never-expose' });
-      const app = await NestFactory.create<NestExpressApplication>({ module: class ShareTestModule {}, controllers: [EventSharingController], providers: [{ provide: Database, useValue: db }, EventSharingService, TokenVerifier] }, { logger: false });
+      const viewer = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'HTTP eligibility viewer', skillLevel: 4 } });
+      const app = await NestFactory.create<NestExpressApplication>({ module: class ShareTestModule {}, controllers: [EventSharingController, EventsController], providers: [{ provide: Database, useValue: db }, EventSharingService, SignupsService, { provide: TokenVerifier, useValue: { verify: async (token: string) => { if (token !== 'eligible-session') throw new Error('Unexpected test token'); return { uid: viewer.firebaseUid, email: viewer.email, email_verified: true }; } } }] }, { logger: false });
       configureWebHosting(app);
       try {
         await app.listen(0, '127.0.0.1'); const base = await app.getUrl();
@@ -1335,6 +1375,15 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
         assert.ok((await privatePage.text()).includes(`/?privateGame=${privateEvent.id}&amp;invite=${token}`));
         const privateJson = await fetch(`${base}/api/private/games/${privateEvent.id}?invite=${token}`); assert.equal(privateJson.status, 200); assert.equal(privateJson.headers.get('cache-control'), 'no-store');
         assert.equal((await fetch(`${base}/api/organizer/events/${privateEvent.id}/share`)).status, 401);
+        const restricted = await event(4, 0); await db.event.update({ where: { id: restricted.id }, data: { title: 'HTTP eligibility fixture', minimumSkillLevel: 3 } });
+        const anonymousList = await (await fetch(`${base}/api/events?search=HTTP%20eligibility%20fixture`)).json(); assert.deepEqual(anonymousList, []);
+        const headers = { Authorization: 'Bearer eligible-session' };
+        const eligibleList = await (await fetch(`${base}/api/events?search=HTTP%20eligibility%20fixture`, { headers })).json() as any[]; assert.equal(eligibleList[0].id, restricted.id); assert.equal('minimumSkillLevel' in eligibleList[0], false);
+        assert.equal((await fetch(`${base}/api/public/games/${restricted.id}`)).status, 404);
+        assert.equal((await fetch(`${base}/api/public/games/${restricted.id}`, { headers })).status, 200);
+        const landing = await fetch(`${base}/games/${restricted.id}`); const landingText = await landing.text(); assert.equal(landing.status, 200); assert.ok(!landingText.includes('HTTP eligibility fixture')); assert.ok(landingText.includes(`?event=${restricted.id}`));
+        await db.user.update({ where: { id: viewer.id }, data: { adminSkillLevel: 1 } });
+        assert.equal((await fetch(`${base}/api/public/games/${restricted.id}`, { headers })).status, 404);
         await db.signup.updateMany({ where: { eventId: e.id, status: 'WAITLISTED' }, data: { status: 'CANCELLED', cancellationSource: 'ORGANIZER' } });
         const refreshed = await (await fetch(`${base}/api/public/games/${e.id}`)).json() as { share: { availability: string } }; assert.equal(refreshed.share.availability, '1 spot available');
         await db.event.update({ where: { id: e.id }, data: { status: 'CANCELLED' } }); const cancelled = await (await fetch(`${base}/games/${e.id}`)).text(); assert.ok(cancelled.includes('Cancelled')); assert.ok(!cancelled.includes(`/?event=${e.id}`)); assert.equal((await fetch(`${base}/api/public/games/${e.id}`)).status, 404);

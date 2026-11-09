@@ -93,6 +93,8 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     effect(() => {
       const id = this.auth.profile()?.id;
       untracked(() => {
+        this.store.resetAudience(); void this.store.load(); void this.store.loadFilters();
+        if (this.store.selectedId()) void this.store.loadSelected(this.store.selectedId(), this.store.selectedInviteToken());
         this.registrations.reset();
         this.notifications.reset(); this.strikes.reset(); this.waiver.reset();
         if (id) {

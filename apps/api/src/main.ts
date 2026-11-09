@@ -7,7 +7,7 @@ import { WaiverService, WaiverController } from './waiver';
 import { EventSharingController, EventSharingService } from './event-sharing';
 import { configureWebHosting } from './web-hosting';
 import { Database } from './database';
-import { AdministratorGuard, FirebaseGuard, OrganizerGuard, TokenVerifier } from './auth';
+import { AdministratorGuard, FirebaseGuard, OptionalFirebaseGuard, OrganizerGuard, TokenVerifier } from './auth';
 import { OrganizerRequestsService, OrganizerRequestsController, AdminUsersController } from './organizer-requests';
 import { NotificationsController, NotificationsService } from './notifications';
 import { EventManagementController, EventManagementService } from './event-management';
@@ -21,7 +21,7 @@ import { OrganizerController, OrganizerService } from './organizer';
 import { LocationsController, LocationsService } from './locations';
 import { AdministrationController, AdministrationService, OrganizerEventEditingController } from './administration';
 
-@Module({ controllers: [EventSharingController, WaiverController, MyStrikesController, AdminStrikesController, TeamsController, EventInvitationsController, OrganizerRequestsController, AdminUsersController, NotificationsController, EventManagementController, EventsController, ProfilesController, SignupsController, PaymentsController, OrganizerController, LocationsController, AdministrationController, OrganizerEventEditingController], providers: [EventSharingService, WaiverService, StrikesService, TeamsService, EventInvitationsService, OrganizerRequestsService, NotificationsService, EventManagementService, Database, AdministratorGuard, FirebaseGuard, OrganizerGuard, TokenVerifier, SignupsService, PaymentsService, OrganizerService, LocationsService, AdministrationService] })
+@Module({ controllers: [EventSharingController, WaiverController, MyStrikesController, AdminStrikesController, TeamsController, EventInvitationsController, OrganizerRequestsController, AdminUsersController, NotificationsController, EventManagementController, EventsController, ProfilesController, SignupsController, PaymentsController, OrganizerController, LocationsController, AdministrationController, OrganizerEventEditingController], providers: [EventSharingService, WaiverService, StrikesService, TeamsService, EventInvitationsService, OrganizerRequestsService, NotificationsService, EventManagementService, Database, AdministratorGuard, FirebaseGuard, OptionalFirebaseGuard, OrganizerGuard, TokenVerifier, SignupsService, PaymentsService, OrganizerService, LocationsService, AdministrationService] })
 export class AppModule {}
 
 async function bootstrap() {

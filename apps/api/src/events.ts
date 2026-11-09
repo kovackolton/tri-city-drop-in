@@ -1,5 +1,6 @@
+import { skillEligibilityInput, visibleEvents, eligibleUsers } from './event-eligibility';
 import { coOrganizerInput, managedEvents, validateOrganizers, organizerDirectory, notifyOrganizerChanges } from './event-organizers';
-import { Body, Controller, Get, Inject, Param, Post, Query, Req, UseGuards, BadRequestException } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Post, Query, Req, UseGuards, Header, BadRequestException } from '@nestjs/common';
 import { eventFilters, matchesEventDate } from './event-filters';
 import { eventOptionsInput, initialPlayerSelections } from './event-options';
 import { notifyInvitations } from './event-invitation-notices';
@@ -8,11 +9,11 @@ import { appearance, appearanceSelect } from './profile-fields';
 import { eventGuidanceInput } from './event-guidance';
 import { refreshPaymentStrikes } from './strike-policy';
 import { Database } from './database';
-import { AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
+import { AuthRequest, FirebaseGuard, OptionalFirebaseGuard, OrganizerGuard } from './auth';
 import { instant, integer, object, text, uuid } from './validation';
 import { randomBytes } from 'node:crypto';
 export function eventInput(value: unknown) {
-  const b = object(value, ['title', 'description', 'locationId', 'startsAt', 'endsAt', 'capacity', 'priceCents', 'maxGuestsPerUser', 'cancellationCutoffHours', 'status', 'bibsProvided', 'bibCount', 'shirtColors', 'shirtColorCount', 'minPlayers', 'teamCount', 'teamBalancingEnabled', 'organizerContactEmail', 'organizerContactPhone', 'organizerVenmoUrl', 'organizerCashAppUrl', 'organizerPaypalUrl', 'contactCallAllowed', 'contactTextAllowed', 'initialPlayerIds', 'initialPlayerMode', 'initialPlayers', 'isPrivate', 'coOrganizerIds']);
+  const b = object(value, ['title', 'description', 'locationId', 'startsAt', 'endsAt', 'capacity', 'priceCents', 'maxGuestsPerUser', 'cancellationCutoffHours', 'status', 'bibsProvided', 'bibCount', 'shirtColors', 'shirtColorCount', 'minPlayers', 'teamCount', 'teamBalancingEnabled', 'organizerContactEmail', 'organizerContactPhone', 'organizerVenmoUrl', 'organizerCashAppUrl', 'organizerPaypalUrl', 'contactCallAllowed', 'contactTextAllowed', 'initialPlayerIds', 'initialPlayerMode', 'initialPlayers', 'isPrivate', 'coOrganizerIds', 'minimumSkillLevel', 'maximumSkillLevel']);
   if (b.isPrivate !== undefined && typeof b.isPrivate !== 'boolean') throw new BadRequestException('Private game must be a boolean.');
   const startsAt = instant(b.startsAt, 'Start time'), endsAt = instant(b.endsAt, 'End time');
   if (startsAt.getTime() <= Date.now() || endsAt <= startsAt) throw new BadRequestException('Choose a future start and an end after the start.');
@@ -20,6 +21,7 @@ export function eventInput(value: unknown) {
   const capacity = integer(b.capacity, 'Capacity', 1, 1000), maxGuestsPerUser = integer(b.maxGuestsPerUser ?? 1, 'Guest allowance', 0, 20);
   if (maxGuestsPerUser >= capacity) throw new BadRequestException('Guest allowance must be smaller than capacity.');
   return {
+    ...skillEligibilityInput(b),
     coOrganizerIds: coOrganizerInput(b.coOrganizerIds),
     ...eventGuidanceInput(b, capacity), ...eventOptionsInput(b),
     isPrivate: b.isPrivate === true,
@@ -33,10 +35,10 @@ export function eventInput(value: unknown) {
 export class EventsController {
   constructor(@Inject(Database) private readonly db: Database, @Inject(SignupsService) private readonly signups: SignupsService = new SignupsService(db)) {}
   @Get('health') health() { return { status: 'ok' }; }
-  @Get('events') async events(@Query() query: Record<string, unknown> = {}) {
+  @Get('events') @UseGuards(OptionalFirebaseGuard) @Header('Cache-Control', 'private, no-store') async events(@Query() query: Record<string, unknown> = {}, @Req() req?: AuthRequest) {
     const filters = eventFilters(query);
     const events = await this.db.event.findMany({
-      where: { deletedAt: null, isPrivate: false, status: 'PUBLISHED', startsAt: { gte: new Date() }, ...(filters.locationId ? { locationId: filters.locationId } : {}), ...(filters.organizerId ? { AND: [managedEvents(filters.organizerId)] } : {}), ...(filters.city ? { location: { city: { equals: filters.city, mode: 'insensitive' } } } : {}), ...(filters.freeOnly ? { priceCents: 0 } : {}), ...(filters.search ? { OR: [{ title: { contains: filters.search, mode: 'insensitive' } }, { location: { name: { contains: filters.search, mode: 'insensitive' } } }, { location: { address: { contains: filters.search, mode: 'insensitive' } } }] } : {}) }, orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
+      where: { AND: [visibleEvents(req?.user)], deletedAt: null, isPrivate: false, status: 'PUBLISHED', startsAt: { gte: new Date() }, ...(filters.locationId ? { locationId: filters.locationId } : {}), ...(filters.organizerId ? { AND: [visibleEvents(req?.user), managedEvents(filters.organizerId)] } : {}), ...(filters.city ? { location: { city: { equals: filters.city, mode: 'insensitive' } } } : {}), ...(filters.freeOnly ? { priceCents: 0 } : {}), ...(filters.search ? { OR: [{ title: { contains: filters.search, mode: 'insensitive' } }, { location: { name: { contains: filters.search, mode: 'insensitive' } } }, { location: { address: { contains: filters.search, mode: 'insensitive' } } }] } : {}) }, orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
       include: { organizer: { select: appearanceSelect }, location: true, signups: { where: { status: { in: ['CONFIRMED', 'WAITLISTED'] } }, select: { status: true } } }
     });
     const coOrganizers = await organizerDirectory(this.db, events.flatMap(event => event.coOrganizerIds));
@@ -47,8 +49,8 @@ export class EventsController {
       confirmed: signups.filter(s => s.status === 'CONFIRMED').length, waitlisted: signups.filter(s => s.status === 'WAITLISTED').length
     })).filter(event => !filters.spacesOnly || event.confirmed < event.capacity && event.waitlisted === 0).slice(0, 100);
   }
-  @Get('events/filters') async filters() {
-    const active = { deletedAt: null, isPrivate: false, status: 'PUBLISHED' as const, startsAt: { gte: new Date() } };
+  @Get('events/filters') @UseGuards(OptionalFirebaseGuard) @Header('Cache-Control', 'private, no-store') async filters(@Req() req?: AuthRequest) {
+    const active = { AND: [visibleEvents(req?.user)], deletedAt: null, isPrivate: false, status: 'PUBLISHED' as const, startsAt: { gte: new Date() } };
     const coIds = (await this.db.event.findMany({ where: active, select: { coOrganizerIds: true } })).flatMap(event => event.coOrganizerIds);
     const [locations, users] = await this.db.$transaction([
       this.db.location.findMany({ where: { events: { some: active } }, select: { id: true, name: true, city: true }, orderBy: { name: 'asc' } }),
@@ -75,10 +77,10 @@ export class EventsController {
     }).filter(event => !review || (['needs_review', 'in_progress', 'completed'].includes(review as string) ? event.reviewStatus === String(review).toUpperCase() : review === 'attendance' ? event.attendancePending > 0 : review === 'payment' ? event.paymentPending > 0 : event.attendancePending > 0 || event.paymentPending > 0)).slice(0, 100);
   }
   @Get('organizer/events/overview') @UseGuards(FirebaseGuard, OrganizerGuard)
-  async eventOverview(@Query() query: Record<string, unknown> = {}) {
+  async eventOverview(@Query() query: Record<string, unknown> = {}, @Req() req?: AuthRequest) {
     const filters = eventFilters(query);
     const events = await this.db.event.findMany({
-      where: { deletedAt: null, isPrivate: false, status: 'PUBLISHED', endsAt: { gt: new Date() } },
+      where: { AND: [visibleEvents(req?.user)], deletedAt: null, isPrivate: false, status: 'PUBLISHED', endsAt: { gt: new Date() } },
       select: { id: true, coOrganizerIds: true, title: true, startsAt: true, endsAt: true, organizer: { select: { displayName: true, nickname: true } }, location: { select: { name: true, city: true, timezone: true } } },
       orderBy: [{ startsAt: 'asc' }, { id: 'asc' }]
     });
@@ -104,6 +106,7 @@ export class EventsController {
     return this.db.$transaction(async tx => {
       if (initial.ids.length !== await tx.user.count({ where: { id: { in: initial.ids } } })) throw new BadRequestException('A selected player no longer exists. Refresh the selection.');
       await validateOrganizers(tx, data.coOrganizerIds, req.user.id);
+      if (await tx.user.count({ where: { id: { in: initial.ids }, AND: [eligibleUsers(data)] } }) !== initial.ids.length) throw new BadRequestException('A selected player is not eligible for this event.');
       const event = await tx.event.create({ data: { ...data, privateInviteToken: data.isPrivate ? randomBytes(32).toString('hex') : null, organizerId: req.user.id } });
       await tx.auditLog.create({ data: { actorId: req.user.id, eventId: event.id, action: 'EVENT_CREATED', details: { isPrivate: data.isPrivate, coOrganizerIds: data.coOrganizerIds, initialPlayers: selections.map(player => ({ ...player })), initialPlayerMode: initial.mode, initialPlayerIds: initial.ids, teamCount: data.teamCount, teamBalancingEnabled: data.teamBalancingEnabled, status: data.status, priceCents: data.priceCents, bibsProvided: data.bibsProvided, bibCount: data.bibCount, shirtColors: data.shirtColors, shirtColorCount: data.shirtColorCount, minPlayers: data.minPlayers } } });
       await notifyOrganizerChanges(tx, event);

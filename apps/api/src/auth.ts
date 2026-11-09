@@ -56,6 +56,11 @@ export class FirebaseGuard implements CanActivate {
   }
 }
 @Injectable()
+export class OptionalFirebaseGuard extends FirebaseGuard {
+  constructor(@Inject(TokenVerifier) tokens: TokenVerifier, @Inject(Database) db: Database) { super(tokens, db); }
+  async canActivate(context: ExecutionContext) { return context.switchToHttp().getRequest<AuthRequest>().headers.authorization ? super.canActivate(context) : true; }
+}
+@Injectable()
 export class OrganizerGuard implements CanActivate {
   canActivate(context: ExecutionContext) {
     if (!['ORGANIZER', 'ADMINISTRATOR'].includes(context.switchToHttp().getRequest<AuthRequest>().user?.role)) throw new ForbiddenException('Organizer access required.');
