@@ -1,3 +1,4 @@
+import { managesEvent, coOrganizerInput, validateOrganizers, notifyOrganizerChanges } from './event-organizers';
 import { BadRequestException, Body, ConflictException, Controller, Delete, Inject, Injectable, NotFoundException, Param, Patch, Req, UseGuards } from '@nestjs/common';
 import { AdministratorGuard, AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
 import { Database } from './database';
@@ -11,12 +12,12 @@ export class AdministrationService {
   constructor(@Inject(Database) private readonly db: Database, @Inject(SignupsService) private readonly signups: SignupsService) {}
   async edit(actorId: string, id: string, value: unknown, administrator = false) {
     uuid(id);
-    const b = object(value, ['title', 'description', 'locationId', 'startsAt', 'endsAt', 'capacity', 'priceCents', 'maxGuestsPerUser', 'cancellationCutoffHours', 'bibsProvided', 'bibCount', 'shirtColors', 'shirtColorCount', 'minPlayers', 'teamCount', 'teamBalancingEnabled', 'organizerContactEmail', 'organizerContactPhone', 'contactCallAllowed', 'contactTextAllowed', 'status']);
+    const b = object(value, ['title', 'description', 'locationId', 'startsAt', 'endsAt', 'capacity', 'priceCents', 'maxGuestsPerUser', 'cancellationCutoffHours', 'bibsProvided', 'bibCount', 'shirtColors', 'shirtColorCount', 'minPlayers', 'teamCount', 'teamBalancingEnabled', 'organizerContactEmail', 'organizerContactPhone', 'contactCallAllowed', 'contactTextAllowed', 'status', 'coOrganizerIds']);
     if (b.status !== undefined && b.status !== 'DRAFT') throw new BadRequestException('Only DRAFT can be selected while editing. Use Publish event to publish a draft.');
     return this.db.$transaction(async tx => {
       await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${id}::uuid FOR UPDATE`;
       const event = await tx.event.findUnique({ where: { id } });
-      if (!event || event.deletedAt || (!administrator && event.organizerId !== actorId)) throw new NotFoundException('Event not found.');
+      if (!event || event.deletedAt || (!administrator && !managesEvent(event, actorId))) throw new NotFoundException('Event not found.');
       if (['CANCELLED', 'COMPLETED'].includes(event.status)) throw new ConflictException('Cancelled or completed events cannot be edited.');
       const returningToDraft = event.status === 'PUBLISHED' && b.status === 'DRAFT';
       if (returningToDraft && event.startsAt <= new Date()) throw new ConflictException('Only future published events can be returned to draft.');
@@ -31,7 +32,10 @@ export class AdministrationService {
       if (maxGuestsPerUser >= capacity) throw new BadRequestException('Guest allowance must be smaller than capacity.');
       const locationId = b.locationId === undefined ? event.locationId : uuid(text(b.locationId, 'Location'));
       if (!await tx.location.findUnique({ where: { id: locationId } })) throw new BadRequestException('Location does not exist.');
+      const coOrganizerIds = coOrganizerInput(b.coOrganizerIds, event.coOrganizerIds);
+      if (b.coOrganizerIds !== undefined) await validateOrganizers(tx, coOrganizerIds, event.organizerId);
       const data = {
+        coOrganizerIds,
         ...(b.status === 'DRAFT' ? { status: 'DRAFT' as const } : {}),
         ...eventGuidanceInput(b, capacity, event), ...eventOptionsInput(b, event),
         title: b.title === undefined ? event.title : text(b.title, 'Title'), description: b.description === undefined ? event.description : b.description === '' || b.description === null ? null : text(b.description, 'Description', 4000),
@@ -46,6 +50,7 @@ export class AdministrationService {
       })) return event;
       const revision = randomUUID();
       const updated = await tx.event.update({ where: { id }, data });
+      await notifyOrganizerChanges(tx, updated, event.coOrganizerIds);
       await tx.signup.updateMany({ where: { eventId: id, teamNumber: { gt: updated.teamCount } }, data: { teamNumber: null } });
       if (updated.status === 'PUBLISHED' && updated.startsAt > new Date() && capacity > event.capacity) await this.signups.promote(tx, updated);
       await tx.paymentObligation.updateMany({ where: { signup: { eventId: id }, status: 'UNPAID' }, data: { dueAt: endsAt } });

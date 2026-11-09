@@ -11,6 +11,8 @@ const descriptions: Record<string, string> = {
   STRIKE_CLEARED: 'A strike has been cleared. Open My profile for your current count.',
 
   USER_ROLE_CHANGED: 'An administrator changed your account role. Refresh access to update your workspace.',
+  EVENT_ORGANIZER_ADDED: 'You were added as a co-organizer. Open My events in the organizer workspace to manage this game.',
+  EVENT_ORGANIZER_REMOVED: 'You were removed as a co-organizer. Your player bookings are unchanged.',
   EVENT_INVITATION: 'You are invited to this game. Open My games to review the price and accept or decline.',
   ORGANIZER_BOOKED_PLAYER: 'An organizer booked a seat for you. Check My games for confirmed/waitlisted status, price and cancellation. Draft bookings are provisional until publication.',
   ORGANIZER_REQUEST: 'A player requested organizer access. Review their pending request on the Users page.',

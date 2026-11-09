@@ -1,3 +1,4 @@
+import { managedEvents } from './event-organizers';
 import { BadRequestException, Body, ConflictException, Controller, Get, Inject, Injectable, NotFoundException, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
 import { Database } from './database';
@@ -25,7 +26,7 @@ export class EventInvitationsService {
     if (input.mode !== 'INVITE' && input.mode !== 'BOOK') throw new BadRequestException('Choose an invitation or immediate booking.');
     const mode = input.mode;
     const price = mode === 'BOOK' ? integer(input.expectedPriceCents, 'Expected price', 0, 2147483647) : 0;
-    const where = { id: eventId, deletedAt: null, ...(administrator ? {} : { organizerId: actorId }) };
+    const where = { id: eventId, deletedAt: null, ...(administrator ? {} : managedEvents(actorId)) };
     if (!await this.db.event.findFirst({ where })) throw new NotFoundException('Event not found.');
     if (mode === 'BOOK') await refreshPaymentStrikes(this.db, [userId]);
     return this.db.$transaction(async tx => {

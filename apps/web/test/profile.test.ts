@@ -1,5 +1,6 @@
 import '@angular/compiler';
 import { matchesCalendar, venueDate } from '../src/calendar';
+import { PlayersComponent } from '../src/app/players/players.component';
 import { LocationsComponent } from '../src/app/locations/locations.component';
 import { CalendarPickerComponent } from '../src/app/calendar-picker/calendar-picker.component';
 import { test } from 'node:test';
@@ -710,4 +711,24 @@ test('location filters search names, addresses and city, filter media, and reset
   component.search = 'main'; assert.equal(component.filteredLocations()[0].id, 'a'); component.search = ''; component.city = 'Bay City'; component.media = 'map'; assert.equal(component.filteredLocations()[0].id, 'b'); component.media = 'photo'; assert.equal(component.filteredLocations().length, 0); component.clearFilters(); assert.equal(component.filteredLocations().length, 2);
   assert.equal(readFileSync(resolve('src/app/my-games/my-games.component.html'), 'utf8').includes('class="panel game-filters" open'), false);
   injector.destroy();
+});
+
+
+test('co-organizer form preserves assignments while editing and includes them in event saves', async () => {
+  const calls: any[] = []; const profile = { id: 'co', role: 'ORGANIZER' };
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => profile } }, { provide: HttpClient, useValue: { get: () => of([]), patch: (url: string, body: any) => { calls.push({ url, body }); return of({}); } } }] });
+  const component = runInInjectionContext(injector, () => new OrganizerComponent());
+  const game: any = { id: 'event', organizerId: 'owner', coOrganizerIds: ['co'], coOrganizers: [{ id: 'co', displayName: 'Co organizer', accountName: 'Co account' }], title: 'Shared game', status: 'DRAFT', location: { id: 'pitch' }, startsAt: '2030-01-01T20:00:00Z', endsAt: '2030-01-01T21:00:00Z', capacity: 12, priceCents: 0, maxGuestsPerUser: 1, cancellationCutoffHours: 12 };
+  assert.equal(component.canEdit(game), true);
+  const oldWindow = (globalThis as any).window; (globalThis as any).window = { scrollTo() {} };
+  try { component.edit(game); assert.deepEqual(component.event.coOrganizerIds, ['co']); assert.equal(component.selectedOrganizers()[0].id, 'co'); component.selectOrganizer({ id: 'second', displayName: 'Second', accountName: 'Second' }); component.selectOrganizer({ id: 'second', displayName: 'Second', accountName: 'Second' }); assert.deepEqual(component.event.coOrganizerIds, ['co', 'second']); component.selectOrganizer({ id: 'owner', displayName: 'Owner', accountName: 'Owner' }); assert.equal(component.event.coOrganizerIds.length, 2); await component.createEvent(); assert.deepEqual(calls[0].body.coOrganizerIds, ['co', 'second']); assert.deepEqual(component.event.coOrganizerIds, []); }
+  finally { (globalThis as any).window = oldWindow; injector.destroy(); }
+});
+
+test('team columns keep confirmed teams, unassigned players and waitlist separate and do not invent missing colors', () => {
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: {} }] });
+  const component = runInInjectionContext(injector, () => new PlayersComponent()); component.teamCount = 3; component.shirtColors = ['dark', 'light'];
+  component.players.set([{ id: 'a', status: 'CONFIRMED', teamNumber: 1 }, { id: 'b', status: 'CONFIRMED', teamNumber: 2, isGuest: true }, { id: 'c', status: 'CONFIRMED', teamNumber: null }, { id: 'd', status: 'WAITLISTED', teamNumber: null }] as any);
+  assert.deepEqual(component.teamNumbers(), [1, 2, 3]); assert.equal(component.startingColor(1), 'dark'); assert.equal(component.startingColor(2), 'light'); assert.equal(component.startingColor(3), null);
+  assert.deepEqual(component.teamPlayers(2).map(player => player.id), ['b']); assert.deepEqual(component.teamPlayers(null).map(player => player.id), ['c']); assert.deepEqual(component.groupPlayers().map(player => player.id), ['d']); injector.destroy();
 });

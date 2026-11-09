@@ -1,3 +1,4 @@
+import { coOrganizerInput, managesEvent } from '../src/event-organizers';
 import 'reflect-metadata';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -115,7 +116,7 @@ test('publishing is scoped to owned future drafts and writes an audit entry', as
   const tx = { signup: { count: async () => 0, findMany: async () => [] }, eventInvitation: { findMany: async () => [] }, event: { findUniqueOrThrow: async () => ({ id: 'event', status: 'PUBLISHED' }), updateMany: async (input: unknown) => { query = input; return { count: 1 }; } }, auditLog: { create: async () => { audited = true; return { id: 'audit' }; } } };
   const controller = new EventsController({ $transaction: async (work: (tx: unknown) => unknown) => work(tx) } as unknown as Database);
   await controller.publish({ user: organizer } as AuthRequest, valid().locationId);
-  assert.equal(query.where.organizerId, organizer.id);
+  assert.deepEqual(query.where.OR, [{ organizerId: organizer.id }, { coOrganizerIds: { has: organizer.id } }]);
   assert.equal(query.where.status, 'DRAFT');
   assert.equal(audited, true);
 });
@@ -310,4 +311,12 @@ test('private previews retain invite-only URLs and send joining back to the hidd
   const preview = renderPreview(event, 'https://soccer.example.test', now);
   assert.ok(preview.includes(`/?privateGame=${event.id}&amp;invite=${event.privateInviteToken}`));
   assert.ok(!preview.includes(`/?event=${event.id}`));
+});
+
+
+test('co-organizer input rejects duplicates and invalid IDs while ownership remains backward compatible', () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  assert.deepEqual(coOrganizerInput(undefined), []); assert.deepEqual(coOrganizerInput(undefined, [id]), [id]);
+  assert.throws(() => coOrganizerInput([id, id]), /only once/); assert.throws(() => coOrganizerInput(['invalid'])); assert.throws(() => coOrganizerInput(null));
+  assert.equal(managesEvent({ organizerId: 'owner', coOrganizerIds: [id] }, id), true); assert.equal(managesEvent({ organizerId: 'owner' }, 'other'), false); assert.equal(managesEvent({ organizerId: 'owner' }, 'owner'), true);
 });

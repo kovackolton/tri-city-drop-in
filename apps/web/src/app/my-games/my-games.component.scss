@@ -11,8 +11,11 @@
 .game-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; }
 .game-facts dt { font-size: .65rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: .35rem; }
 .game-facts dd { font-size: .875rem; font-weight: 500; overflow-wrap: anywhere; }
-.organizer-strip { display: flex; align-items: center; gap: .75rem; margin-top: 1.25rem; padding: 1rem; border-radius: .85rem; background: var(--surface-muted); }
+.organizer-strip { margin-top: 1.25rem; padding: 1rem; border-radius: .85rem; background: var(--surface-muted); }
 .party-seat { padding: 1rem; border: 1px solid var(--divider); border-radius: .85rem; }
 @media (max-width: 480px) { .game-header { gap: .85rem; padding: 1.1rem; } .game-body { padding: 1.1rem; } .game-facts { grid-template-columns: 1fr; gap: .9rem; } }
 
 @media (max-width: 480px) { .game-header { flex-wrap: wrap; } .game-header > .min-w-0 { flex-basis: calc(100% - 90px); } .game-header app-location-thumbnail { margin-left: auto; } }
+
+.organizer-list { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem 1.5rem; }
+.organizer-person { display: flex; align-items: center; gap: .65rem; min-width: 0; max-width: 100%; }
