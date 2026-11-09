@@ -1,3 +1,4 @@
+import { PlayerPickerComponent } from '../player-picker/player-picker.component';
 import { IconComponent } from '../icon/icon.component';
 import { Component, EventEmitter, Input, OnChanges, Output, ViewChild, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -12,7 +13,7 @@ import { OrganizerSeat, OrganizerSeatComponent } from '../organizer-seat/organiz
 import { DatePipe } from '@angular/common';
 @Component({
   selector: 'app-roster',
-  imports: [IconComponent, FormsModule, PaymentReviewComponent, OrganizerSeatComponent, DatePipe, AvatarComponent, EventTeamsComponent],
+  imports: [PlayerPickerComponent, IconComponent, FormsModule, PaymentReviewComponent, OrganizerSeatComponent, DatePipe, AvatarComponent, EventTeamsComponent],
   templateUrl: './roster.component.html',
   styleUrl: './roster.component.scss'
 })
@@ -42,44 +43,13 @@ export class RosterComponent implements OnChanges {
   readonly auditLoading = signal(false);
   readonly error = signal('');
   readonly showAddPlayer = signal(false);
-  readonly addingPlayer = signal(false);
-  readonly searchingPlayers = signal(false);
-  readonly playerResults = signal<{ id: string; displayName: string; accountName: string; skillLevel?: number | null; adminSkillLevel?: number | null }[]>([]);
-  readonly selectedPlayer = signal<{ id: string; displayName: string; accountName: string } | null>(null);
-  readonly addError = signal(''); readonly addNotice = signal('');
-  playerSearch = ''; addMode: 'INVITE' | 'BOOK' = 'INVITE';
-  private playerSearchRevision = 0;
   canAddPlayers() { return !this.archived && ['DRAFT', 'PUBLISHED'].includes(this.eventStatus) && Date.parse(this.startsAt) > Date.now(); }
-  toggleAddPlayer() { if (this.addingPlayer()) return; this.showAddPlayer.update(open => !open); }
-  async searchExistingPlayers() {
-    if (this.searchingPlayers() || this.addingPlayer() || this.playerSearch.trim().length < 2) return;
-    const eventId = this.eventId, revision = ++this.playerSearchRevision;
-    this.searchingPlayers.set(true); this.addError.set(''); this.addNotice.set(''); this.playerResults.set([]); this.selectedPlayer.set(null);
-    try {
-      const players = await firstValueFrom(this.http.get<ReturnType<typeof this.playerResults>>('/api/organizer/players', { params: { search: this.playerSearch.trim() } }));
-      if (revision === this.playerSearchRevision && eventId === this.eventId) this.playerResults.set(players);
-    } catch (error) { if (revision === this.playerSearchRevision && eventId === this.eventId) this.addError.set(message(error)); }
-    finally { if (revision === this.playerSearchRevision) this.searchingPlayers.set(false); }
-  }
-  async addSelectedPlayer() {
-    const player = this.selectedPlayer(); if (!player || this.addingPlayer() || !this.canAddPlayers()) return;
-    const eventId = this.eventId, revision = this.playerSearchRevision;
-    this.addingPlayer.set(true); this.addError.set(''); this.addNotice.set('');
-    try {
-      const result = await firstValueFrom(this.http.post<{ mode: string; status: string; draft: boolean; alreadyAdded: boolean }>(`/api/organizer/events/${eventId}/players`, { userId: player.id, mode: this.addMode, ...(this.addMode === 'BOOK' ? { expectedPriceCents: this.priceCents } : {}) }));
-      if (eventId !== this.eventId || revision !== this.playerSearchRevision) return;
-      this.addNotice.set(result.alreadyAdded ? `${player.displayName} already has this booking or a pending invitation.` : result.mode === 'INVITE' ? `${player.displayName}: ${result.draft ? 'invitation queued until publication' : 'invitation sent'}.` : `${player.displayName}: ${result.status === 'WAITLISTED' ? 'added to the waitlist' : 'seat confirmed'}${result.draft ? ' (provisional draft booking)' : ''}. Player notified.`);
-      this.selectedPlayer.set(null); this.playerResults.update(players => players.filter(item => item.id !== player.id));
-      this.playerChanged();
-    } catch (error) { if (eventId === this.eventId && revision === this.playerSearchRevision) this.addError.set(message(error)); }
-    finally { if (eventId === this.eventId) this.addingPlayer.set(false); }
-  }
+  toggleAddPlayer() { this.showAddPlayer.update(open => !open); }
   search = '';
   private loadRevision = 0;
   private auditRevision = 0;
   ngOnChanges() {
-    this.playerSearchRevision++; this.searchingPlayers.set(false); this.addingPlayer.set(false); this.showAddPlayer.set(false);
-    this.playerResults.set([]); this.selectedPlayer.set(null); this.playerSearch = ''; this.addMode = 'INVITE'; this.addError.set(''); this.addNotice.set('');
+    this.showAddPlayer.set(false);
     this.seats.set([]); this.audit.set([]); this.auditRevision++; this.auditLoading.set(false);
     this.view.set('players'); this.statusFilter.set('active'); this.expandedSeat.set(''); this.search = '';
     void this.load();

@@ -33,9 +33,13 @@
   .header-tagline, .desktop-account { display: none; }
   .app-header { padding: .75rem 1rem; }
   .header-actions { width: 100%; gap: .5rem; min-width: 0; }
-  .mobile-account { display: block; position: relative; margin-right: auto; }
+  .mobile-account { display: block; position: relative; margin-left: auto; }
   .mobile-account > summary { display: flex; align-items: center; gap: .4rem; min-height: 44px; padding: .25rem .4rem; border: 1px solid var(--border); border-radius: .8rem; cursor: pointer; font-size: .8rem; list-style: none; }
   .mobile-account > summary::-webkit-details-marker { display: none; }
-  .mobile-account-panel { position: absolute; z-index: 20; left: 0; top: calc(100% + .5rem); width: min(18rem, calc(100vw - 2rem)); display: grid; gap: .75rem; padding: 1rem; border: 1px solid var(--border); border-radius: .8rem; background: var(--surface); color: var(--text); box-shadow: 0 8px 24px var(--dialog-shadow); }
+  .mobile-account-panel { position: absolute; z-index: 20; right: 0; top: calc(100% + .5rem); width: min(18rem, calc(100vw - 2rem)); display: grid; gap: .75rem; padding: 1rem; border: 1px solid var(--border); border-radius: .8rem; background: var(--surface); color: var(--text); box-shadow: 0 8px 24px var(--dialog-shadow); }
   .game-filters { padding: 1rem; }
 }
+
+.main-navigation button { transition: background-color .15s ease; }
+.main-navigation button:hover:not([aria-current="page"]), .main-navigation button:focus-visible:not([aria-current="page"]) { background: var(--nav-hover); }
+@media (prefers-reduced-motion: reduce) { .main-navigation button { transition: none; } }

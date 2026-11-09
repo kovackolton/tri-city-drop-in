@@ -1,3 +1,4 @@
+import { managesEvent, managedEvents } from './event-organizers';
 import { Body, ConflictException, Controller, Get, Inject, Injectable, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { randomInt } from 'node:crypto';
 import { Prisma } from '@prisma/client';
@@ -49,13 +50,13 @@ export class TeamsService {
     uuid(id);
     await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${id}::uuid FOR UPDATE`;
     const event = await tx.event.findUnique({ where: { id } });
-    if (!event || event.deletedAt || !administrator && event.organizerId !== actorId) throw new NotFoundException('Event not found.');
+    if (!event || event.deletedAt || !administrator && !managesEvent(event, actorId)) throw new NotFoundException('Event not found.');
     if (!['DRAFT', 'PUBLISHED'].includes(event.status) || event.endsAt <= new Date()) throw new ConflictException('Team changes are available only before the event ends.');
     return event;
   }
   async data(actorId: string, id: string, administrator = false) {
     uuid(id);
-    const event = await this.db.event.findFirst({ where: { id, deletedAt: null, ...(administrator ? {} : { organizerId: actorId }) } });
+    const event = await this.db.event.findFirst({ where: { id, deletedAt: null, ...(administrator ? {} : managedEvents(actorId)) } });
     if (!event) throw new NotFoundException('Event not found.');
     const seats = await this.db.signup.findMany({ where: { eventId: id, status: 'CONFIRMED' }, select: { id: true, teamNumber: true, guestName: true, guestNumber: true, user: { select: { ...appearanceSelect, adminSkillLevel: true, skillLevel: true } } }, orderBy: [{ queuedAt: 'asc' }, { guestNumber: 'asc' }, { id: 'asc' }] });
     return { teamCount: event.teamCount, teamBalancingEnabled: event.teamBalancingEnabled, editable: ['DRAFT', 'PUBLISHED'].includes(event.status) && event.endsAt > new Date(), players: seats.map(seat => ({ id: seat.id, ...appearance(seat.user), displayName: seat.guestNumber ? seat.guestName : appearance(seat.user).displayName, avatarUrl: seat.guestNumber ? null : appearance(seat.user).avatarUrl, accountName: seat.user.displayName, isGuest: seat.guestNumber > 0, rating: seat.guestNumber ? null : seat.user.skillLevel, adminRating: seat.guestNumber ? null : seat.user.adminSkillLevel, teamNumber: seat.teamNumber })) };
