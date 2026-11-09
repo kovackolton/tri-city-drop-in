@@ -680,7 +680,7 @@ test('workspace cards collapse, administrator review requires acknowledgement, a
   let profile: any = { id: 'admin', role: 'ADMINISTRATOR' }; const posts: any[] = [];
   const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => profile } }, { provide: HttpClient, useValue: { get: () => of([]), post: (url: string, body: unknown) => { posts.push({ url, body }); return of({}); } } }] });
   const component = runInInjectionContext(injector, () => new OrganizerComponent()); component.ngOnInit();
-  assert.equal(component.eventScope(), 'all'); assert.equal(component.expandedEvent(), ''); component.toggleEvent('event'); assert.equal(component.expandedEvent(), 'event'); component.toggleEvent('event'); assert.equal(component.expandedEvent(), '');
+  assert.equal(component.eventScope(), 'mine'); assert.equal(component.expandedEvent(), ''); component.toggleEvent('event'); assert.equal(component.expandedEvent(), 'event'); component.toggleEvent('event'); assert.equal(component.expandedEvent(), '');
   const game: any = { id: 'event', organizerId: 'admin', status: 'PUBLISHED', startsAt: new Date(Date.now() + 86400000).toISOString(), deletedAt: new Date().toISOString(), reviewStatus: 'NEEDS_REVIEW' };
   assert.equal(component.canEdit(game), false); assert.equal(component.canShare(game), false); assert.equal(component.canCancel(game), false);
   component.startReviewCompletion(game); await component.completeReview(); assert.equal(posts.length, 0);

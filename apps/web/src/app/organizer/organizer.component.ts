@@ -97,7 +97,7 @@ export class OrganizerComponent implements OnInit {
     this.event.shirtColorCount = count;
     if (Number.isInteger(count) && count! >= 1 && count! <= 10) this.event.shirtColors = Array.from({ length: count! }, (_, i) => this.event.shirtColors[i] ?? ['dark', 'light'][i] ?? '');
   }
-  ngOnInit() { if (this.auth.profile()?.role === 'ADMINISTRATOR') this.eventScope.set('all'); void this.load(); }
+  ngOnInit() { void this.load(); }
   async load() {
     const revision = ++this.loadRevision;
     const minimal = this.minimalView();
