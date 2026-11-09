@@ -1,3 +1,4 @@
+import { skillEligibilityInput } from './event-eligibility';
 import { managesEvent, coOrganizerInput, validateOrganizers, notifyOrganizerChanges } from './event-organizers';
 import { BadRequestException, Body, ConflictException, Controller, Delete, Inject, Injectable, NotFoundException, Param, Patch, Req, UseGuards } from '@nestjs/common';
 import { AdministratorGuard, AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
@@ -12,7 +13,7 @@ export class AdministrationService {
   constructor(@Inject(Database) private readonly db: Database, @Inject(SignupsService) private readonly signups: SignupsService) {}
   async edit(actorId: string, id: string, value: unknown, administrator = false) {
     uuid(id);
-    const b = object(value, ['title', 'description', 'locationId', 'startsAt', 'endsAt', 'capacity', 'priceCents', 'maxGuestsPerUser', 'cancellationCutoffHours', 'bibsProvided', 'bibCount', 'shirtColors', 'shirtColorCount', 'minPlayers', 'teamCount', 'teamBalancingEnabled', 'organizerContactEmail', 'organizerContactPhone', 'organizerVenmoUrl', 'organizerCashAppUrl', 'organizerPaypalUrl', 'contactCallAllowed', 'contactTextAllowed', 'status', 'coOrganizerIds']);
+    const b = object(value, ['title', 'description', 'locationId', 'startsAt', 'endsAt', 'capacity', 'priceCents', 'maxGuestsPerUser', 'cancellationCutoffHours', 'bibsProvided', 'bibCount', 'shirtColors', 'shirtColorCount', 'minPlayers', 'teamCount', 'teamBalancingEnabled', 'organizerContactEmail', 'organizerContactPhone', 'organizerVenmoUrl', 'organizerCashAppUrl', 'organizerPaypalUrl', 'contactCallAllowed', 'contactTextAllowed', 'status', 'coOrganizerIds', 'minimumSkillLevel', 'maximumSkillLevel']);
     if (b.status !== undefined && b.status !== 'DRAFT') throw new BadRequestException('Only DRAFT can be selected while editing. Use Publish event to publish a draft.');
     return this.db.$transaction(async tx => {
       await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${id}::uuid FOR UPDATE`;
@@ -35,7 +36,7 @@ export class AdministrationService {
       const coOrganizerIds = coOrganizerInput(b.coOrganizerIds, event.coOrganizerIds);
       if (b.coOrganizerIds !== undefined) await validateOrganizers(tx, coOrganizerIds, event.organizerId);
       const data = {
-        coOrganizerIds,
+        coOrganizerIds, ...skillEligibilityInput(b, event),
         ...(b.status === 'DRAFT' ? { status: 'DRAFT' as const } : {}),
         ...eventGuidanceInput(b, capacity, event), ...eventOptionsInput(b, event),
         title: b.title === undefined ? event.title : text(b.title, 'Title'), description: b.description === undefined ? event.description : b.description === '' || b.description === null ? null : text(b.description, 'Description', 4000),

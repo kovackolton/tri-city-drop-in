@@ -1,3 +1,4 @@
+import { eligibleForEvent, skillEligibilityInput } from '../src/event-eligibility';
 import { paymentProfileUrl } from '../src/payment-links';
 import { coOrganizerInput, managesEvent } from '../src/event-organizers';
 import 'reflect-metadata';
@@ -5,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ExecutionContext, ForbiddenException, UnauthorizedException, ServiceUnavailableException } from '@nestjs/common';
 import { User } from '@prisma/client';
-import { AdministratorGuard, AuthRequest, FirebaseGuard, OrganizerGuard, TokenVerifier, tokenFailure } from '../src/auth';
+import { AdministratorGuard, AuthRequest, FirebaseGuard, OptionalFirebaseGuard, OrganizerGuard, TokenVerifier, tokenFailure } from '../src/auth';
 import { availability, renderPreview, previewMetadata, siteOrigin, ShareEvent } from '../src/event-sharing';
 import { publicWebConfig } from '../src/web-hosting';
 import { Database } from '../src/database';
@@ -343,4 +344,25 @@ test('payment profile links normalize supported services and reject unsafe or un
   assert.equal(eventOptionsInput({}, options).organizerCashAppUrl, options.organizerCashAppUrl);
   assert.equal(eventOptionsInput({ organizerVenmoUrl: '' }, options).organizerVenmoUrl, null);
   assert.throws(() => eventOptionsInput({ organizerPaypalUrl: 'https://evil.invalid/paypal' }), /valid PayPal profile link/);
+});
+
+
+test('event skill eligibility is inclusive, admin-first, and excludes unknown ratings', () => {
+  const minimum = { minimumSkillLevel: 3 }, maximum = { maximumSkillLevel: 3 };
+  assert.equal(eligibleForEvent(minimum, { skillLevel: 5, adminSkillLevel: 2 }), false);
+  assert.equal(eligibleForEvent(minimum, { skillLevel: 1, adminSkillLevel: 3 }), true);
+  assert.equal(eligibleForEvent(minimum, { skillLevel: 3, adminSkillLevel: null }), true);
+  assert.equal(eligibleForEvent(maximum, { skillLevel: 1, adminSkillLevel: 4 }), false);
+  assert.equal(eligibleForEvent(maximum, { skillLevel: 5, adminSkillLevel: 3 }), true);
+  assert.equal(eligibleForEvent(maximum, { skillLevel: null, adminSkillLevel: null }), false);
+  assert.equal(eligibleForEvent(minimum), false); assert.equal(eligibleForEvent({}), true);
+  for (const input of [{ minimumSkillLevel: 0 }, { maximumSkillLevel: 6 }, { minimumSkillLevel: 1.5 }, { minimumSkillLevel: 2, maximumSkillLevel: 4 }]) assert.throws(() => skillEligibilityInput(input));
+  assert.deepEqual(skillEligibilityInput({}, minimum), { minimumSkillLevel: 3, maximumSkillLevel: null });
+  assert.deepEqual(skillEligibilityInput({ minimumSkillLevel: null }, minimum), { minimumSkillLevel: null, maximumSkillLevel: null });
+});
+
+test('optional authentication allows anonymous browsing but never ignores invalid supplied credentials', async () => {
+  let verified = 0; const guard = new OptionalFirebaseGuard({ verify: async () => { verified++; throw new UnauthorizedException(); } } as unknown as TokenVerifier, {} as Database);
+  assert.equal(await guard.canActivate(context({ headers: {} })), true); assert.equal(verified, 0);
+  await assert.rejects(guard.canActivate(context({ headers: { authorization: 'Bearer bad-token' } })), UnauthorizedException); assert.equal(verified, 1);
 });

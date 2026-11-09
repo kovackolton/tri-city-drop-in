@@ -113,6 +113,8 @@ model Event {
   shirtColors String[] @default([])
   shirtColorCount Int?
   minPlayers Int?
+  minimumSkillLevel Int?
+  maximumSkillLevel Int?
   teamCount Int @default(2)
   teamBalancingEnabled Boolean @default(false)
   organizerContactEmail String?
