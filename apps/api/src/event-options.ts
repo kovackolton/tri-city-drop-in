@@ -20,3 +20,23 @@ export function initialPlayersInput(b: Record<string, unknown>) {
   if (b.initialPlayerMode !== undefined && !['INVITE', 'BOOK'].includes(b.initialPlayerMode as string)) throw new BadRequestException('Choose invite or immediate booking.');
   return { ids: ids as string[], mode: (b.initialPlayerMode ?? 'INVITE') as 'INVITE' | 'BOOK' };
 }
+
+export interface PlayerSelection { userId: string; mode: 'INVITE' | 'BOOK'; }
+export function playerSelections(value: unknown): PlayerSelection[] {
+  if (!Array.isArray(value) || value.length > 100) throw new BadRequestException('Select up to 100 existing players.');
+  const players = value.map(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item) || Object.keys(item).some(key => !['userId', 'mode'].includes(key))) throw new BadRequestException('Choose a valid player and how to add them.');
+    const entry = item as Record<string, unknown>;
+    if (typeof entry.userId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(entry.userId) || !['INVITE', 'BOOK'].includes(entry.mode as string)) throw new BadRequestException('Choose a valid player and invitation or booking.');
+    return { userId: entry.userId.toLowerCase(), mode: entry.mode as 'INVITE' | 'BOOK' };
+  });
+  if (new Set(players.map(player => player.userId)).size !== players.length) throw new BadRequestException('Each player can be selected only once.');
+  return players;
+}
+export function initialPlayerSelections(b: Record<string, unknown>): PlayerSelection[] {
+  if (b.initialPlayers !== undefined) {
+    if (b.initialPlayerIds !== undefined || b.initialPlayerMode !== undefined) throw new BadRequestException('Use one player-selection format.');
+    return playerSelections(b.initialPlayers);
+  }
+  const legacy = initialPlayersInput(b); return legacy.ids.map(userId => ({ userId, mode: legacy.mode }));
+}

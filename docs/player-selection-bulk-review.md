@@ -1,0 +1,12 @@
+# Shared player lists and skill invitations
+
+Creation and post-creation roster management use PlayerPickerComponent. Search results and Selected players are visually separated. Each selected row defaults to INVITE and independently supports BOOK. Creation submits initialPlayers entries; legacy initialPlayerIds/initialPlayerMode remain accepted for existing clients. Public/private event creation both support mixed rows. Adding to an existing event stages a list, then saves it atomically through the batch endpoint. A booking failure rolls back all list changes, preserving the selection for correction. Current price, waiver, strikes, capacity/FIFO, ownership/co-organizer permissions and audited notification rules remain enforced.
+
+Skill search is available after creation. Threshold matching uses administrator rating when set, otherwise self rating; unrated accounts never receive a neutral estimated rating for this filter.
+
+Create bulk add by skill is a separate post-creation section. Choose a 1-5 threshold, confirm the number, then confirm sending in-app invitations. Preview stores a server-generated audit snapshot tied to the event and actor, expiring in ten minutes. Sending checks current permission, lifecycle and exact matching IDs again. Rating/booking/invitation changes require a fresh preview. Successful sends are idempotent for that preview, including concurrent requests. Bulk skips the acting account, primary/co-organizers, active confirmed/waitlisted players, and anyone with a previous invitation, including declines. It never books seats. Up to 1000 matches may be invited per preview; larger matches require a higher threshold. Draft invitations remain queued until publication.
+
+Bulk uses the existing invitation, audit and notification tables with no new services or schema migration. Notifications target only newly created invitations. Existing How to guides were updated without new screenshot placeholders.
+
+Validation: 75 isolated PostgreSQL scenarios and 50 frontend logic tests passed. Local browser checks covered both shared picker placements, independent row modes, separate bulk preview/send, preserved individual selections during bulk sends, batch submission, no bulk control during creation, and no horizontal overflow at 320-1920 pixels.
+API unit validation: all 42 tests passed, including independent row modes, duplicate selection and legacy/new format separation.

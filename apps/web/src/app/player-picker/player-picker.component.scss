@@ -1,0 +1,10 @@
+:host { display: block; min-width: 0; }
+.player-search-section { border: 1px solid var(--border); border-radius: .8rem; padding: 1rem; }
+.player-selected-section { border: 1px solid var(--border); border-top: 3px solid var(--accent); border-radius: .8rem; padding: 1rem; margin-top: 1.25rem; background: var(--surface-muted); }
+.player-bulk-section { border-top: 1px solid var(--divider); margin-top: 1.5rem; padding-top: 1.25rem; }
+.picker-list { display: grid; gap: .75rem; }
+.picker-row { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; border-bottom: 1px solid var(--divider); padding-bottom: .75rem; }
+.picker-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.player-identity { display: flex; align-items: center; gap: .65rem; min-width: 0; flex: 1 1 180px; }
+.player-mode { flex: 1 1 180px; max-width: 270px; }
+@media (max-width: 480px) { .player-mode { flex-basis: 100%; max-width: none; } .player-search-section, .player-selected-section { padding: .8rem; } }

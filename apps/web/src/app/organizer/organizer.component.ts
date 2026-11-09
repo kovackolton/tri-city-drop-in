@@ -1,3 +1,4 @@
+import { PlayerPickerComponent, PlayerChoice } from '../player-picker/player-picker.component';
 import { IconComponent } from '../icon/icon.component';
 import { CalendarPickerComponent } from '../calendar-picker/calendar-picker.component';
 import { CalendarSelection, calendarDate, matchesCalendar } from '../../calendar';
@@ -17,7 +18,7 @@ import { AvatarComponent } from '../avatar/avatar.component';
 import { OrganizerContactComponent } from '../organizer-contact/organizer-contact.component';
 
 @Component({
-  selector: 'app-organizer', imports: [IconComponent, CalendarPickerComponent, DialogComponent, AvatarComponent, OrganizerContactComponent, EventShareComponent, FormsModule, CurrencyPipe, RosterComponent, LocationsComponent, EventGuidanceComponent],
+  selector: 'app-organizer', imports: [PlayerPickerComponent, IconComponent, CalendarPickerComponent, DialogComponent, AvatarComponent, OrganizerContactComponent, EventShareComponent, FormsModule, CurrencyPipe, RosterComponent, LocationsComponent, EventGuidanceComponent],
   templateUrl: './organizer.component.html',
   styleUrl: './organizer.component.scss'
 })
@@ -74,18 +75,7 @@ export class OrganizerComponent implements OnInit {
   readonly success = signal('');
   readonly deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   readonly time = eventTime;
-  playerSearch = ''; initialPlayerMode: 'INVITE' | 'BOOK' = 'INVITE';
-  readonly playerResults = signal<{ id: string; displayName: string; accountName: string; skillLevel?: number | null; adminSkillLevel?: number | null }[]>([]);
-  readonly selectedPlayers = signal<{ id: string; displayName: string; accountName: string; skillLevel?: number | null; adminSkillLevel?: number | null }[]>([]);
-  readonly searchingPlayers = signal(false);
-  async searchPlayers() {
-    if (this.searchingPlayers()) return;
-    this.searchingPlayers.set(true); this.error.set('');
-    try { this.playerResults.set(await firstValueFrom(this.http.get<ReturnType<typeof this.playerResults>>('/api/organizer/players', { params: { search: this.playerSearch } }))); }
-    catch (error) { this.error.set(message(error)); } finally { this.searchingPlayers.set(false); }
-  }
-  selectPlayer(player: { id: string; displayName: string; accountName: string; skillLevel?: number | null; adminSkillLevel?: number | null }) { if (!this.selectedPlayers().some(selected => selected.id === player.id) && this.selectedPlayers().length < 100) this.selectedPlayers.update(players => [...players, player]); }
-  removePlayer(id: string) { this.selectedPlayers.update(players => players.filter(player => player.id !== id)); }
+  readonly selectedPlayers = signal<PlayerChoice[]>([]);
   organizerSearch = '';
   readonly organizerResults = signal<{ id: string; displayName: string; accountName: string }[]>([]);
   readonly selectedOrganizers = signal<{ id: string; displayName: string; accountName: string }[]>([]);
@@ -147,11 +137,11 @@ export class OrganizerComponent implements OnInit {
     await this.act(async () => {
       const { price: _, status, isPrivate, ...event } = this.event;
       const payload = { ...event, bibCount: event.bibsProvided ? event.bibCount : null, shirtColors: event.shirtColors.slice(0, event.shirtColorCount ?? 0), startsAt: this.original && this.event.startsAt === this.localTime(this.original.startsAt) ? this.original.startsAt : startsAt.toISOString(), endsAt: this.original && this.event.endsAt === this.localTime(this.original.endsAt) ? this.original.endsAt : endsAt.toISOString(), priceCents };
-      await firstValueFrom(this.editingId() ? this.http.patch('/api/organizer/events/' + this.editingId(), { ...payload, ...(status === 'DRAFT' ? { status } : {}) }) : this.http.post('/api/events', { ...payload, isPrivate, status: chosenStatus, initialPlayerIds: this.selectedPlayers().map(player => player.id), initialPlayerMode: isPrivate ? 'INVITE' : this.initialPlayerMode }));
+      await firstValueFrom(this.editingId() ? this.http.patch('/api/organizer/events/' + this.editingId(), { ...payload, ...(status === 'DRAFT' ? { status } : {}) }) : this.http.post('/api/events', { ...payload, isPrivate, status: chosenStatus, initialPlayers: this.selectedPlayers().map(player => ({ userId: player.id, mode: player.mode })) }));
       this.cancelEdit();
     }, 'Event saved.');
   }
-  cancelEdit() { this.resetOrganizerSearch(); this.fieldErrors.set({}); this.choosingStatus.set(false); this.showEventForm.set(false); this.selectedPlayers.set([]); this.playerResults.set([]); this.playerSearch = ''; this.initialPlayerMode = 'INVITE'; this.editingId.set(''); this.original = null; this.event = { coOrganizerIds: [] as string[], isPrivate: false, title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, bibCount: null as number | null, shirtColors: ['dark', 'light'], shirtColorCount: 2 as number | null, minPlayers: null as number | null, teamCount: 2, teamBalancingEnabled: false, organizerContactEmail: '', organizerContactPhone: '', contactCallAllowed: false, contactTextAllowed: false }; }
+  cancelEdit() { this.resetOrganizerSearch(); this.fieldErrors.set({}); this.choosingStatus.set(false); this.showEventForm.set(false); this.selectedPlayers.set([]); this.editingId.set(''); this.original = null; this.event = { coOrganizerIds: [] as string[], isPrivate: false, title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, bibCount: null as number | null, shirtColors: ['dark', 'light'], shirtColorCount: 2 as number | null, minPlayers: null as number | null, teamCount: 2, teamBalancingEnabled: false, organizerContactEmail: '', organizerContactPhone: '', contactCallAllowed: false, contactTextAllowed: false }; }
   localTime(value: string) { const d = new Date(value); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
   canEdit(game: ManagedEvent) { const profile = this.auth.profile(); return !game.deletedAt && !!profile && (profile.role === 'ADMINISTRATOR' || profile.role === 'ORGANIZER' && (game.organizerId === profile.id || !!game.coOrganizerIds?.includes(profile.id))) && ['DRAFT', 'PUBLISHED'].includes(game.status); }
   canReturnToDraft(game: ManagedEvent) { return this.canEdit(game) && game.status === 'PUBLISHED' && Date.parse(game.startsAt) > Date.now(); }
@@ -162,7 +152,7 @@ export class OrganizerComponent implements OnInit {
     this.selectedOrganizers.set((game.coOrganizers ?? []).map(user => ({ ...user, accountName: user.accountName ?? user.displayName })));
     this.fieldErrors.set({});
     this.showEventForm.set(true); this.view.set('events');
-    this.selectedPlayers.set([]); this.playerResults.set([]); this.original = game; this.editingId.set(game.id);
+    this.selectedPlayers.set([]); this.original = game; this.editingId.set(game.id);
     this.event = { coOrganizerIds: [...(game.coOrganizerIds ?? [])], isPrivate: game.isPrivate ?? false, title: game.title, description: game.description ?? '', locationId: game.location.id, startsAt: this.localTime(game.startsAt), endsAt: this.localTime(game.endsAt), capacity: game.capacity, price: (game.priceCents / 100).toFixed(2), maxGuestsPerUser: game.maxGuestsPerUser, cancellationCutoffHours: game.cancellationCutoffHours, status: game.status, bibsProvided: game.bibsProvided ?? false, bibCount: game.bibCount ?? null, shirtColors: Array.from({ length: game.shirtColorCount ?? 2 }, (_, i) => game.shirtColors?.[i] ?? ['dark', 'light'][i] ?? ''), shirtColorCount: game.shirtColorCount ?? 2, minPlayers: game.minPlayers ?? null, teamCount: game.teamCount ?? 2, teamBalancingEnabled: game.teamBalancingEnabled ?? false, organizerContactEmail: game.organizerContactEmail ?? '', organizerContactPhone: game.organizerContactPhone ?? '', contactCallAllowed: game.contactCallAllowed ?? false, contactTextAllowed: game.contactTextAllowed ?? false };
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
