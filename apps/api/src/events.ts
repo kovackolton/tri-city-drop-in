@@ -1,7 +1,7 @@
 import { coOrganizerInput, managedEvents, validateOrganizers, organizerDirectory, notifyOrganizerChanges } from './event-organizers';
 import { Body, Controller, Get, Inject, Param, Post, Query, Req, UseGuards, BadRequestException } from '@nestjs/common';
 import { eventFilters, matchesEventDate } from './event-filters';
-import { eventOptionsInput, initialPlayersInput } from './event-options';
+import { eventOptionsInput, initialPlayerSelections } from './event-options';
 import { notifyInvitations } from './event-invitation-notices';
 import { SignupsService } from './signups';
 import { appearance, appearanceSelect } from './profile-fields';
@@ -12,7 +12,7 @@ import { AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
 import { instant, integer, object, text, uuid } from './validation';
 import { randomBytes } from 'node:crypto';
 export function eventInput(value: unknown) {
-  const b = object(value, ['title', 'description', 'locationId', 'startsAt', 'endsAt', 'capacity', 'priceCents', 'maxGuestsPerUser', 'cancellationCutoffHours', 'status', 'bibsProvided', 'bibCount', 'shirtColors', 'shirtColorCount', 'minPlayers', 'teamCount', 'teamBalancingEnabled', 'organizerContactEmail', 'organizerContactPhone', 'contactCallAllowed', 'contactTextAllowed', 'initialPlayerIds', 'initialPlayerMode', 'isPrivate', 'coOrganizerIds']);
+  const b = object(value, ['title', 'description', 'locationId', 'startsAt', 'endsAt', 'capacity', 'priceCents', 'maxGuestsPerUser', 'cancellationCutoffHours', 'status', 'bibsProvided', 'bibCount', 'shirtColors', 'shirtColorCount', 'minPlayers', 'teamCount', 'teamBalancingEnabled', 'organizerContactEmail', 'organizerContactPhone', 'contactCallAllowed', 'contactTextAllowed', 'initialPlayerIds', 'initialPlayerMode', 'initialPlayers', 'isPrivate', 'coOrganizerIds']);
   if (b.isPrivate !== undefined && typeof b.isPrivate !== 'boolean') throw new BadRequestException('Private game must be a boolean.');
   const startsAt = instant(b.startsAt, 'Start time'), endsAt = instant(b.endsAt, 'End time');
   if (startsAt.getTime() <= Date.now() || endsAt <= startsAt) throw new BadRequestException('Choose a future start and an end after the start.');
@@ -96,23 +96,23 @@ export class EventsController {
   @Post('events') @UseGuards(FirebaseGuard, OrganizerGuard)
   async create(@Req() req: AuthRequest, @Body() value: unknown) {
     const data = eventInput(value);
-    const initial = initialPlayersInput(value as Record<string, unknown>);
-    if (data.isPrivate && initial.mode === 'BOOK' && initial.ids.length) throw new BadRequestException('Private games require invitation links. Choose invitations for selected players.');
-    if (initial.mode === 'BOOK') await refreshPaymentStrikes(this.db, initial.ids);
+    const selections = initialPlayerSelections(value as Record<string, unknown>);
+    const initial = { ids: selections.map(player => player.userId), mode: selections.every(player => player.mode === 'INVITE') ? 'INVITE' : selections.every(player => player.mode === 'BOOK') ? 'BOOK' : 'MIXED' };
+    const bookedIds = selections.filter(player => player.mode === 'BOOK').map(player => player.userId);
+    if (bookedIds.length) await refreshPaymentStrikes(this.db, bookedIds);
     if (!await this.db.location.findUnique({ where: { id: data.locationId } })) throw new BadRequestException('Location does not exist.');
     return this.db.$transaction(async tx => {
       if (initial.ids.length !== await tx.user.count({ where: { id: { in: initial.ids } } })) throw new BadRequestException('A selected player no longer exists. Refresh the selection.');
       await validateOrganizers(tx, data.coOrganizerIds, req.user.id);
       const event = await tx.event.create({ data: { ...data, privateInviteToken: data.isPrivate ? randomBytes(32).toString('hex') : null, organizerId: req.user.id } });
-      await tx.auditLog.create({ data: { actorId: req.user.id, eventId: event.id, action: 'EVENT_CREATED', details: { isPrivate: data.isPrivate, coOrganizerIds: data.coOrganizerIds, initialPlayerMode: initial.mode, initialPlayerIds: initial.ids, teamCount: data.teamCount, teamBalancingEnabled: data.teamBalancingEnabled, status: data.status, priceCents: data.priceCents, bibsProvided: data.bibsProvided, bibCount: data.bibCount, shirtColors: data.shirtColors, shirtColorCount: data.shirtColorCount, minPlayers: data.minPlayers } } });
+      await tx.auditLog.create({ data: { actorId: req.user.id, eventId: event.id, action: 'EVENT_CREATED', details: { isPrivate: data.isPrivate, coOrganizerIds: data.coOrganizerIds, initialPlayers: selections.map(player => ({ ...player })), initialPlayerMode: initial.mode, initialPlayerIds: initial.ids, teamCount: data.teamCount, teamBalancingEnabled: data.teamBalancingEnabled, status: data.status, priceCents: data.priceCents, bibsProvided: data.bibsProvided, bibCount: data.bibCount, shirtColors: data.shirtColors, shirtColorCount: data.shirtColorCount, minPlayers: data.minPlayers } } });
       await notifyOrganizerChanges(tx, event);
-      if (initial.mode === 'BOOK') for (const userId of [...initial.ids].sort()) await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId}::uuid FOR UPDATE`;
-      if (initial.mode === 'INVITE' && initial.ids.length) {
-        await tx.eventInvitation.createMany({ data: initial.ids.map(userId => ({ eventId: event.id, userId })) });
-        await notifyInvitations(tx, event);
-      } else for (const userId of initial.ids) {
-        const seats = await this.signups.bookParty(tx, event, userId, [], event.priceCents);
-        await tx.auditLog.create({ data: { actorId: req.user.id, eventId: event.id, action: 'ORGANIZER_BOOKED_PLAYER', details: { userId, bookingId: seats[0].bookingId, priceCents: event.priceCents, status: seats[0].status } } });
+      for (const userId of [...bookedIds].sort()) await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId}::uuid FOR UPDATE`;
+      const inviteIds = selections.filter(player => player.mode === 'INVITE').map(player => player.userId);
+      if (inviteIds.length) { await tx.eventInvitation.createMany({ data: inviteIds.map(userId => ({ eventId: event.id, userId })) }); await notifyInvitations(tx, event); }
+      for (const userId of bookedIds) {
+        const seats = await this.signups.bookParty(tx, event, userId, [], event.priceCents, undefined, event.privateInviteToken ?? undefined);
+        await tx.auditLog.create({ data: { actorId: req.user.id, eventId: event.id, action: 'ORGANIZER_BOOKED_PLAYER', details: { userId, bookingId: seats[0].bookingId, priceCents: event.priceCents, status: seats[0].status, playerConfirmation: false } } });
         await tx.notification.create({ data: { userId, kind: 'ORGANIZER_BOOKED_PLAYER', dedupeKey: `added:${seats[0].bookingId}`, payload: { eventId: event.id, title: event.title, draft: event.status === 'DRAFT' } } });
       }
       const { privateInviteToken: _invite, ...result } = event; return result;

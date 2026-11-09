@@ -495,7 +495,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       const venue = await db.location.create({ data: { name: 'Invite only pitch', address: '1 Private Lane', timezone: 'America/New_York' } });
       const controller = new EventsController(db, service), sharing = new EventSharingService(db);
       const input = { title: 'Private soccer', locationId: venue.id, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString(), capacity: 2, maxGuestsPerUser: 1, priceCents: 1000, status: 'PUBLISHED', isPrivate: true, initialPlayerIds: [player.id], initialPlayerMode: 'INVITE' };
-      await assert.rejects(controller.create({ user: owner } as AuthRequest, { ...input, initialPlayerMode: 'BOOK' }), /invitation links/);
+      await assert.rejects(controller.create({ user: owner } as AuthRequest, { ...input, initialPlayers: [{ userId: users[1].id, mode: 'OTHER' }] }));
       const e = await controller.create({ user: owner } as AuthRequest, input);
       assert.equal(e.isPrivate, true); assert.equal('privateInviteToken' in e, false);
       await assert.rejects(db.event.update({ where: { id: e.id }, data: { privateInviteToken: null } }));
@@ -844,6 +844,40 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       await assert.rejects(controller.publish({ user: co } as AuthRequest, e.id), /future draft/);
       await administration.edit(users[0].id, e.id, { coOrganizerIds: [co.id] }); await controller.publish({ user: co } as AuthRequest, e.id);
       await management.transition(co.id, e.id, 'cancel'); assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).status, 'CANCELLED');
+    });
+    await t.test('creation and post-creation lists support mixed modes and roll back the entire list on booking failure', async () => {
+      const make = () => createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Mixed list player' } });
+      const one = await make(), two = await make(), three = await make();
+      const unsigned = await db.user.create({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Unsigned list player' } });
+      const controller = new EventsController(db, service), req = { user: users[0] } as AuthRequest;
+      const input = { title: 'Mixed private selections', locationId: location.id, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString(), capacity: 4, maxGuestsPerUser: 0, priceCents: 1000, status: 'PUBLISHED', isPrivate: true, initialPlayers: [{ userId: one.id, mode: 'INVITE' }, { userId: two.id, mode: 'BOOK' }] };
+      const e = await controller.create(req, input);
+      assert.equal(await db.eventInvitation.count({ where: { eventId: e.id, userId: one.id } }), 1); assert.equal(await db.signup.count({ where: { eventId: e.id, userId: two.id, status: 'CONFIRMED' } }), 1);
+      const target = await event(4); const list = { players: [{ userId: one.id, mode: 'INVITE' }, { userId: unsigned.id, mode: 'BOOK' }], expectedPriceCents: 1000 };
+      await assert.rejects(invitations.addPlayers(users[0].id, target.id, list), /waiver/); assert.equal(await db.eventInvitation.count({ where: { eventId: target.id } }), 0);
+      const result = await invitations.addPlayers(users[0].id, target.id, { ...list, players: [{ userId: one.id, mode: 'INVITE' }, { userId: three.id, mode: 'BOOK' }] }); assert.equal(result.items.length, 2);
+      await assert.rejects(invitations.addPlayers(users[3].id, target.id, list), /Event not found/);
+      const before = await db.event.count(); await assert.rejects(controller.create(req, { ...input, initialPlayers: list.players }), /waiver/); assert.equal(await db.event.count(), before);
+      await assert.rejects(invitations.addPlayers(users[0].id, target.id, { players: [{ userId: one.id, mode: 'INVITE' }, { userId: one.id, mode: 'BOOK' }], expectedPriceCents: 1000 }), /only once/);
+    });
+    await t.test('bulk skill invitations preview actual ratings, exclude prior invitations, deduplicate sends and reject stale snapshots', async () => {
+      const make = (self: number | null, admin: number | null) => createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Bulk skill player', skillLevel: self, adminSkillLevel: admin } });
+      const included = await make(1, 5), selfOnly = await make(5, null), excluded = await make(5, 1), unknown = await make(null, null), declined = await make(5, null), active = await make(5, null);
+      const e = await event(10); await join(1, e.id); await service.join(active.id, e.id, { guests: [], costAcknowledged: true, expectedPriceCents: 1000 });
+      await invitations.addPlayer(users[0].id, e.id, { userId: declined.id, mode: 'INVITE' }); const prior = await db.eventInvitation.findUniqueOrThrow({ where: { eventId_userId: { eventId: e.id, userId: declined.id } } }); await invitations.respond(declined.id, prior.id, 'decline');
+      const preview = await invitations.bulkInvite(users[0].id, e.id, { minimumSkill: 5 }, false, true); assert.ok('previewId' in preview);
+      await assert.rejects(invitations.bulkInvite(users[3].id, e.id, { minimumSkill: 5 }, false, true), /Event not found/);
+      await assert.rejects(invitations.bulkInvite(users[0].id, e.id, { previewId: (preview as any).previewId, confirm: false }), /Confirm/);
+      await db.user.update({ where: { id: included.id }, data: { adminSkillLevel: 4 } });
+      await assert.rejects(invitations.bulkInvite(users[0].id, e.id, { previewId: (preview as any).previewId, confirm: true }), /changed/);
+      await db.user.update({ where: { id: included.id }, data: { adminSkillLevel: 5 } });
+      const current = await invitations.bulkInvite(users[0].id, e.id, { minimumSkill: 5 }, false, true);
+      const [first, retry] = await Promise.all([invitations.bulkInvite(users[0].id, e.id, { previewId: (current as any).previewId, confirm: true }), invitations.bulkInvite(users[0].id, e.id, { previewId: (current as any).previewId, confirm: true })]); assert.equal(first.count, retry.count);
+      for (const user of [included, selfOnly]) { const invite = await db.eventInvitation.findUniqueOrThrow({ where: { eventId_userId: { eventId: e.id, userId: user.id } } }); assert.equal(await db.notification.count({ where: { dedupeKey: `event-invitation:${invite.id}` } }), 1); }
+      for (const user of [excluded, unknown, active]) assert.equal(await db.eventInvitation.count({ where: { eventId: e.id, userId: user.id } }), 0);
+      assert.equal((await db.eventInvitation.findUniqueOrThrow({ where: { id: prior.id } })).status, 'DECLINED'); assert.equal(await db.auditLog.count({ where: { eventId: e.id, action: 'BULK_INVITE_SENT' } }), 1);
+      const draft = await event(4); await db.event.update({ where: { id: draft.id }, data: { status: 'DRAFT' } }); const pending = await invitations.bulkInvite(users[0].id, draft.id, { minimumSkill: 5 }, false, true); await invitations.bulkInvite(users[0].id, draft.id, { previewId: (pending as any).previewId, confirm: true }); assert.equal(await db.notification.count({ where: { kind: 'EVENT_INVITATION', payload: { path: ['eventId'], equals: draft.id } } }), 0);
+      const search = await invitations.search('Bulk skill', '5'); assert.ok(search.some(user => user.id === included.id)); assert.ok(!search.some(user => user.id === excluded.id || user.id === unknown.id));
     });
     await t.test('equipment and minimum targets persist and display counts without blocking below-target games', async () => {
       const events = new EventsController(db);

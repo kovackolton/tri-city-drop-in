@@ -10,7 +10,7 @@ import { publicWebConfig } from '../src/web-hosting';
 import { Database } from '../src/database';
 import { eventFilters, matchesEventDate } from '../src/event-filters';
 import { balanceTeams, combinedRating, reshuffleTeams } from '../src/teams';
-import { eventOptionsInput, initialPlayersInput } from '../src/event-options';
+import { eventOptionsInput, initialPlayersInput, initialPlayerSelections } from '../src/event-options';
 import { eventGuidanceInput } from '../src/event-guidance';
 import { eventInput, EventsController } from '../src/events';
 import { ProfilesController } from '../src/profiles';
@@ -319,4 +319,14 @@ test('co-organizer input rejects duplicates and invalid IDs while ownership rema
   assert.deepEqual(coOrganizerInput(undefined), []); assert.deepEqual(coOrganizerInput(undefined, [id]), [id]);
   assert.throws(() => coOrganizerInput([id, id]), /only once/); assert.throws(() => coOrganizerInput(['invalid'])); assert.throws(() => coOrganizerInput(null));
   assert.equal(managesEvent({ organizerId: 'owner', coOrganizerIds: [id] }, id), true); assert.equal(managesEvent({ organizerId: 'owner' }, 'other'), false); assert.equal(managesEvent({ organizerId: 'owner' }, 'owner'), true);
+});
+
+
+test('initial player rows preserve independent modes and reject duplicate or ambiguous input', () => {
+  const one = '11111111-1111-4111-8111-111111111111', two = '22222222-2222-4222-8222-222222222222';
+  const entries = [{ userId: one, mode: 'INVITE' }, { userId: two, mode: 'BOOK' }];
+  assert.deepEqual(initialPlayerSelections({ initialPlayers: entries }), entries);
+  assert.throws(() => initialPlayerSelections({ initialPlayers: entries, initialPlayerMode: 'BOOK' }), /one player-selection format/);
+  assert.throws(() => initialPlayerSelections({ initialPlayers: [entries[0], entries[0]] }), /only once/);
+  assert.throws(() => initialPlayerSelections({ initialPlayers: [{ userId: one, mode: 'OTHER' }] }), /valid player/);
 });

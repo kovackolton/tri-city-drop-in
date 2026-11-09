@@ -1,4 +1,5 @@
 import '@angular/compiler';
+import { PlayerPickerComponent } from '../src/app/player-picker/player-picker.component';
 import { matchesCalendar, venueDate } from '../src/calendar';
 import { PlayersComponent } from '../src/app/players/players.component';
 import { LocationsComponent } from '../src/app/locations/locations.component';
@@ -221,7 +222,7 @@ test('private signup carries the invite key after separate paid cost confirmatio
   assert.equal(calls.length, 1); assert.equal(calls[0][5], component.inviteToken); assert.equal(calls[0][4], true); injector.destroy();
 });
 
-test('private creation converts selected-player bookings into link invitations and sharing uses the organizer endpoint', async () => {
+test('private creation preserves per-player booking choices and sharing uses the organizer endpoint', async () => {
   const calls: { url: string; body?: any }[] = [];
   const injector = Injector.create({ providers: [
     { provide: AuthService, useValue: { profile: () => ({ id: 'owner', role: 'ORGANIZER' }) } },
@@ -229,45 +230,29 @@ test('private creation converts selected-player bookings into link invitations a
   ] });
   const component = runInInjectionContext(injector, () => new OrganizerComponent());
   component.event = { ...component.event, isPrivate: true, title: 'Private soccer', locationId: 'pitch', startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString() };
-  component.initialPlayerMode = 'BOOK'; component.selectedPlayers.set([{ id: 'player', accountName: 'Player', displayName: 'Player' }]);
+  component.selectedPlayers.set([{ id: 'player', accountName: 'Player', displayName: 'Player', mode: 'BOOK' }]);
   await component.createEvent(); await component.confirmCreation('PUBLISHED');
-  const create = calls.find(call => call.url === '/api/events')!; assert.equal(create.body.isPrivate, true); assert.equal(create.body.initialPlayerMode, 'INVITE');
+  const create = calls.find(call => call.url === '/api/events')!; assert.equal(create.body.isPrivate, true); assert.deepEqual(create.body.initialPlayers, [{ userId: 'player', mode: 'BOOK' }]);
   const share = runInInjectionContext(injector, () => new EventShareComponent()); share.eventId = 'private'; share.organizerContext = true;
   await share.prepare(); assert.ok(calls.some(call => call.url === '/api/organizer/events/private/share')); injector.destroy();
 });
 
-test('roster adds searched players by invitation or immediate booking and prevents duplicate submissions', async () => {
+test('shared player picker stages per-player modes, saves once, and retains failed selections', async () => {
   const searches: Subject<any>[] = [], posts: { body: any; response: Subject<any> }[] = [];
-  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: {
-    get: (url: string) => { if (url.endsWith('/roster')) return of([]); const response = new Subject<any>(); searches.push(response); return response; },
-    post: (_url: string, body: any) => { const response = new Subject<any>(); posts.push({ body, response }); return response; }
-  } }] });
-  const component = runInInjectionContext(injector, () => new RosterComponent());
-  component.eventId = 'event'; component.eventStatus = 'PUBLISHED'; component.startsAt = new Date(Date.now() + 86400000).toISOString(); component.priceCents = 1200; component.isPrivate = true;
-  assert.equal(component.canAddPlayers(), true); component.toggleAddPlayer(); assert.equal(component.showAddPlayer(), true);
-  component.playerSearch = 'Alex'; const search = component.searchExistingPlayers();
-  const player = { id: 'player', displayName: 'Alex', accountName: 'Alex Account' }; searches[0].next([player]); searches[0].complete(); await search;
-  component.selectedPlayer.set(component.playerResults()[0]);
-  const invite = component.addSelectedPlayer(); await component.addSelectedPlayer(); assert.equal(posts.length, 1); component.toggleAddPlayer(); assert.equal(component.showAddPlayer(), true);
-  assert.deepEqual(posts[0].body, { userId: 'player', mode: 'INVITE' });
-  posts[0].response.next({ mode: 'INVITE', status: 'PENDING', draft: false, alreadyAdded: false }); posts[0].response.complete(); await invite;
-  assert.match(component.addNotice(), /invitation sent/); assert.equal(component.selectedPlayer(), null);
-  component.selectedPlayer.set(player); component.addMode = 'BOOK';
-  const booking = component.addSelectedPlayer(); assert.deepEqual(posts[1].body, { userId: 'player', mode: 'BOOK', expectedPriceCents: 1200 });
-  posts[1].response.next({ mode: 'BOOK', status: 'WAITLISTED', draft: false, alreadyAdded: false }); posts[1].response.complete(); await booking;
-  assert.match(component.addNotice(), /waitlist/);
-  component.selectedPlayer.set(player); const failed = component.addSelectedPlayer(); posts[2].response.error(new Error('Failed')); await failed;
-  assert.ok(component.addError()); assert.equal(component.selectedPlayer()?.id, player.id); assert.equal(component.addingPlayer(), false);
-  component.eventStatus = 'COMPLETED'; assert.equal(component.canAddPlayers(), false); injector.destroy();
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: { get: () => { const response = new Subject<any>(); searches.push(response); return response; }, post: (_url: string, body: any) => { const response = new Subject<any>(); posts.push({ body, response }); return response; } } }] });
+  const component = runInInjectionContext(injector, () => new PlayerPickerComponent()); component.eventId = 'event'; component.priceCents = 1200; component.search = 'Alex';
+  const search = component.find(); searches[0].next([{ id: 'one', displayName: 'Alex', accountName: 'Alex' }, { id: 'two', displayName: 'Sam', accountName: 'Sam' }]); searches[0].complete(); await search;
+  component.select(component.results()[0]); component.select(component.results()[0]); component.select(component.results()[1]); component.mode('two', 'BOOK'); assert.equal(component.players.length, 2); assert.equal(component.players[0].mode, 'INVITE');
+  const save = component.save(); await component.save(); assert.equal(posts.length, 1); assert.deepEqual(posts[0].body, { players: [{ userId: 'one', mode: 'INVITE' }, { userId: 'two', mode: 'BOOK' }], expectedPriceCents: 1200 });
+  posts[0].response.error(new Error('Booking rejected')); await save; assert.equal(component.players.length, 2); assert.ok(component.error());
+  const retry = component.save(); posts[1].response.next({ items: [{ mode: 'INVITE' }, { mode: 'BOOK' }] }); posts[1].response.complete(); await retry; assert.equal(component.players.length, 0); injector.destroy();
 });
 
-test('add-player search ignores a response for an event that is no longer open', async () => {
-  const response = new Subject<any>();
-  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: { get: (url: string) => url.endsWith('/roster') ? of([]) : response } }] });
-  const component = runInInjectionContext(injector, () => new RosterComponent()); component.eventId = 'first'; component.playerSearch = 'Alex';
-  const pending = component.searchExistingPlayers(); component.eventId = 'second'; component.ngOnChanges();
-  response.next([{ id: 'old-player' }]); response.complete(); await pending;
-  assert.equal(component.playerResults().length, 0); assert.equal(component.selectedPlayer(), null); assert.equal(component.showAddPlayer(), false); injector.destroy();
+test('shared picker ignores old-event searches and bulk requires a confirmed current preview', async () => {
+  const searches: Subject<any>[] = [], posts: any[] = [];
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: { get: () => { const response = new Subject<any>(); searches.push(response); return response; }, post: (url: string, body: any) => { posts.push({ url, body }); return of(url.endsWith('bulk-preview') ? { previewId: 'preview', minimumSkill: 4, count: 2, draft: false } : { count: 2, draft: false }); } } }] });
+  const component = runInInjectionContext(injector, () => new PlayerPickerComponent()); component.eventId = 'old'; component.search = 'Alex'; const searching = component.find(); component.eventId = 'new'; component.ngOnChanges({ eventId: {} } as any); searches[0].next([{ id: 'old' }]); searches[0].complete(); await searching; assert.equal(component.results().length, 0);
+  await component.sendBulk(); assert.equal(posts.length, 0); component.bulkSkill = 4; await component.previewBulk(); assert.equal(component.bulkPreview()?.count, 2); await component.sendBulk(); assert.deepEqual(posts[1].body, { previewId: 'preview', confirm: true }); assert.equal(component.bulkPreview(), null); injector.destroy();
 });
 
 test('handbook visibility and search respect roles and direct restricted-guide selection falls back safely', () => {
