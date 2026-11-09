@@ -1,3 +1,4 @@
+import { managesEvent } from './event-organizers';
 import { Body, ForbiddenException, ConflictException, Controller, Inject, Injectable, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { AdministratorGuard, AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
 import { Database } from './database';
@@ -25,7 +26,7 @@ export class EventManagementService {
     return this.db.$transaction(async tx => {
       await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${id}::uuid FOR UPDATE`;
       const event = await tx.event.findUnique({ where: { id } });
-      if (!event || event.deletedAt || (!administrator && event.organizerId !== actorId)) throw new NotFoundException('Event not found.');
+      if (!event || event.deletedAt || (!administrator && !managesEvent(event, actorId))) throw new NotFoundException('Event not found.');
       const target = action === 'cancel' ? 'CANCELLED' : 'COMPLETED';
       if (event.status === target) return event;
       const now = new Date();

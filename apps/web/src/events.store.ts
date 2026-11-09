@@ -15,8 +15,9 @@ export const EventsStore = signalStore(
   { providedIn: 'root' },
   withState({ selectedInviteToken: '', selectedId: '', selectedGame: null as Game | null, selectedLoading: false, selectedError: '', events: [] as Game[], loading: true, error: '', filters: defaultGameFilters(), locations: [] as Facets['locations'], organizers: [] as Facets['organizers'], filterError: '' }),
   withMethods((store, http = inject(HttpClient)) => {
-    let revision = 0, selectedRevision = 0;
+    let revision = 0, selectedRevision = 0, facetRevision = 0;
     return {
+      resetAudience() { revision++; selectedRevision++; facetRevision++; patchState(store, { events: [], locations: [], organizers: [], selectedGame: null, selectedLoading: false, selectedError: '', error: '', filterError: '' }); },
       clearSelected() { selectedRevision++; patchState(store, { selectedInviteToken: '', selectedId: '', selectedGame: null, selectedLoading: false, selectedError: '' }); },
       async loadSelected(id: string, invite = '') {
         const current = ++selectedRevision;
@@ -24,7 +25,7 @@ export const EventsStore = signalStore(
         try {
           const result = await firstValueFrom(http.get<SharedGame>(invite ? `/api/private/games/${encodeURIComponent(id)}?invite=${encodeURIComponent(invite)}` : `/api/public/games/${encodeURIComponent(id)}`));
           if (current === selectedRevision) patchState(store, { selectedGame: result.game, selectedLoading: false });
-        } catch { if (current === selectedRevision) patchState(store, { selectedGame: null, selectedLoading: false, selectedError: 'This game is unavailable for joining. It may have started, ended or been cancelled. You can browse other upcoming games below.' }); }
+        } catch { if (current === selectedRevision) patchState(store, { selectedGame: null, selectedLoading: false, selectedError: 'This game is unavailable. Sign in if needed, or browse other upcoming games.' }); }
       },
       async load(filters?: GameFilters) {
         if (filters) patchState(store, { filters: { ...filters } });
@@ -36,9 +37,10 @@ export const EventsStore = signalStore(
         } catch { if (current === revision) patchState(store, { loading: false, error: 'Games could not be loaded. Please check your filters and try again.' }); }
       },
       async loadFilters() {
+        const current = ++facetRevision;
         patchState(store, { filterError: '' });
-        try { const options = await firstValueFrom(http.get<Facets>('/api/events/filters')); patchState(store, { locations: options?.locations ?? [], organizers: options?.organizers ?? [] }); }
-        catch { patchState(store, { filterError: 'Location and organizer filters could not be loaded.' }); }
+        try { const options = await firstValueFrom(http.get<Facets>('/api/events/filters')); if (current === facetRevision) patchState(store, { locations: options?.locations ?? [], organizers: options?.organizers ?? [] }); }
+        catch { if (current === facetRevision) patchState(store, { filterError: 'Location and organizer filters could not be loaded.' }); }
       }
     };
   })

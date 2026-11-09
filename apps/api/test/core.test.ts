@@ -1,15 +1,18 @@
+import { eligibleForEvent, skillEligibilityInput } from '../src/event-eligibility';
+import { paymentProfileUrl } from '../src/payment-links';
+import { coOrganizerInput, managesEvent } from '../src/event-organizers';
 import 'reflect-metadata';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ExecutionContext, ForbiddenException, UnauthorizedException, ServiceUnavailableException } from '@nestjs/common';
 import { User } from '@prisma/client';
-import { AdministratorGuard, AuthRequest, FirebaseGuard, OrganizerGuard, TokenVerifier, tokenFailure } from '../src/auth';
+import { AdministratorGuard, AuthRequest, FirebaseGuard, OptionalFirebaseGuard, OrganizerGuard, TokenVerifier, tokenFailure } from '../src/auth';
 import { availability, renderPreview, previewMetadata, siteOrigin, ShareEvent } from '../src/event-sharing';
 import { publicWebConfig } from '../src/web-hosting';
 import { Database } from '../src/database';
 import { eventFilters, matchesEventDate } from '../src/event-filters';
 import { balanceTeams, combinedRating, reshuffleTeams } from '../src/teams';
-import { eventOptionsInput, initialPlayersInput } from '../src/event-options';
+import { eventOptionsInput, initialPlayersInput, initialPlayerSelections } from '../src/event-options';
 import { eventGuidanceInput } from '../src/event-guidance';
 import { eventInput, EventsController } from '../src/events';
 import { ProfilesController } from '../src/profiles';
@@ -115,7 +118,7 @@ test('publishing is scoped to owned future drafts and writes an audit entry', as
   const tx = { signup: { count: async () => 0, findMany: async () => [] }, eventInvitation: { findMany: async () => [] }, event: { findUniqueOrThrow: async () => ({ id: 'event', status: 'PUBLISHED' }), updateMany: async (input: unknown) => { query = input; return { count: 1 }; } }, auditLog: { create: async () => { audited = true; return { id: 'audit' }; } } };
   const controller = new EventsController({ $transaction: async (work: (tx: unknown) => unknown) => work(tx) } as unknown as Database);
   await controller.publish({ user: organizer } as AuthRequest, valid().locationId);
-  assert.equal(query.where.organizerId, organizer.id);
+  assert.deepEqual(query.where.OR, [{ organizerId: organizer.id }, { coOrganizerIds: { has: organizer.id } }]);
   assert.equal(query.where.status, 'DRAFT');
   assert.equal(audited, true);
 });
@@ -310,4 +313,56 @@ test('private previews retain invite-only URLs and send joining back to the hidd
   const preview = renderPreview(event, 'https://soccer.example.test', now);
   assert.ok(preview.includes(`/?privateGame=${event.id}&amp;invite=${event.privateInviteToken}`));
   assert.ok(!preview.includes(`/?event=${event.id}`));
+});
+
+
+test('co-organizer input rejects duplicates and invalid IDs while ownership remains backward compatible', () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  assert.deepEqual(coOrganizerInput(undefined), []); assert.deepEqual(coOrganizerInput(undefined, [id]), [id]);
+  assert.throws(() => coOrganizerInput([id, id]), /only once/); assert.throws(() => coOrganizerInput(['invalid'])); assert.throws(() => coOrganizerInput(null));
+  assert.equal(managesEvent({ organizerId: 'owner', coOrganizerIds: [id] }, id), true); assert.equal(managesEvent({ organizerId: 'owner' }, 'other'), false); assert.equal(managesEvent({ organizerId: 'owner' }, 'owner'), true);
+});
+
+
+test('initial player rows preserve independent modes and reject duplicate or ambiguous input', () => {
+  const one = '11111111-1111-4111-8111-111111111111', two = '22222222-2222-4222-8222-222222222222';
+  const entries = [{ userId: one, mode: 'INVITE' }, { userId: two, mode: 'BOOK' }];
+  assert.deepEqual(initialPlayerSelections({ initialPlayers: entries }), entries);
+  assert.throws(() => initialPlayerSelections({ initialPlayers: entries, initialPlayerMode: 'BOOK' }), /one player-selection format/);
+  assert.throws(() => initialPlayerSelections({ initialPlayers: [entries[0], entries[0]] }), /only once/);
+  assert.throws(() => initialPlayerSelections({ initialPlayers: [{ userId: one, mode: 'OTHER' }] }), /valid player/);
+});
+
+
+test('payment profile links normalize supported services and reject unsafe or unrelated addresses', () => {
+  assert.equal(paymentProfileUrl('https://account.venmo.com/u/Soccer-Host/', 'venmo'), 'https://venmo.com/u/Soccer-Host');
+  assert.equal(paymentProfileUrl('https://cash.app/$SoccerHost', 'cashapp'), 'https://cash.app/$SoccerHost');
+  assert.equal(paymentProfileUrl('https://www.paypal.com/paypalme/SoccerHost', 'paypal'), 'https://paypal.me/SoccerHost');
+  for (const url of ['http://venmo.com/u/host', 'https://venmo.com.evil.invalid/u/host', 'https://evil.invalid/u/host', 'https://user:pass@venmo.com/u/host', 'https://venmo.com/u/host?next=https://evil.invalid', 'https://venmo.com/u/host#fragment', 'javascript:alert(1)', 'https://venmo.com/u/host/pay', 'https://venmo.com:8443/u/host']) assert.equal(paymentProfileUrl(url, 'venmo'), null);
+  assert.equal(paymentProfileUrl('https://cash.app/help', 'cashapp'), null); assert.equal(paymentProfileUrl('https://paypal.com/login', 'paypal'), null);
+  const options = eventOptionsInput({ organizerVenmoUrl: 'https://venmo.com/u/host', organizerCashAppUrl: 'https://cash.app/$host', organizerPaypalUrl: 'https://paypal.me/host' });
+  assert.equal(eventOptionsInput({}, options).organizerCashAppUrl, options.organizerCashAppUrl);
+  assert.equal(eventOptionsInput({ organizerVenmoUrl: '' }, options).organizerVenmoUrl, null);
+  assert.throws(() => eventOptionsInput({ organizerPaypalUrl: 'https://evil.invalid/paypal' }), /valid PayPal profile link/);
+});
+
+
+test('event skill eligibility is inclusive, admin-first, and excludes unknown ratings', () => {
+  const minimum = { minimumSkillLevel: 3 }, maximum = { maximumSkillLevel: 3 };
+  assert.equal(eligibleForEvent(minimum, { skillLevel: 5, adminSkillLevel: 2 }), false);
+  assert.equal(eligibleForEvent(minimum, { skillLevel: 1, adminSkillLevel: 3 }), true);
+  assert.equal(eligibleForEvent(minimum, { skillLevel: 3, adminSkillLevel: null }), true);
+  assert.equal(eligibleForEvent(maximum, { skillLevel: 1, adminSkillLevel: 4 }), false);
+  assert.equal(eligibleForEvent(maximum, { skillLevel: 5, adminSkillLevel: 3 }), true);
+  assert.equal(eligibleForEvent(maximum, { skillLevel: null, adminSkillLevel: null }), false);
+  assert.equal(eligibleForEvent(minimum), false); assert.equal(eligibleForEvent({}), true);
+  for (const input of [{ minimumSkillLevel: 0 }, { maximumSkillLevel: 6 }, { minimumSkillLevel: 1.5 }, { minimumSkillLevel: 2, maximumSkillLevel: 4 }]) assert.throws(() => skillEligibilityInput(input));
+  assert.deepEqual(skillEligibilityInput({}, minimum), { minimumSkillLevel: 3, maximumSkillLevel: null });
+  assert.deepEqual(skillEligibilityInput({ minimumSkillLevel: null }, minimum), { minimumSkillLevel: null, maximumSkillLevel: null });
+});
+
+test('optional authentication allows anonymous browsing but never ignores invalid supplied credentials', async () => {
+  let verified = 0; const guard = new OptionalFirebaseGuard({ verify: async () => { verified++; throw new UnauthorizedException(); } } as unknown as TokenVerifier, {} as Database);
+  assert.equal(await guard.canActivate(context({ headers: {} })), true); assert.equal(verified, 0);
+  await assert.rejects(guard.canActivate(context({ headers: { authorization: 'Bearer bad-token' } })), UnauthorizedException); assert.equal(verified, 1);
 });

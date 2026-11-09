@@ -12,11 +12,18 @@ interface Player { teamNumber: number | null; id: string; name: string; isGuest:
 })
 export class PlayersComponent implements OnChanges {
   @Input({ required: true }) eventId!: string;
+  @Input() teamCount = 2;
+  @Input() shirtColors: string[] = [];
+  @Input() bibsProvided = false;
+  teamNumbers() { return Array.from({ length: Math.max(2, Math.min(16, this.teamCount)) }, (_, i) => i + 1); }
+  teamPlayers(team: number | null) { return this.group('CONFIRMED').filter(player => (player.teamNumber ?? null) === team); }
+  startingColor(team: number) { return this.shirtColors[team - 1]?.trim() || null; }
   private readonly http = inject(HttpClient);
   readonly players = signal<Player[]>([]);
   readonly loading = signal(false);
   readonly error = signal('');
   ngOnChanges() { void this.load(); }
+  groupPlayers() { return this.group('WAITLISTED'); }
   group(status: Player['status']) { return this.players().filter(p => p.status === status); }
   async load() {
     const eventId = this.eventId;

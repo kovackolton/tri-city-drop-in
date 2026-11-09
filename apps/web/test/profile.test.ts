@@ -1,5 +1,8 @@
 import '@angular/compiler';
+import { PlayerPickerComponent } from '../src/app/player-picker/player-picker.component';
+import { PaymentLinksComponent } from '../src/app/payment-links/payment-links.component';
 import { matchesCalendar, venueDate } from '../src/calendar';
+import { PlayersComponent } from '../src/app/players/players.component';
 import { LocationsComponent } from '../src/app/locations/locations.component';
 import { CalendarPickerComponent } from '../src/app/calendar-picker/calendar-picker.component';
 import { test } from 'node:test';
@@ -220,7 +223,7 @@ test('private signup carries the invite key after separate paid cost confirmatio
   assert.equal(calls.length, 1); assert.equal(calls[0][5], component.inviteToken); assert.equal(calls[0][4], true); injector.destroy();
 });
 
-test('private creation converts selected-player bookings into link invitations and sharing uses the organizer endpoint', async () => {
+test('private creation preserves per-player booking choices and sharing uses the organizer endpoint', async () => {
   const calls: { url: string; body?: any }[] = [];
   const injector = Injector.create({ providers: [
     { provide: AuthService, useValue: { profile: () => ({ id: 'owner', role: 'ORGANIZER' }) } },
@@ -228,45 +231,29 @@ test('private creation converts selected-player bookings into link invitations a
   ] });
   const component = runInInjectionContext(injector, () => new OrganizerComponent());
   component.event = { ...component.event, isPrivate: true, title: 'Private soccer', locationId: 'pitch', startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString() };
-  component.initialPlayerMode = 'BOOK'; component.selectedPlayers.set([{ id: 'player', accountName: 'Player', displayName: 'Player' }]);
+  component.selectedPlayers.set([{ id: 'player', accountName: 'Player', displayName: 'Player', mode: 'BOOK' }]);
   await component.createEvent(); await component.confirmCreation('PUBLISHED');
-  const create = calls.find(call => call.url === '/api/events')!; assert.equal(create.body.isPrivate, true); assert.equal(create.body.initialPlayerMode, 'INVITE');
+  const create = calls.find(call => call.url === '/api/events')!; assert.equal(create.body.isPrivate, true); assert.deepEqual(create.body.initialPlayers, [{ userId: 'player', mode: 'BOOK' }]);
   const share = runInInjectionContext(injector, () => new EventShareComponent()); share.eventId = 'private'; share.organizerContext = true;
   await share.prepare(); assert.ok(calls.some(call => call.url === '/api/organizer/events/private/share')); injector.destroy();
 });
 
-test('roster adds searched players by invitation or immediate booking and prevents duplicate submissions', async () => {
+test('shared player picker stages per-player modes, saves once, and retains failed selections', async () => {
   const searches: Subject<any>[] = [], posts: { body: any; response: Subject<any> }[] = [];
-  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: {
-    get: (url: string) => { if (url.endsWith('/roster')) return of([]); const response = new Subject<any>(); searches.push(response); return response; },
-    post: (_url: string, body: any) => { const response = new Subject<any>(); posts.push({ body, response }); return response; }
-  } }] });
-  const component = runInInjectionContext(injector, () => new RosterComponent());
-  component.eventId = 'event'; component.eventStatus = 'PUBLISHED'; component.startsAt = new Date(Date.now() + 86400000).toISOString(); component.priceCents = 1200; component.isPrivate = true;
-  assert.equal(component.canAddPlayers(), true); component.toggleAddPlayer(); assert.equal(component.showAddPlayer(), true);
-  component.playerSearch = 'Alex'; const search = component.searchExistingPlayers();
-  const player = { id: 'player', displayName: 'Alex', accountName: 'Alex Account' }; searches[0].next([player]); searches[0].complete(); await search;
-  component.selectedPlayer.set(component.playerResults()[0]);
-  const invite = component.addSelectedPlayer(); await component.addSelectedPlayer(); assert.equal(posts.length, 1); component.toggleAddPlayer(); assert.equal(component.showAddPlayer(), true);
-  assert.deepEqual(posts[0].body, { userId: 'player', mode: 'INVITE' });
-  posts[0].response.next({ mode: 'INVITE', status: 'PENDING', draft: false, alreadyAdded: false }); posts[0].response.complete(); await invite;
-  assert.match(component.addNotice(), /invitation sent/); assert.equal(component.selectedPlayer(), null);
-  component.selectedPlayer.set(player); component.addMode = 'BOOK';
-  const booking = component.addSelectedPlayer(); assert.deepEqual(posts[1].body, { userId: 'player', mode: 'BOOK', expectedPriceCents: 1200 });
-  posts[1].response.next({ mode: 'BOOK', status: 'WAITLISTED', draft: false, alreadyAdded: false }); posts[1].response.complete(); await booking;
-  assert.match(component.addNotice(), /waitlist/);
-  component.selectedPlayer.set(player); const failed = component.addSelectedPlayer(); posts[2].response.error(new Error('Failed')); await failed;
-  assert.ok(component.addError()); assert.equal(component.selectedPlayer()?.id, player.id); assert.equal(component.addingPlayer(), false);
-  component.eventStatus = 'COMPLETED'; assert.equal(component.canAddPlayers(), false); injector.destroy();
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: { get: () => { const response = new Subject<any>(); searches.push(response); return response; }, post: (_url: string, body: any) => { const response = new Subject<any>(); posts.push({ body, response }); return response; } } }] });
+  const component = runInInjectionContext(injector, () => new PlayerPickerComponent()); component.eventId = 'event'; component.priceCents = 1200; component.search = 'Alex';
+  const search = component.find(); searches[0].next([{ id: 'one', displayName: 'Alex', accountName: 'Alex' }, { id: 'two', displayName: 'Sam', accountName: 'Sam' }]); searches[0].complete(); await search;
+  component.select(component.results()[0]); component.select(component.results()[0]); component.select(component.results()[1]); component.mode('two', 'BOOK'); assert.equal(component.players.length, 2); assert.equal(component.players[0].mode, 'INVITE');
+  const save = component.save(); await component.save(); assert.equal(posts.length, 1); assert.deepEqual(posts[0].body, { players: [{ userId: 'one', mode: 'INVITE' }, { userId: 'two', mode: 'BOOK' }], expectedPriceCents: 1200 });
+  posts[0].response.error(new Error('Booking rejected')); await save; assert.equal(component.players.length, 2); assert.ok(component.error());
+  const retry = component.save(); posts[1].response.next({ items: [{ mode: 'INVITE' }, { mode: 'BOOK' }] }); posts[1].response.complete(); await retry; assert.equal(component.players.length, 0); injector.destroy();
 });
 
-test('add-player search ignores a response for an event that is no longer open', async () => {
-  const response = new Subject<any>();
-  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: { get: (url: string) => url.endsWith('/roster') ? of([]) : response } }] });
-  const component = runInInjectionContext(injector, () => new RosterComponent()); component.eventId = 'first'; component.playerSearch = 'Alex';
-  const pending = component.searchExistingPlayers(); component.eventId = 'second'; component.ngOnChanges();
-  response.next([{ id: 'old-player' }]); response.complete(); await pending;
-  assert.equal(component.playerResults().length, 0); assert.equal(component.selectedPlayer(), null); assert.equal(component.showAddPlayer(), false); injector.destroy();
+test('shared picker ignores old-event searches and bulk requires a confirmed current preview', async () => {
+  const searches: Subject<any>[] = [], posts: any[] = [];
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: { get: () => { const response = new Subject<any>(); searches.push(response); return response; }, post: (url: string, body: any) => { posts.push({ url, body }); return of(url.endsWith('bulk-preview') ? { previewId: 'preview', minimumSkill: 4, count: 2, draft: false } : { count: 2, draft: false }); } } }] });
+  const component = runInInjectionContext(injector, () => new PlayerPickerComponent()); component.eventId = 'old'; component.search = 'Alex'; const searching = component.find(); component.eventId = 'new'; component.ngOnChanges({ eventId: {} } as any); searches[0].next([{ id: 'old' }]); searches[0].complete(); await searching; assert.equal(component.results().length, 0);
+  await component.sendBulk(); assert.equal(posts.length, 0); component.bulkSkill = 4; await component.previewBulk(); assert.equal(component.bulkPreview()?.count, 2); await component.sendBulk(); assert.deepEqual(posts[1].body, { previewId: 'preview', confirm: true }); assert.equal(component.bulkPreview(), null); injector.destroy();
 });
 
 test('handbook visibility and search respect roles and direct restricted-guide selection falls back safely', () => {
@@ -694,7 +681,7 @@ test('workspace cards collapse, administrator review requires acknowledgement, a
   let profile: any = { id: 'admin', role: 'ADMINISTRATOR' }; const posts: any[] = [];
   const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => profile } }, { provide: HttpClient, useValue: { get: () => of([]), post: (url: string, body: unknown) => { posts.push({ url, body }); return of({}); } } }] });
   const component = runInInjectionContext(injector, () => new OrganizerComponent()); component.ngOnInit();
-  assert.equal(component.eventScope(), 'all'); assert.equal(component.expandedEvent(), ''); component.toggleEvent('event'); assert.equal(component.expandedEvent(), 'event'); component.toggleEvent('event'); assert.equal(component.expandedEvent(), '');
+  assert.equal(component.eventScope(), 'mine'); assert.equal(component.expandedEvent(), ''); component.toggleEvent('event'); assert.equal(component.expandedEvent(), 'event'); component.toggleEvent('event'); assert.equal(component.expandedEvent(), '');
   const game: any = { id: 'event', organizerId: 'admin', status: 'PUBLISHED', startsAt: new Date(Date.now() + 86400000).toISOString(), deletedAt: new Date().toISOString(), reviewStatus: 'NEEDS_REVIEW' };
   assert.equal(component.canEdit(game), false); assert.equal(component.canShare(game), false); assert.equal(component.canCancel(game), false);
   component.startReviewCompletion(game); await component.completeReview(); assert.equal(posts.length, 0);
@@ -710,4 +697,55 @@ test('location filters search names, addresses and city, filter media, and reset
   component.search = 'main'; assert.equal(component.filteredLocations()[0].id, 'a'); component.search = ''; component.city = 'Bay City'; component.media = 'map'; assert.equal(component.filteredLocations()[0].id, 'b'); component.media = 'photo'; assert.equal(component.filteredLocations().length, 0); component.clearFilters(); assert.equal(component.filteredLocations().length, 2);
   assert.equal(readFileSync(resolve('src/app/my-games/my-games.component.html'), 'utf8').includes('class="panel game-filters" open'), false);
   injector.destroy();
+});
+
+
+test('co-organizer form preserves assignments while editing and includes them in event saves', async () => {
+  const calls: any[] = []; const profile = { id: 'co', role: 'ORGANIZER' };
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => profile } }, { provide: HttpClient, useValue: { get: () => of([]), patch: (url: string, body: any) => { calls.push({ url, body }); return of({}); } } }] });
+  const component = runInInjectionContext(injector, () => new OrganizerComponent());
+  const game: any = { id: 'event', organizerId: 'owner', coOrganizerIds: ['co'], coOrganizers: [{ id: 'co', displayName: 'Co organizer', accountName: 'Co account' }], title: 'Shared game', status: 'DRAFT', location: { id: 'pitch' }, startsAt: '2030-01-01T20:00:00Z', endsAt: '2030-01-01T21:00:00Z', capacity: 12, priceCents: 0, maxGuestsPerUser: 1, cancellationCutoffHours: 12 };
+  assert.equal(component.canEdit(game), true);
+  const oldWindow = (globalThis as any).window; (globalThis as any).window = { scrollTo() {} };
+  try { component.edit(game); assert.deepEqual(component.event.coOrganizerIds, ['co']); assert.equal(component.selectedOrganizers()[0].id, 'co'); component.selectOrganizer({ id: 'second', displayName: 'Second', accountName: 'Second' }); component.selectOrganizer({ id: 'second', displayName: 'Second', accountName: 'Second' }); assert.deepEqual(component.event.coOrganizerIds, ['co', 'second']); component.selectOrganizer({ id: 'owner', displayName: 'Owner', accountName: 'Owner' }); assert.equal(component.event.coOrganizerIds.length, 2); await component.createEvent(); assert.deepEqual(calls[0].body.coOrganizerIds, ['co', 'second']); assert.deepEqual(component.event.coOrganizerIds, []); }
+  finally { (globalThis as any).window = oldWindow; injector.destroy(); }
+});
+
+test('team columns keep confirmed teams, unassigned players and waitlist separate and do not invent missing colors', () => {
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: {} }] });
+  const component = runInInjectionContext(injector, () => new PlayersComponent()); component.teamCount = 3; component.shirtColors = ['dark', 'light'];
+  component.players.set([{ id: 'a', status: 'CONFIRMED', teamNumber: 1 }, { id: 'b', status: 'CONFIRMED', teamNumber: 2, isGuest: true }, { id: 'c', status: 'CONFIRMED', teamNumber: null }, { id: 'd', status: 'WAITLISTED', teamNumber: null }] as any);
+  assert.deepEqual(component.teamNumbers(), [1, 2, 3]); assert.equal(component.startingColor(1), 'dark'); assert.equal(component.startingColor(2), 'light'); assert.equal(component.startingColor(3), null);
+  assert.deepEqual(component.teamPlayers(2).map(player => player.id), ['b']); assert.deepEqual(component.teamPlayers(null).map(player => player.id), ['c']); assert.deepEqual(component.groupPlayers().map(player => player.id), ['d']); injector.destroy();
+});
+
+
+test('payment buttons render only validated profile links and hide cleared or unsafe methods', () => {
+  const component = new PaymentLinksComponent(); component.venmoUrl = 'https://venmo.com/u/host'; component.cashAppUrl = 'https://cash.app/$host'; component.paypalUrl = 'https://www.paypal.com/paypalme/host';
+  assert.deepEqual(component.methods().map(method => method.url), ['https://venmo.com/u/host', 'https://cash.app/$host', 'https://paypal.me/host']);
+  component.cashAppUrl = 'https://cash.app.evil.invalid/$host'; component.venmoUrl = ''; assert.deepEqual(component.methods().map(method => method.key), ['paypal']); component.paypalUrl = null; assert.equal(component.methods().length, 0);
+});
+
+
+test('payment username fields build full profile URLs, avoid duplicate Cashtag prefixes, and clear optional methods', () => {
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: {} }, { provide: HttpClient, useValue: {} }] });
+  const component = runInInjectionContext(injector, () => new OrganizerComponent());
+  component.setPaymentUsername('venmo', '@SoccerHost'); component.setPaymentUsername('cashapp', '$SoccerHost'); component.setPaymentUsername('paypal', 'SoccerHost');
+  assert.equal(component.event.organizerVenmoUrl, 'https://venmo.com/u/SoccerHost'); assert.equal(component.event.organizerCashAppUrl, 'https://cash.app/$SoccerHost'); assert.equal(component.event.organizerPaypalUrl, 'https://paypal.me/SoccerHost');
+  component.event.organizerPaypalUrl = 'https://www.paypal.com/paypalme/ExistingHost'; assert.equal(component.paymentUsername('paypal'), 'ExistingHost');
+  component.setPaymentUsername('cashapp', ''); assert.equal(component.event.organizerCashAppUrl, ''); assert.equal(component.paymentUsername('cashapp'), ''); injector.destroy();
+});
+
+
+test('event eligibility choices remain organizer-only and are included in creation payloads', async () => {
+  const bodies: any[] = []; const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => ({ id: 'owner', role: 'ORGANIZER' }) } }, { provide: HttpClient, useValue: { get: () => of([]), post: (_url: string, body: any) => { bodies.push(body); return of({}); } } }] });
+  const component = runInInjectionContext(injector, () => new OrganizerComponent()); component.event = { ...component.event, title: 'Game', locationId: 'pitch', startsAt: '2030-01-01T20:00:00Z', endsAt: '2030-01-01T21:00:00Z' }; component.skillRestricted = true; component.skillThreshold = 3; component.skillDirection = 'below'; await component.createEvent('PUBLISHED'); assert.equal(bodies[0].maximumSkillLevel, 3); assert.equal(bodies[0].minimumSkillLevel, null);
+  component.skillRestricted = true; component.skillThreshold = 6; await component.createEvent('PUBLISHED'); assert.equal(bodies.length, 1);
+  assert.ok(!JSON.stringify(howToGuides).includes('minimumSkillLevel')); injector.destroy();
+});
+
+test('audience reset drops restricted results and ignores stale list, facet and selected responses', async () => {
+  const requests: Subject<any>[] = []; const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: { get: () => { const response = new Subject<any>(); requests.push(response); return response; } } }, EventsStore] }); const store = injector.get(EventsStore);
+  const list = store.load(), facets = store.loadFilters(), selected = store.loadSelected('game'); store.resetAudience();
+  requests[0].next([{ id: 'old' }]); requests[0].complete(); requests[1].next({ locations: [{ id: 'old' }], organizers: [] }); requests[1].complete(); requests[2].next({ game: { id: 'old' } }); requests[2].complete(); await Promise.all([list, facets, selected]); assert.deepEqual(store.events(), []); assert.deepEqual(store.locations(), []); assert.equal(store.selectedGame(), null); injector.destroy();
 });

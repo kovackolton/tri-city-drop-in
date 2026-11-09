@@ -31,14 +31,14 @@ export class MyGamesComponent implements OnChanges {
   calendar: CalendarSelection = { period: 'all', date: calendarDate(new Date()) };
   search = ''; location = ''; organizer = ''; bookingStatus = ''; paymentFilter = '';
   locations() { return [...new Set(this.store.seats().map(seat => seat.event.location.name))].sort(); }
-  organizers() { return [...new Set(this.store.seats().map(seat => seat.event.organizer.displayName))].sort(); }
+  organizers() { return [...new Set(this.store.seats().flatMap(seat => [seat.event.organizer.displayName, ...(seat.event.coOrganizers ?? []).map(user => user.displayName)]))].sort(); }
   needsPayment(host: Seat) { return this.party(host).some(seat => seat.status === 'CONFIRMED' && ['PUBLISHED', 'COMPLETED'].includes(seat.event.status) && Date.parse(seat.event.endsAt) <= Date.now() && seat.payment && seat.payment.amountCents > 0 && !['VOID', 'NOT_REQUIRED'].includes(seat.payment.status) && seat.payment.playerPaid === null); }
   matches(host: Seat) {
     const query = this.search.trim().toLowerCase();
     return matchesCalendar(host.event.startsAt, host.event.location?.timezone ?? 'UTC', this.calendar)
       && (!query || `${host.event.title} ${host.event.location.name} ${host.event.location.city ?? ''}`.toLowerCase().includes(query))
       && (!this.location || host.event.location.name === this.location)
-      && (!this.organizer || host.event.organizer.displayName === this.organizer)
+      && (!this.organizer || (host.event.organizer.displayName === this.organizer || host.event.coOrganizers?.some(user => user.displayName === this.organizer)))
       && (!this.bookingStatus || host.status === this.bookingStatus)
       && (!this.paymentFilter || (this.paymentFilter === 'needs' ? this.needsPayment(host) : this.party(host).some(seat => seat.payment && seat.payment.amountCents > 0 && !['VOID', 'NOT_REQUIRED'].includes(seat.payment.status) && seat.payment.playerPaid === (this.paymentFilter === 'paid'))));
   }

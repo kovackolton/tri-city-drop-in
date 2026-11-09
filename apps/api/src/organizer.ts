@@ -1,3 +1,4 @@
+import { managesEvent, managedEvents } from './event-organizers';
 import { BadRequestException, Body, ConflictException, Controller, Get, Inject, Injectable, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
@@ -20,7 +21,7 @@ export class OrganizerService {
     if (!row) throw new NotFoundException('Seat not found.');
     await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${row.eventId}::uuid FOR UPDATE`;
     const seat = await tx.signup.findUniqueOrThrow({ where: { id: signupId }, include: { event: true, payment: true, strikes: true } });
-    if (!administrator && seat.event.organizerId !== actorId) throw new NotFoundException('Seat not found.');
+    if (!administrator && !managesEvent(seat.event, actorId)) throw new NotFoundException('Seat not found.');
     if (!['PUBLISHED', 'COMPLETED'].includes(seat.event.status)) throw new ConflictException('This event is not available for review.');
     return seat;
   }
@@ -75,7 +76,7 @@ export class OrganizerService {
   }
   async audit(actorId: string, eventId: string, administrator = false) {
     uuid(eventId);
-    if (!await this.db.event.findFirst({ where: { id: eventId, ...(administrator ? {} : { organizerId: actorId }) } })) throw new NotFoundException('Event not found.');
+    if (!await this.db.event.findFirst({ where: { id: eventId, ...(administrator ? {} : managedEvents(actorId)) } })) throw new NotFoundException('Event not found.');
     return this.db.auditLog.findMany({ where: { eventId }, select: { id: true, action: true, details: true, createdAt: true, actor: { select: { displayName: true } } }, orderBy: { createdAt: 'desc' }, take: 100 });
   }
 }

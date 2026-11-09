@@ -36,3 +36,9 @@ summary { cursor: pointer; font-size: .8rem; font-weight: 600; color: var(--acce
 .review-badge { border: 1px solid var(--banner-border); border-radius: 999px; padding: .3rem .7rem; font-size: .75rem; font-weight: 700; background: var(--banner-tile); }
 .review-badge.review-complete { background: var(--success-bg); color: var(--success-text); border-color: var(--success-border); }
 @media (max-width: 600px) { .event-compact-header { flex-wrap: wrap; } .event-expand { width: 100%; } }
+
+.payment-username-field { display: flex; align-items: stretch; margin-top: .375rem; border: 1px solid var(--input-border); border-radius: .6rem; overflow: hidden; background: var(--surface); }
+.payment-url-prefix { display: flex; align-items: center; padding: .65rem .7rem; color: var(--muted); background: var(--surface-muted); font-weight: 400; font-size: .8rem; overflow-wrap: anywhere; }
+.payment-username-field input { flex: 1; min-width: 0; width: 0; margin: 0; border: 0; border-left: 1px solid var(--input-border); border-radius: 0; }
+.payment-username-field:focus-within { outline: 3px solid var(--focus); outline-offset: 3px; }
+@media (max-width: 480px) { .payment-username-field { flex-direction: column; } .payment-username-field input { width: 100%; border-left: 0; border-top: 1px solid var(--input-border); } }

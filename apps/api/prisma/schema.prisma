@@ -100,6 +100,7 @@ model Event {
   title       String
   description String?
   deletedAt DateTime? @db.Timestamptz(3)
+  coOrganizerIds String[] @default([]) @db.Uuid
   organizerId String @db.Uuid
   organizer   User @relation(fields: [organizerId], references: [id], onDelete: Restrict)
   locationId  String @db.Uuid
@@ -112,10 +113,15 @@ model Event {
   shirtColors String[] @default([])
   shirtColorCount Int?
   minPlayers Int?
+  minimumSkillLevel Int?
+  maximumSkillLevel Int?
   teamCount Int @default(2)
   teamBalancingEnabled Boolean @default(false)
   organizerContactEmail String?
   organizerContactPhone String?
+  organizerVenmoUrl String?
+  organizerCashAppUrl String?
+  organizerPaypalUrl String?
   contactCallAllowed Boolean @default(false)
   contactTextAllowed Boolean @default(false)
   // Per player/guest seat. Zero means Free; 1250 means USD $12.50.
@@ -131,6 +137,7 @@ model Event {
   auditLogs   AuditLog[]
   @@index([status, startsAt])
   @@index([organizerId, startsAt])
+  @@index([coOrganizerIds], type: Gin)
 }
 
 // One row per occupied seat. guestNumber 0 = account holder, 1+ = their guests.
