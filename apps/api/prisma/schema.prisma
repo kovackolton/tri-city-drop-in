@@ -100,6 +100,7 @@ model Event {
   title       String
   description String?
   deletedAt DateTime? @db.Timestamptz(3)
+  coOrganizerIds String[] @default([]) @db.Uuid
   organizerId String @db.Uuid
   organizer   User @relation(fields: [organizerId], references: [id], onDelete: Restrict)
   locationId  String @db.Uuid
@@ -131,6 +132,7 @@ model Event {
   auditLogs   AuditLog[]
   @@index([status, startsAt])
   @@index([organizerId, startsAt])
+  @@index([coOrganizerIds], type: Gin)
 }
 
 // One row per occupied seat. guestNumber 0 = account holder, 1+ = their guests.

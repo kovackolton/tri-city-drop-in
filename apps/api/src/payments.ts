@@ -1,3 +1,4 @@
+import { managesEvent } from './event-organizers';
 import { BadRequestException, Body, ConflictException, Controller, Inject, Injectable, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuthRequest, FirebaseGuard, OrganizerGuard } from './auth';
@@ -23,7 +24,7 @@ export class PaymentsService {
       // Same event lock as registration writes: no cancelled seat can be reviewed mid-change.
       await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${seat.eventId}::uuid FOR UPDATE`;
       const signup = await tx.signup.findUniqueOrThrow({ where: { id: signupId }, include: { event: true, payment: true } });
-      if (side === 'player' ? signup.userId !== actorId : !administrator && signup.event.organizerId !== actorId) throw new NotFoundException('Payment record not found.');
+      if (side === 'player' ? signup.userId !== actorId : !administrator && !managesEvent(signup.event, actorId)) throw new NotFoundException('Payment record not found.');
       if (signup.status !== 'CONFIRMED' || !['PUBLISHED', 'COMPLETED'].includes(signup.event.status)) throw new ConflictException('Only confirmed places at an active or completed event can be reviewed.');
       if (signup.event.endsAt > new Date()) throw new ConflictException('Pay in person at the event. Payment review opens after the event ends.');
       const payment = signup.payment;

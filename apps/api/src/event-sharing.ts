@@ -1,3 +1,4 @@
+import { managedEvents } from './event-organizers';
 import { Controller, Get, Inject, Injectable, NotFoundException, Param, Res, Req, Query, Header, UseGuards, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { existsSync, readFileSync } from 'node:fs';
@@ -68,7 +69,7 @@ export class EventSharingService {
   }
   async organizerGame(actorId: string, id: string, administrator = false) {
     if (!validId(id)) throw new NotFoundException('Event not found.');
-    const event = await this.db.event.findFirst({ where: { id, deletedAt: null, ...(administrator ? {} : { organizerId: actorId }) }, select });
+    const event = await this.db.event.findFirst({ where: { id, deletedAt: null, ...(administrator ? {} : managedEvents(actorId)) }, select });
     if (!event || !availability(event).open || event.status !== 'PUBLISHED') throw new NotFoundException('Only future published games can be shared.');
     return this.response(event);
   }

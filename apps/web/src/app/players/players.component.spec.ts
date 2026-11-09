@@ -19,7 +19,7 @@ describe('PlayersComponent', () => {
     for (const request of http.match(() => true)) request.flush([]);
     await fixture.whenStable();
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain("No confirmed players.");
+    expect(fixture.nativeElement.textContent).toContain("No players assigned yet.");
     http.verify();
   });
 });

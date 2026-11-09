@@ -2,3 +2,8 @@
 .player-tile { display: flex; align-items: center; gap: .75rem; padding: .85rem; border-radius: .75rem; background: var(--surface-muted); }
 .lineup-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success-text); }
 .lineup-dot.waiting { background: var(--warning-text); }
+
+.team-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 1rem; align-items: start; }
+.team-column { min-width: 0; border: 1px solid var(--border); border-radius: .85rem; overflow: hidden; }
+.team-column > header { padding: 1rem; background: var(--surface-muted); border-bottom: 1px solid var(--divider); }
+.team-column .player-tile { padding: .65rem; }

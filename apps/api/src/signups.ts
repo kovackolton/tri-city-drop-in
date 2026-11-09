@@ -1,3 +1,4 @@
+import { managesEvent, managedEvents, organizerDirectory } from './event-organizers';
 import { BadRequestException, Body, ConflictException, Controller, Get, Inject, Injectable, NotFoundException, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Event, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
@@ -88,7 +89,7 @@ export class SignupsService {
     uuid(eventId); uuid(bookingId);
     return this.db.$transaction(async tx => {
       const event = await this.lockedEvent(tx, eventId, true);
-      if (organizerReason !== undefined && !administrator && event.organizerId !== userId) throw new NotFoundException('Booking not found.');
+      if (organizerReason !== undefined && !administrator && !managesEvent(event, userId)) throw new NotFoundException('Booking not found.');
       const seats = await tx.signup.findMany({ where: { eventId, ...(organizerReason === undefined ? { userId } : {}), bookingId } });
       if (!seats.length) throw new NotFoundException('Booking not found.');
       if (seats.every(s => s.status === 'CANCELLED')) return { status: 'CANCELLED', lateCancellation: seats[0].lateCancellation };
@@ -108,7 +109,7 @@ export class SignupsService {
     uuid(eventId); uuid(bookingId);
     return this.db.$transaction(async tx => {
       const event = await this.lockedEvent(tx, eventId);
-      if (!administrator && event.organizerId !== actorId) throw new NotFoundException('Event not found.');
+      if (!administrator && !managesEvent(event, actorId)) throw new NotFoundException('Event not found.');
       const seats = await tx.signup.findMany({ where: { eventId, bookingId }, orderBy: { guestNumber: 'asc' } });
       if (!seats.length || seats.some(s => s.status === 'CANCELLED')) throw new NotFoundException('Active booking not found.');
       if (seats.every(s => s.status === 'CONFIRMED')) return seats;
@@ -141,8 +142,9 @@ export class SignupsService {
     const events = await this.db.signup.groupBy({ by: ['eventId'], where: { userId, guestNumber: 0 }, _max: { queuedAt: true }, orderBy: [{ _max: { queuedAt: 'desc' } }, { eventId: 'asc' }], take: 100 });
     const eventIds = [...new Set([...events.map(event => event.eventId), ...(includeEventId ? [includeEventId] : [])])];
     const history = await this.db.signup.groupBy({ by: ['eventId', 'status', 'cancellationSource'], where: { userId, guestNumber: 0, eventId: { in: eventIds } }, _count: true });
-    const seats = await this.db.signup.findMany({ where: { userId, eventId: { in: eventIds } }, include: { strikes: { select: { id: true, reason: true, createdAt: true, revokedAt: true, expiresAt: true } }, payment: true, event: { select: { id: true, isPrivate: true, title: true, description: true, capacity: true, teamCount: true, teamBalancingEnabled: true, organizerContactEmail: true, organizerContactPhone: true, contactCallAllowed: true, contactTextAllowed: true, bibsProvided: true, bibCount: true, shirtColors: true, shirtColorCount: true, minPlayers: true, _count: { select: { signups: { where: { status: 'CONFIRMED' } } } }, startsAt: true, endsAt: true, status: true, cancellationCutoffHours: true, location: true, organizer: { select: appearanceSelect } } } }, orderBy: [{ queuedAt: 'desc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
-    return seats.map(seat => { const { _count, ...event } = seat.event; const records = history.filter(record => record.eventId === seat.eventId); return { ...seat, bookingCount: records.reduce((sum, record) => sum + record._count, 0), playerCancellationCount: records.filter(record => record.status === 'CANCELLED' && record.cancellationSource === 'PLAYER').reduce((sum, record) => sum + record._count, 0), legacyCancellationCount: records.filter(record => record.status === 'CANCELLED' && record.cancellationSource === null).reduce((sum, record) => sum + record._count, 0), event: { ...event, confirmed: _count.signups, organizer: appearance(event.organizer) } }; });
+    const seats = await this.db.signup.findMany({ where: { userId, eventId: { in: eventIds } }, include: { strikes: { select: { id: true, reason: true, createdAt: true, revokedAt: true, expiresAt: true } }, payment: true, event: { select: { id: true, coOrganizerIds: true, isPrivate: true, title: true, description: true, capacity: true, teamCount: true, teamBalancingEnabled: true, organizerContactEmail: true, organizerContactPhone: true, contactCallAllowed: true, contactTextAllowed: true, bibsProvided: true, bibCount: true, shirtColors: true, shirtColorCount: true, minPlayers: true, _count: { select: { signups: { where: { status: 'CONFIRMED' } } } }, startsAt: true, endsAt: true, status: true, cancellationCutoffHours: true, location: true, organizer: { select: appearanceSelect } } } }, orderBy: [{ queuedAt: 'desc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
+    const additionalOrganizers = await organizerDirectory(this.db, seats.flatMap(seat => seat.event.coOrganizerIds));
+    return seats.map(seat => { const { _count, coOrganizerIds, ...event } = seat.event; const records = history.filter(record => record.eventId === seat.eventId); return { ...seat, bookingCount: records.reduce((sum, record) => sum + record._count, 0), playerCancellationCount: records.filter(record => record.status === 'CANCELLED' && record.cancellationSource === 'PLAYER').reduce((sum, record) => sum + record._count, 0), legacyCancellationCount: records.filter(record => record.status === 'CANCELLED' && record.cancellationSource === null).reduce((sum, record) => sum + record._count, 0), event: { ...event, coOrganizers: additionalOrganizers.filter(user => coOrganizerIds.includes(user.id)).map(user => ({ id: user.id, displayName: user.displayName, avatarUrl: user.avatarUrl, avatarColor: user.avatarColor })), confirmed: _count.signups, organizer: appearance(event.organizer) } }; });
   }
   async participants(userId: string, eventId: string) {
     uuid(eventId);
@@ -157,7 +159,7 @@ export class SignupsService {
   }
   async roster(userId: string, eventId: string, administrator = false) {
     uuid(eventId);
-    if (!await this.db.event.findFirst({ where: { id: eventId, ...(administrator ? {} : { organizerId: userId }) } })) throw new NotFoundException('Event not found.');
+    if (!await this.db.event.findFirst({ where: { id: eventId, ...(administrator ? {} : managedEvents(userId)) } })) throw new NotFoundException('Event not found.');
     const accounts = await this.db.signup.findMany({ where: { eventId }, select: { userId: true }, distinct: ['userId'] });
     const userIds = accounts.map(seat => seat.userId);
     await refreshPaymentStrikes(this.db, userIds);
