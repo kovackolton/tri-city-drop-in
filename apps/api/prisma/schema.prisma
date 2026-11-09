@@ -117,6 +117,9 @@ model Event {
   teamBalancingEnabled Boolean @default(false)
   organizerContactEmail String?
   organizerContactPhone String?
+  organizerVenmoUrl String?
+  organizerCashAppUrl String?
+  organizerPaypalUrl String?
   contactCallAllowed Boolean @default(false)
   contactTextAllowed Boolean @default(false)
   // Per player/guest seat. Zero means Free; 1250 means USD $12.50.

@@ -879,6 +879,24 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       const draft = await event(4); await db.event.update({ where: { id: draft.id }, data: { status: 'DRAFT' } }); const pending = await invitations.bulkInvite(users[0].id, draft.id, { minimumSkill: 5 }, false, true); await invitations.bulkInvite(users[0].id, draft.id, { previewId: (pending as any).previewId, confirm: true }); assert.equal(await db.notification.count({ where: { kind: 'EVENT_INVITATION', payload: { path: ['eventId'], equals: draft.id } } }), 0);
       const search = await invitations.search('Bulk skill', '5'); assert.ok(search.some(user => user.id === included.id)); assert.ok(!search.some(user => user.id === excluded.id || user.id === unknown.id));
     });
+    await t.test('organizer payment links persist through creation/editing and reach game, booking and private sharing cards', async () => {
+      const controller = new EventsController(db, service), sharing = new EventSharingService(db), req = { user: users[0] } as AuthRequest;
+      const links = { organizerVenmoUrl: 'https://venmo.com/u/host', organizerCashAppUrl: 'https://cash.app/$host', organizerPaypalUrl: 'https://paypal.me/host' };
+      const e = await controller.create(req, { title: 'Payment links fixture', locationId: location.id, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString(), capacity: 4, maxGuestsPerUser: 0, priceCents: 1000, status: 'PUBLISHED', ...links });
+      assert.equal((await controller.events()).find(game => game.id === e.id)?.organizerCashAppUrl, links.organizerCashAppUrl);
+      const player = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Payment link player' } });
+      const booking = await service.join(player.id, e.id, { guests: [], costAcknowledged: true, expectedPriceCents: 1000 });
+      assert.equal((await service.mine(player.id)).find(seat => seat.id === booking[0].id)?.event.organizerPaypalUrl, links.organizerPaypalUrl);
+      assert.equal((await sharing.publicGame(e.id)).game.organizerVenmoUrl, links.organizerVenmoUrl);
+      await assert.rejects(administration.edit(users[3].id, e.id, { organizerVenmoUrl: '' }), /Event not found/);
+      await administration.edit(users[0].id, e.id, { description: 'Unrelated edit' }); assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).organizerVenmoUrl, links.organizerVenmoUrl);
+      await administration.edit(users[0].id, e.id, { organizerVenmoUrl: '', organizerCashAppUrl: '', organizerPaypalUrl: '' });
+      assert.equal((await sharing.publicGame(e.id)).game.organizerVenmoUrl, null);
+      await assert.rejects(administration.edit(users[0].id, e.id, { organizerCashAppUrl: 'https://evil.invalid/cash' }), /valid Cash App profile link/);
+      assert.equal((await db.paymentObligation.findUniqueOrThrow({ where: { signupId: booking[0].id } })).organizerPaid, null);
+      const privateGame = await controller.create(req, { title: 'Private payment fixture', locationId: location.id, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString(), capacity: 2, maxGuestsPerUser: 0, priceCents: 0, status: 'PUBLISHED', isPrivate: true, ...links });
+      const stored = await db.event.findUniqueOrThrow({ where: { id: privateGame.id } }); assert.equal((await sharing.publicGame(privateGame.id, stored.privateInviteToken!)).game.organizerPaypalUrl, links.organizerPaypalUrl);
+    });
     await t.test('equipment and minimum targets persist and display counts without blocking below-target games', async () => {
       const events = new EventsController(db);
       const e = await events.create({ user: users[0] } as AuthRequest, { title: 'Advisory target game', locationId: location.id, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString(), capacity: 6, priceCents: 0, maxGuestsPerUser: 1, status: 'DRAFT', bibsProvided: false, shirtColorCount: 3, minPlayers: 5 });

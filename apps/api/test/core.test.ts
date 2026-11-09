@@ -1,3 +1,4 @@
+import { paymentProfileUrl } from '../src/payment-links';
 import { coOrganizerInput, managesEvent } from '../src/event-organizers';
 import 'reflect-metadata';
 import { test } from 'node:test';
@@ -329,4 +330,17 @@ test('initial player rows preserve independent modes and reject duplicate or amb
   assert.throws(() => initialPlayerSelections({ initialPlayers: entries, initialPlayerMode: 'BOOK' }), /one player-selection format/);
   assert.throws(() => initialPlayerSelections({ initialPlayers: [entries[0], entries[0]] }), /only once/);
   assert.throws(() => initialPlayerSelections({ initialPlayers: [{ userId: one, mode: 'OTHER' }] }), /valid player/);
+});
+
+
+test('payment profile links normalize supported services and reject unsafe or unrelated addresses', () => {
+  assert.equal(paymentProfileUrl('https://account.venmo.com/u/Soccer-Host/', 'venmo'), 'https://venmo.com/u/Soccer-Host');
+  assert.equal(paymentProfileUrl('https://cash.app/$SoccerHost', 'cashapp'), 'https://cash.app/$SoccerHost');
+  assert.equal(paymentProfileUrl('https://www.paypal.com/paypalme/SoccerHost', 'paypal'), 'https://paypal.me/SoccerHost');
+  for (const url of ['http://venmo.com/u/host', 'https://venmo.com.evil.invalid/u/host', 'https://evil.invalid/u/host', 'https://user:pass@venmo.com/u/host', 'https://venmo.com/u/host?next=https://evil.invalid', 'https://venmo.com/u/host#fragment', 'javascript:alert(1)', 'https://venmo.com/u/host/pay', 'https://venmo.com:8443/u/host']) assert.equal(paymentProfileUrl(url, 'venmo'), null);
+  assert.equal(paymentProfileUrl('https://cash.app/help', 'cashapp'), null); assert.equal(paymentProfileUrl('https://paypal.com/login', 'paypal'), null);
+  const options = eventOptionsInput({ organizerVenmoUrl: 'https://venmo.com/u/host', organizerCashAppUrl: 'https://cash.app/$host', organizerPaypalUrl: 'https://paypal.me/host' });
+  assert.equal(eventOptionsInput({}, options).organizerCashAppUrl, options.organizerCashAppUrl);
+  assert.equal(eventOptionsInput({ organizerVenmoUrl: '' }, options).organizerVenmoUrl, null);
+  assert.throws(() => eventOptionsInput({ organizerPaypalUrl: 'https://evil.invalid/paypal' }), /valid PayPal profile link/);
 });
