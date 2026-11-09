@@ -1,3 +1,4 @@
+import { paymentProfileUrl, PaymentMethod } from '../../payment-links';
 import { PlayerPickerComponent, PlayerChoice } from '../player-picker/player-picker.component';
 import { IconComponent } from '../icon/icon.component';
 import { CalendarPickerComponent } from '../calendar-picker/calendar-picker.component';
@@ -92,7 +93,24 @@ export class OrganizerComponent implements OnInit {
   selectOrganizer(user: { id: string; displayName: string; accountName: string }) { if (user.id !== this.primaryOrganizerId() && !this.event.coOrganizerIds.includes(user.id) && this.event.coOrganizerIds.length < 20) { this.selectedOrganizers.update(users => [...users, user]); this.event.coOrganizerIds = [...this.event.coOrganizerIds, user.id]; } }
   removeOrganizer(id: string) { this.selectedOrganizers.update(users => users.filter(user => user.id !== id)); this.event.coOrganizerIds = this.event.coOrganizerIds.filter(value => value !== id); }
   resetOrganizerSearch() { this.organizerSearchRevision++; this.organizerSearch = ''; this.organizerResults.set([]); this.selectedOrganizers.set([]); this.searchingOrganizers.set(false); }
-  event = { coOrganizerIds: [] as string[], isPrivate: false, title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, bibCount: null as number | null, shirtColors: ['dark', 'light'], shirtColorCount: 2 as number | null, minPlayers: null as number | null, teamCount: 2, teamBalancingEnabled: false, organizerContactEmail: '', organizerContactPhone: '', contactCallAllowed: false, contactTextAllowed: false };
+  event = { coOrganizerIds: [] as string[], isPrivate: false, title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, bibCount: null as number | null, shirtColors: ['dark', 'light'], shirtColorCount: 2 as number | null, minPlayers: null as number | null, teamCount: 2, teamBalancingEnabled: false, organizerContactEmail: '', organizerContactPhone: '', organizerVenmoUrl: '', organizerCashAppUrl: '', organizerPaypalUrl: '', contactCallAllowed: false, contactTextAllowed: false };
+  readonly paymentProfiles = {
+    venmo: { field: 'organizerVenmoUrl', prefix: 'https://venmo.com/u/' },
+    cashapp: { field: 'organizerCashAppUrl', prefix: 'https://cash.app/$' },
+    paypal: { field: 'organizerPaypalUrl', prefix: 'https://paypal.me/' }
+  } as const;
+  paymentUsername(method: PaymentMethod) {
+    const { field, prefix } = this.paymentProfiles[method], value = this.event[field];
+    const normalized = paymentProfileUrl(value, method);
+    return normalized ? normalized.slice(prefix.length) : value.startsWith(prefix) ? value.slice(prefix.length) : value;
+  }
+  setPaymentUsername(method: PaymentMethod, value: string) {
+    const { field, prefix } = this.paymentProfiles[method];
+    const normalized = paymentProfileUrl(value, method);
+    const username = normalized ? normalized.slice(prefix.length) : value.trim().replace(/^[@$]/, '');
+    this.event[field] = username ? prefix + username : '';
+    this.clearFieldError(field);
+  }
   updateShirtColors(count: number | null) {
     this.event.shirtColorCount = count;
     if (Number.isInteger(count) && count! >= 1 && count! <= 10) this.event.shirtColors = Array.from({ length: count! }, (_, i) => this.event.shirtColors[i] ?? ['dark', 'light'][i] ?? '');
@@ -141,7 +159,7 @@ export class OrganizerComponent implements OnInit {
       this.cancelEdit();
     }, 'Event saved.');
   }
-  cancelEdit() { this.resetOrganizerSearch(); this.fieldErrors.set({}); this.choosingStatus.set(false); this.showEventForm.set(false); this.selectedPlayers.set([]); this.editingId.set(''); this.original = null; this.event = { coOrganizerIds: [] as string[], isPrivate: false, title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, bibCount: null as number | null, shirtColors: ['dark', 'light'], shirtColorCount: 2 as number | null, minPlayers: null as number | null, teamCount: 2, teamBalancingEnabled: false, organizerContactEmail: '', organizerContactPhone: '', contactCallAllowed: false, contactTextAllowed: false }; }
+  cancelEdit() { this.resetOrganizerSearch(); this.fieldErrors.set({}); this.choosingStatus.set(false); this.showEventForm.set(false); this.selectedPlayers.set([]); this.editingId.set(''); this.original = null; this.event = { coOrganizerIds: [] as string[], isPrivate: false, title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, bibCount: null as number | null, shirtColors: ['dark', 'light'], shirtColorCount: 2 as number | null, minPlayers: null as number | null, teamCount: 2, teamBalancingEnabled: false, organizerContactEmail: '', organizerContactPhone: '', organizerVenmoUrl: '', organizerCashAppUrl: '', organizerPaypalUrl: '', contactCallAllowed: false, contactTextAllowed: false }; }
   localTime(value: string) { const d = new Date(value); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
   canEdit(game: ManagedEvent) { const profile = this.auth.profile(); return !game.deletedAt && !!profile && (profile.role === 'ADMINISTRATOR' || profile.role === 'ORGANIZER' && (game.organizerId === profile.id || !!game.coOrganizerIds?.includes(profile.id))) && ['DRAFT', 'PUBLISHED'].includes(game.status); }
   canReturnToDraft(game: ManagedEvent) { return this.canEdit(game) && game.status === 'PUBLISHED' && Date.parse(game.startsAt) > Date.now(); }
@@ -153,7 +171,7 @@ export class OrganizerComponent implements OnInit {
     this.fieldErrors.set({});
     this.showEventForm.set(true); this.view.set('events');
     this.selectedPlayers.set([]); this.original = game; this.editingId.set(game.id);
-    this.event = { coOrganizerIds: [...(game.coOrganizerIds ?? [])], isPrivate: game.isPrivate ?? false, title: game.title, description: game.description ?? '', locationId: game.location.id, startsAt: this.localTime(game.startsAt), endsAt: this.localTime(game.endsAt), capacity: game.capacity, price: (game.priceCents / 100).toFixed(2), maxGuestsPerUser: game.maxGuestsPerUser, cancellationCutoffHours: game.cancellationCutoffHours, status: game.status, bibsProvided: game.bibsProvided ?? false, bibCount: game.bibCount ?? null, shirtColors: Array.from({ length: game.shirtColorCount ?? 2 }, (_, i) => game.shirtColors?.[i] ?? ['dark', 'light'][i] ?? ''), shirtColorCount: game.shirtColorCount ?? 2, minPlayers: game.minPlayers ?? null, teamCount: game.teamCount ?? 2, teamBalancingEnabled: game.teamBalancingEnabled ?? false, organizerContactEmail: game.organizerContactEmail ?? '', organizerContactPhone: game.organizerContactPhone ?? '', contactCallAllowed: game.contactCallAllowed ?? false, contactTextAllowed: game.contactTextAllowed ?? false };
+    this.event = { coOrganizerIds: [...(game.coOrganizerIds ?? [])], isPrivate: game.isPrivate ?? false, title: game.title, description: game.description ?? '', locationId: game.location.id, startsAt: this.localTime(game.startsAt), endsAt: this.localTime(game.endsAt), capacity: game.capacity, price: (game.priceCents / 100).toFixed(2), maxGuestsPerUser: game.maxGuestsPerUser, cancellationCutoffHours: game.cancellationCutoffHours, status: game.status, bibsProvided: game.bibsProvided ?? false, bibCount: game.bibCount ?? null, shirtColors: Array.from({ length: game.shirtColorCount ?? 2 }, (_, i) => game.shirtColors?.[i] ?? ['dark', 'light'][i] ?? ''), shirtColorCount: game.shirtColorCount ?? 2, minPlayers: game.minPlayers ?? null, teamCount: game.teamCount ?? 2, teamBalancingEnabled: game.teamBalancingEnabled ?? false, organizerContactEmail: game.organizerContactEmail ?? '', organizerContactPhone: game.organizerContactPhone ?? '', organizerVenmoUrl: game.organizerVenmoUrl ?? '', organizerCashAppUrl: game.organizerCashAppUrl ?? '', organizerPaypalUrl: game.organizerPaypalUrl ?? '', contactCallAllowed: game.contactCallAllowed ?? false, contactTextAllowed: game.contactTextAllowed ?? false };
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   canShare(game: ManagedEvent) { return !game.deletedAt && game.status === 'PUBLISHED' && Date.parse(game.startsAt) > Date.now(); }

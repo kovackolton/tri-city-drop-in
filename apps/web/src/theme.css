@@ -4,6 +4,7 @@
    tertiary green #348062. Text/hover variants are adjusted for contrast.
    Avatar colors remain the user's chosen identity color in both modes. */
 :root {
+  --payment-logo-bg: #ffffff;
   --nav-hover: color-mix(in srgb, var(--nav-active) 65%, var(--sidebar));
   color-scheme: light;
   --brand-primary: #c02f2a;

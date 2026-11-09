@@ -1,5 +1,6 @@
 import '@angular/compiler';
 import { PlayerPickerComponent } from '../src/app/player-picker/player-picker.component';
+import { PaymentLinksComponent } from '../src/app/payment-links/payment-links.component';
 import { matchesCalendar, venueDate } from '../src/calendar';
 import { PlayersComponent } from '../src/app/players/players.component';
 import { LocationsComponent } from '../src/app/locations/locations.component';
@@ -716,4 +717,21 @@ test('team columns keep confirmed teams, unassigned players and waitlist separat
   component.players.set([{ id: 'a', status: 'CONFIRMED', teamNumber: 1 }, { id: 'b', status: 'CONFIRMED', teamNumber: 2, isGuest: true }, { id: 'c', status: 'CONFIRMED', teamNumber: null }, { id: 'd', status: 'WAITLISTED', teamNumber: null }] as any);
   assert.deepEqual(component.teamNumbers(), [1, 2, 3]); assert.equal(component.startingColor(1), 'dark'); assert.equal(component.startingColor(2), 'light'); assert.equal(component.startingColor(3), null);
   assert.deepEqual(component.teamPlayers(2).map(player => player.id), ['b']); assert.deepEqual(component.teamPlayers(null).map(player => player.id), ['c']); assert.deepEqual(component.groupPlayers().map(player => player.id), ['d']); injector.destroy();
+});
+
+
+test('payment buttons render only validated profile links and hide cleared or unsafe methods', () => {
+  const component = new PaymentLinksComponent(); component.venmoUrl = 'https://venmo.com/u/host'; component.cashAppUrl = 'https://cash.app/$host'; component.paypalUrl = 'https://www.paypal.com/paypalme/host';
+  assert.deepEqual(component.methods().map(method => method.url), ['https://venmo.com/u/host', 'https://cash.app/$host', 'https://paypal.me/host']);
+  component.cashAppUrl = 'https://cash.app.evil.invalid/$host'; component.venmoUrl = ''; assert.deepEqual(component.methods().map(method => method.key), ['paypal']); component.paypalUrl = null; assert.equal(component.methods().length, 0);
+});
+
+
+test('payment username fields build full profile URLs, avoid duplicate Cashtag prefixes, and clear optional methods', () => {
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: {} }, { provide: HttpClient, useValue: {} }] });
+  const component = runInInjectionContext(injector, () => new OrganizerComponent());
+  component.setPaymentUsername('venmo', '@SoccerHost'); component.setPaymentUsername('cashapp', '$SoccerHost'); component.setPaymentUsername('paypal', 'SoccerHost');
+  assert.equal(component.event.organizerVenmoUrl, 'https://venmo.com/u/SoccerHost'); assert.equal(component.event.organizerCashAppUrl, 'https://cash.app/$SoccerHost'); assert.equal(component.event.organizerPaypalUrl, 'https://paypal.me/SoccerHost');
+  component.event.organizerPaypalUrl = 'https://www.paypal.com/paypalme/ExistingHost'; assert.equal(component.paymentUsername('paypal'), 'ExistingHost');
+  component.setPaymentUsername('cashapp', ''); assert.equal(component.event.organizerCashAppUrl, ''); assert.equal(component.paymentUsername('cashapp'), ''); injector.destroy();
 });

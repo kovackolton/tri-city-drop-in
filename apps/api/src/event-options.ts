@@ -1,7 +1,8 @@
+import { paymentProfileUrl, PaymentMethod } from './payment-links';
 import { BadRequestException } from '@nestjs/common';
 import { integer } from './validation';
 import { profileInput } from './profile-fields';
-export interface EventOptions { teamCount: number; teamBalancingEnabled: boolean; organizerContactEmail: string | null; organizerContactPhone: string | null; contactCallAllowed: boolean; contactTextAllowed: boolean; }
+export interface EventOptions { organizerVenmoUrl?: string | null; organizerCashAppUrl?: string | null; organizerPaypalUrl?: string | null; teamCount: number; teamBalancingEnabled: boolean; organizerContactEmail: string | null; organizerContactPhone: string | null; contactCallAllowed: boolean; contactTextAllowed: boolean; }
 export function eventOptionsInput(b: Record<string, unknown>, previous?: EventOptions): EventOptions {
   for (const key of ['teamBalancingEnabled', 'contactCallAllowed', 'contactTextAllowed']) if (b[key] !== undefined && typeof b[key] !== 'boolean') throw new BadRequestException(`${key} must be a checkbox value.`);
   const email = b.organizerContactEmail === undefined ? previous?.organizerContactEmail ?? null : profileInput({ contactEmail: b.organizerContactEmail }).contactEmail ?? null;
@@ -10,7 +11,14 @@ export function eventOptionsInput(b: Record<string, unknown>, previous?: EventOp
   const sms = b.contactTextAllowed === undefined ? previous?.contactTextAllowed ?? false : b.contactTextAllowed as boolean;
   if ((call || sms) && !phone) throw new BadRequestException('Enter the organizer phone number for call/text availability.');
   if (phone && !call && !sms) throw new BadRequestException('Select call and/or text for the organizer phone number.');
-  return { teamCount: b.teamCount === undefined ? previous?.teamCount ?? 2 : integer(b.teamCount, 'Number of teams', 2, 16), teamBalancingEnabled: b.teamBalancingEnabled === undefined ? previous?.teamBalancingEnabled ?? false : b.teamBalancingEnabled as boolean, organizerContactEmail: email, organizerContactPhone: phone, contactCallAllowed: call, contactTextAllowed: sms };
+  const paymentLink = (field: 'organizerVenmoUrl' | 'organizerCashAppUrl' | 'organizerPaypalUrl', method: PaymentMethod, example: string) => {
+    if (b[field] === undefined) return previous?.[field] ?? null;
+    if (b[field] === null || typeof b[field] === 'string' && !(b[field] as string).trim()) return null;
+    const url = paymentProfileUrl(b[field], method);
+    if (!url) throw new BadRequestException(`Enter a valid ${method === 'cashapp' ? 'Cash App' : method === 'paypal' ? 'PayPal' : 'Venmo'} profile link, for example ${example}.`);
+    return url;
+  };
+  return { organizerVenmoUrl: paymentLink('organizerVenmoUrl', 'venmo', 'https://venmo.com/u/YourUsername'), organizerCashAppUrl: paymentLink('organizerCashAppUrl', 'cashapp', 'https://cash.app/$YourCashtag'), organizerPaypalUrl: paymentLink('organizerPaypalUrl', 'paypal', 'https://paypal.me/YourUsername'), teamCount: b.teamCount === undefined ? previous?.teamCount ?? 2 : integer(b.teamCount, 'Number of teams', 2, 16), teamBalancingEnabled: b.teamBalancingEnabled === undefined ? previous?.teamBalancingEnabled ?? false : b.teamBalancingEnabled as boolean, organizerContactEmail: email, organizerContactPhone: phone, contactCallAllowed: call, contactTextAllowed: sms };
 }
 export function initialPlayersInput(b: Record<string, unknown>) {
   if (b.initialPlayerIds !== undefined && (!Array.isArray(b.initialPlayerIds) || b.initialPlayerIds.length > 100)) throw new BadRequestException('Select up to 100 existing players.');
