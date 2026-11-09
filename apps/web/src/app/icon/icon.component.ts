@@ -3,6 +3,9 @@ import { Component, Input } from '@angular/core';
   selector: 'app-icon',
   template: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
     @switch (name) {
+      @case ('help') { <circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-2.9 2-2.9 4M12 17h.01"/> }
+      @case ('calendar') { <rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4m8-4v4M3 11h18M8 15h.01M12 15h.01M16 15h.01M8 18h.01M12 18h.01"/> }
+      @case ('ticket') { <path d="M4 5h16a1 1 0 0 1 1 1v3a3 3 0 0 0 0 6v3a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-3a3 3 0 0 0 0-6V6a1 1 0 0 1 1-1Z"/><path d="M15 5v2m0 3v1m0 3v1m0 3v1"/> }
       @case ('refresh') { <path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 6.1A8 8 0 0 1 19.4 9M4.6 15a8 8 0 0 0 13.3 2.9"/> }
       @case ('menu') { <path d="M4 6h16M4 12h16M4 18h16"/> }
       @case ('close') { <path d="m6 6 12 12M6 18 18 6"/> }
@@ -14,4 +17,4 @@ import { Component, Input } from '@angular/core';
   </svg>`,
   styles: [':host { display: inline-flex; flex-shrink: 0; }']
 })
-export class IconComponent { @Input({ required: true }) name!: 'bell' | 'settings' | 'sun' | 'moon' | 'menu' | 'close' | 'refresh'; }
+export class IconComponent { @Input({ required: true }) name!: 'bell' | 'settings' | 'sun' | 'moon' | 'menu' | 'close' | 'refresh' | 'calendar' | 'ticket' | 'help'; }
