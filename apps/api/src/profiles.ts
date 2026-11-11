@@ -21,7 +21,7 @@ export class ProfilesController {
   }
   private profile(user: AuthRequest['user']) {
     return { id: user.id, displayName: user.nickname ?? user.displayName, accountName: user.displayName,
-      accountNameSetAt: user.accountNameSetAt, profileCompletedAt: user.profileCompletedAt, nickname: user.nickname, skillLevel: user.skillLevel, preferredPositions: user.preferredPositions,
+      accountNameSetAt: user.accountNameSetAt, profileCompletedAt: user.profileCompletedAt, nickname: user.nickname, skillLevel: user.skillLevel, preferredPositions: user.preferredPositions, shareWaitlistContact: user.shareWaitlistContact,
       email: user.email, role: user.role, contactEmail: user.contactEmail, phone: user.phone,
       avatarUrl: googleAvatarUrl(user.avatarUrl), avatarColor: user.avatarColor, useGooglePhoto: user.useGooglePhoto };
   }

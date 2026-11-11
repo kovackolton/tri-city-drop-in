@@ -1,3 +1,6 @@
+import { CancelBookingComponent } from '../cancel-booking/cancel-booking.component';
+import { SubstituteSeatComponent } from '../substitute-seat/substitute-seat.component';
+import { WaitlistContactsComponent } from '../substitute-seat/waitlist-contacts.component';
 import { PaymentLinksComponent } from '../payment-links/payment-links.component';
 import { IconComponent } from '../icon/icon.component';
 import { CalendarPickerComponent } from '../calendar-picker/calendar-picker.component';
@@ -17,7 +20,7 @@ import { AvatarComponent } from '../avatar/avatar.component';
 import { EventInvitationsComponent } from '../event-invitations/event-invitations.component';
 import { PlayersComponent } from '../players/players.component';
 @Component({
-  selector: 'app-my-games', imports: [PaymentLinksComponent, IconComponent, CalendarPickerComponent, FormsModule, CurrencyPipe, PaymentReviewComponent, PlayersComponent, AvatarComponent, LocationMapComponent, LocationThumbnailComponent, EventGuidanceComponent, OrganizerContactComponent, EventInvitationsComponent],
+  selector: 'app-my-games', imports: [CancelBookingComponent, SubstituteSeatComponent, WaitlistContactsComponent, PaymentLinksComponent, IconComponent, CalendarPickerComponent, FormsModule, CurrencyPipe, PaymentReviewComponent, PlayersComponent, AvatarComponent, LocationMapComponent, LocationThumbnailComponent, EventGuidanceComponent, OrganizerContactComponent, EventInvitationsComponent],
   templateUrl: './my-games.component.html',
   styleUrl: './my-games.component.scss'
 })
@@ -32,7 +35,7 @@ export class MyGamesComponent implements OnChanges {
   readonly playersEvent = signal('');
   readonly view = signal<'all' | 'upcoming' | 'payments' | 'completed'>('all');
   selectView(view: 'all' | 'upcoming' | 'payments' | 'completed') { this.view.set(view); this.clearFilters(); this.viewChanged.emit(view); }
-  completedGame(host: Seat) { return host.status === 'CONFIRMED' && ['PUBLISHED', 'COMPLETED'].includes(host.event.status) && Date.parse(host.event.endsAt) <= Date.now() && !!host.payment && host.payment.amountCents > 0 && !['VOID', 'NOT_REQUIRED'].includes(host.payment.status) && host.payment.playerPaid === true; }
+  completedGame(host: Seat) { return !host.subResponsibilityAcknowledgedAt && host.status === 'CONFIRMED' && ['PUBLISHED', 'COMPLETED'].includes(host.event.status) && Date.parse(host.event.endsAt) <= Date.now() && !!host.payment && host.payment.amountCents > 0 && !['VOID', 'NOT_REQUIRED'].includes(host.payment.status) && host.payment.playerPaid === true; }
   matchesView(host: Seat) { return this.view() === 'upcoming' ? Date.parse(host.event.startsAt) > Date.now() : this.view() === 'payments' ? this.needsPayment(host) : this.view() === 'completed' ? this.completedGame(host) : true; }
   groupVisible(id: string) { return this.view() === 'all' || (this.view() === 'upcoming' ? id === 'upcoming' : id === 'past'); }
   groupLabel(id: string) { return this.view() === 'payments' ? 'Report Payments' : this.view() === 'completed' ? 'Completed' : id === 'past' ? 'Past games' : 'Upcoming & ongoing games'; }
@@ -49,7 +52,7 @@ export class MyGamesComponent implements OnChanges {
       && (!this.location || host.event.location.name === this.location)
       && (!this.organizer || (host.event.organizer.displayName === this.organizer || host.event.coOrganizers?.some(user => user.displayName === this.organizer)))
       && this.matchesView(host)
-      && (!this.bookingStatus || (this.bookingStatus === 'active' ? ['CONFIRMED', 'WAITLISTED'].includes(host.status) : host.status === this.bookingStatus))
+      && (!this.bookingStatus || (this.bookingStatus === 'active' ? ['CONFIRMED', 'WAITLISTED'].includes(host.status) : this.bookingStatus === 'CANCELLED' ? host.status === 'CANCELLED' || !!host.subResponsibilityAcknowledgedAt : host.status === this.bookingStatus))
       && (!this.paymentFilter || (this.paymentFilter === 'needs' ? this.needsPayment(host) : this.party(host).some(seat => seat.payment && seat.payment.amountCents > 0 && !['VOID', 'NOT_REQUIRED'].includes(seat.payment.status) && seat.payment.playerPaid === (this.paymentFilter === 'paid'))));
   }
   clearFilters() { this.calendar = { period: 'all', date: calendarDate(new Date()) }; this.search = ''; this.location = ''; this.organizer = ''; this.bookingStatus = 'active'; this.paymentFilter = ''; }
@@ -57,6 +60,7 @@ export class MyGamesComponent implements OnChanges {
   month(value: string, zone: string) { return new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: zone }).format(new Date(value)); }
   day(value: string, zone: string) { return new Intl.DateTimeFormat('en-US', { day: 'numeric', timeZone: zone }).format(new Date(value)); }
   bookingLabel(seat: Seat) {
+    if (seat.status === 'CONFIRMED' && seat.subResponsibilityAcknowledgedAt) return seat.subName ? 'Cancelled / sub named' : 'Cancelled / sub needed';
     if (seat.status !== 'CANCELLED') return this.label(seat.status);
     return seat.cancellationSource === 'PLAYER' ? 'You Cancelled' : seat.cancellationSource === 'ORGANIZER' ? 'Removed by organizer' : seat.cancellationSource === 'EVENT' ? 'Booking cancelled with event' : 'Booking cancelled';
   }
@@ -82,6 +86,7 @@ export class MyGamesComponent implements OnChanges {
   bookingHistory(eventId?: string) { return this.store.seats().filter(seat => seat.guestNumber === 0 && (!eventId || seat.eventId === eventId)).sort((a, b) => Date.parse(b.queuedAt ?? b.event.startsAt) - Date.parse(a.queuedAt ?? a.event.startsAt) || b.id.localeCompare(a.id)); }
   previousBookings(host: Seat) { return this.bookingHistory(host.eventId).filter(seat => seat.bookingId !== host.bookingId); }
   party(host: Seat) { return this.store.seats().filter(s => s.bookingId === host.bookingId); }
-  canCancel(host: Seat) { return host.status !== 'CANCELLED' && ['DRAFT', 'PUBLISHED'].includes(host.event.status) && new Date(host.event.startsAt).getTime() > Date.now(); }
+  canManageSubs(host: Seat) { return host.status === 'CONFIRMED' && host.event.status === 'PUBLISHED' && Date.parse(host.event.startsAt) > Date.now(); }
+  canCancel(host: Seat) { return !host.subResponsibilityAcknowledgedAt && host.status !== 'CANCELLED' && ['DRAFT', 'PUBLISHED'].includes(host.event.status) && new Date(host.event.startsAt).getTime() > Date.now(); }
   async cancel(host: Seat) { if (await this.store.cancel(host.eventId, host.bookingId)) this.confirming.set(''); }
 }

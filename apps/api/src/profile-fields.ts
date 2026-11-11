@@ -9,9 +9,13 @@ export function googleAvatarUrl(value: unknown): string | null {
   } catch { return null; }
 }
 export function profileInput(value: unknown) {
-  const b = object(value, ['nickname', 'skillLevel', 'preferredPositions', 'contactEmail', 'phone', 'avatarColor', 'useGooglePhoto', 'accountName']);
-  const data: { preferredPositions?: string[]; nickname?: string | null; skillLevel?: number | null; accountName?: string; contactEmail?: string | null; phone?: string | null; avatarColor?: string; useGooglePhoto?: boolean } = {};
+  const b = object(value, ['nickname', 'skillLevel', 'preferredPositions', 'shareWaitlistContact', 'contactEmail', 'phone', 'avatarColor', 'useGooglePhoto', 'accountName']);
+  const data: { preferredPositions?: string[]; shareWaitlistContact?: boolean; nickname?: string | null; skillLevel?: number | null; accountName?: string; contactEmail?: string | null; phone?: string | null; avatarColor?: string; useGooglePhoto?: boolean } = {};
   if (b.nickname !== undefined) data.nickname = b.nickname === '' || b.nickname === null ? null : text(b.nickname, 'Nickname', 80);
+  if (b.shareWaitlistContact !== undefined) {
+    if (typeof b.shareWaitlistContact !== 'boolean') throw new BadRequestException('Choose whether to share waitlist contact details.');
+    data.shareWaitlistContact = b.shareWaitlistContact;
+  }
   if (b.preferredPositions !== undefined) {
     const positions = ['GK', 'DF', 'MF', 'F'];
     if (!Array.isArray(b.preferredPositions) || b.preferredPositions.length > 4 || b.preferredPositions.some(value => typeof value !== 'string' || !positions.includes(value)) || new Set(b.preferredPositions).size !== b.preferredPositions.length) throw new BadRequestException('Choose preferred positions from GK, DF, MF and F.');

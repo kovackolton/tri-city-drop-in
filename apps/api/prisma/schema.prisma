@@ -56,6 +56,7 @@ model User {
   email       String   @unique
   displayName String
   nickname    String?
+  shareWaitlistContact Boolean @default(false)
   preferredPositions String[] @default([])
   skillLevel  Int?
   adminSkillLevel Int?
@@ -155,6 +156,10 @@ model Signup {
   bookingId   String @db.Uuid
   quotedPriceCents Int @default(0)
   lateCancellation Boolean @default(false)
+  subResponsibilityAcknowledgedAt DateTime? @db.Timestamptz(3)
+  subResponsibilityTermsVersion String?
+  subName String?
+  subWillPay Boolean @default(false)
   guestPaymentAcknowledgedAt DateTime? @db.Timestamptz(3)
   guestPaymentTermsVersion String?
   status      SignupStatus

@@ -5,7 +5,7 @@ import { AuthService, message } from './auth.service';
 export interface StrikeRecord {
   id: string; reason: string; note: string | null; permanent: boolean; automatic: boolean; current: boolean;
   createdAt: string; revokedAt: string | null; expiresAt: string | null;
-  signup: null | { id: string; bookingId: string; guestNumber: number; guestName: string | null;
+  signup: null | { id: string; bookingId: string; guestNumber: number; guestName: string | null; status?: string; subName?: string | null; subResponsibilityAcknowledgedAt?: string | null;
     event: { id: string; title: string; startsAt: string; endsAt: string; location: { name: string; address: string; timezone: string }; organizerContactEmail: string | null; organizerContactPhone: string | null; contactCallAllowed: boolean; contactTextAllowed: boolean };
     payment: null | { amountCents: number; playerPaid: boolean | null; organizerPaid: boolean | null; playerReviewedAt: string | null; organizerReviewedAt: string | null };
   };

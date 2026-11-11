@@ -1,3 +1,4 @@
+import { lateCancellationApplies, cancellationInput, substituteInput, subTermsVersion } from './late-cancellation';
 import { assertEventEligibility } from './event-eligibility';
 import { managesEvent, managedEvents, organizerDirectory } from './event-organizers';
 import { BadRequestException, Body, ConflictException, Controller, Get, Inject, Injectable, NotFoundException, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
@@ -87,17 +88,25 @@ export class SignupsService {
       if (price > 0 && costSource) await tx.auditLog.create({ data: { actorId: userId, eventId, action: 'PLAYER_EVENT_COST_ACKNOWLEDGED', details: { bookingId, priceCents: price, currency: event.currency, partySize: seats.length, totalCents: price * seats.length, source: costSource, termsVersion: 'event-cost-v1' } } });
       return seats;
   }
-  async cancel(userId: string, eventId: string, bookingId: string, organizerReason?: string, administrator = false) {
+  async cancel(userId: string, eventId: string, bookingId: string, organizerReason?: string, administrator = false, value: unknown = {}) {
     uuid(eventId); uuid(bookingId);
+    const acknowledged = organizerReason === undefined ? cancellationInput(value) : false;
     return this.db.$transaction(async tx => {
       const event = await this.lockedEvent(tx, eventId, true);
       if (organizerReason !== undefined && !administrator && !managesEvent(event, userId)) throw new NotFoundException('Booking not found.');
       const seats = await tx.signup.findMany({ where: { eventId, ...(organizerReason === undefined ? { userId } : {}), bookingId } });
       if (!seats.length) throw new NotFoundException('Booking not found.');
       if (seats.every(s => s.status === 'CANCELLED')) return { status: 'CANCELLED', lateCancellation: seats[0].lateCancellation };
+      if (organizerReason === undefined && seats.some(seat => seat.subResponsibilityAcknowledgedAt)) return { status: 'SUB_REQUIRED', lateCancellation: true };
       const now = new Date();
-      const lateCancellation = event.status === 'PUBLISHED' && organizerReason === undefined && seats[0].status === 'CONFIRMED' && now.getTime() >= event.startsAt.getTime() - event.cancellationCutoffHours * 3600000;
-      await tx.signup.updateMany({ where: { eventId, bookingId }, data: { status: 'CANCELLED', cancellationSource: organizerReason === undefined ? 'PLAYER' : 'ORGANIZER', teamNumber: null, cancelledAt: now, lateCancellation } });
+      const lateCancellation = organizerReason === undefined && lateCancellationApplies(event, seats[0].status, now);
+      if (lateCancellation) {
+        if (!acknowledged) throw new ConflictException({ code: 'LATE_CANCELLATION_ACK_REQUIRED', message: 'This cancellation is inside the cutoff. Acknowledge that the seats stay reserved and you remain responsible for payment and finding subs.' });
+        await tx.signup.updateMany({ where: { eventId, bookingId, status: 'CONFIRMED' }, data: { lateCancellation: true, cancellationSource: 'PLAYER', cancelledAt: now, subResponsibilityAcknowledgedAt: now, subResponsibilityTermsVersion: subTermsVersion } });
+        await tx.auditLog.create({ data: { actorId: userId, eventId, action: 'PLAYER_CANCELLED_PARTY', createdAt: now, details: { bookingId, seatCount: seats.length, previousStatus: 'CONFIRMED', cancelledAt: now.toISOString(), lateCancellation: true, seatReservedForSub: true, termsVersion: subTermsVersion } } });
+        return { status: 'SUB_REQUIRED', lateCancellation: true };
+      }
+      await tx.signup.updateMany({ where: { eventId, bookingId }, data: { status: 'CANCELLED', cancellationSource: organizerReason === undefined ? 'PLAYER' : 'ORGANIZER', teamNumber: null, cancelledAt: now, ...(seats.some(seat => seat.subResponsibilityAcknowledgedAt) ? {} : { lateCancellation }) } });
       await tx.paymentObligation.updateMany({ where: { signupId: { in: seats.map(s => s.id) } }, data: { status: 'VOID' } });
       if (organizerReason !== undefined) {
         await tx.auditLog.create({ data: { actorId: userId, eventId, action: 'ORGANIZER_REMOVED_PARTY', details: { bookingId, reason: organizerReason } } });
@@ -109,6 +118,40 @@ export class SignupsService {
       await this.promote(tx, event);
       return { status: 'CANCELLED', lateCancellation };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, maxWait: 10000, timeout: 15000 });
+  }
+  async cancellationInfo(userId: string, eventId: string, bookingId: string) {
+    uuid(eventId); uuid(bookingId);
+    const seats = await this.db.signup.findMany({ where: { eventId, bookingId, userId }, include: { event: true, payment: true }, orderBy: { guestNumber: 'asc' } });
+    if (!seats.length) throw new NotFoundException('Booking not found.');
+    const event = seats[0].event;
+    if (event.deletedAt || !['DRAFT', 'PUBLISHED'].includes(event.status) || event.startsAt <= new Date()) throw new ConflictException('Cancellation is available only before kickoff.');
+    return { late: !!seats[0].subResponsibilityAcknowledgedAt || lateCancellationApplies(event, seats[0].status), alreadyCancelledForSub: !!seats[0].subResponsibilityAcknowledgedAt, seatCount: seats.length, amountCents: seats.reduce((sum, seat) => sum + (seat.payment?.status === 'VOID' ? 0 : seat.payment?.amountCents ?? seat.quotedPriceCents), 0), cutoffHours: event.cancellationCutoffHours };
+  }
+  async updateSub(actorId: string, signupId: string, value: unknown, organizer = false, administrator = false) {
+    uuid(signupId); const input = substituteInput(value);
+    return this.db.$transaction(async tx => {
+      const row = await tx.signup.findUnique({ where: { id: signupId }, select: { eventId: true } });
+      if (!row) throw new NotFoundException('Sub seat not found.');
+      await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${row.eventId}::uuid FOR UPDATE`;
+      const seat = await tx.signup.findUniqueOrThrow({ where: { id: signupId }, include: { event: true } });
+      if (organizer ? !administrator && !managesEvent(seat.event, actorId) : seat.userId !== actorId) throw new NotFoundException('Sub seat not found.');
+      if (seat.event.deletedAt || !['PUBLISHED', 'COMPLETED'].includes(seat.event.status) || seat.status !== 'CONFIRMED' || !seat.subResponsibilityAcknowledgedAt) throw new ConflictException('This seat is not an active late-cancellation sub reservation.');
+      if (!organizer && seat.event.startsAt <= new Date()) throw new ConflictException('Players can update their sub only before kickoff. Ask the organizer to correct it after kickoff.');
+      if (seat.subName === input.subName && seat.subWillPay === input.subWillPay) return seat;
+      const updated = await tx.signup.update({ where: { id: signupId }, data: input });
+      await tx.auditLog.create({ data: { actorId, eventId: seat.eventId, action: 'SUB_DETAILS_UPDATED', details: { signupId, bookingId: seat.bookingId, originalPlayerId: seat.userId, previousName: seat.subName, previousSubWillPay: seat.subWillPay, ...input, paymentResponsibilityUnchanged: true } } });
+      return updated;
+    });
+  }
+  async waitlistContacts(userId: string, eventId: string, bookingId: string) {
+    uuid(eventId); uuid(bookingId);
+    return this.db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${eventId}::uuid FOR UPDATE`;
+      const eligible = await tx.signup.findFirst({ where: { eventId, bookingId, userId, guestNumber: 0, status: 'CONFIRMED', subResponsibilityAcknowledgedAt: { not: null }, event: { deletedAt: null, status: 'PUBLISHED', startsAt: { gt: new Date() } } } });
+      if (!eligible) throw new NotFoundException('Waitlist contacts are available only for your reserved late-cancellation seats before kickoff.');
+      const waiting = await tx.signup.findMany({ where: { eventId, guestNumber: 0, status: 'WAITLISTED', user: { shareWaitlistContact: true } }, select: { user: { select: { ...appearanceSelect, email: true, contactEmail: true, phone: true } } }, orderBy: [{ queuedAt: 'asc' }, { id: 'asc' }] });
+      return waiting.map(({ user }) => ({ name: appearance(user).displayName, email: user.contactEmail ?? user.email, phone: user.phone }));
+    });
   }
   async overridePromotion(actorId: string, eventId: string, bookingId: string, reason: string, administrator = false) {
     uuid(eventId); uuid(bookingId);
@@ -149,7 +192,7 @@ export class SignupsService {
     const history = await this.db.signup.groupBy({ by: ['eventId', 'status', 'cancellationSource'], where: { userId, guestNumber: 0, eventId: { in: eventIds } }, _count: true });
     const seats = await this.db.signup.findMany({ where: { userId, eventId: { in: eventIds } }, include: { strikes: { select: { id: true, reason: true, createdAt: true, revokedAt: true, expiresAt: true } }, payment: true, event: { select: { id: true, coOrganizerIds: true, isPrivate: true, title: true, description: true, capacity: true, teamCount: true, teamBalancingEnabled: true, organizerContactEmail: true, organizerContactPhone: true, organizerVenmoUrl: true, organizerCashAppUrl: true, organizerPaypalUrl: true, organizerZelleContact: true, contactCallAllowed: true, contactTextAllowed: true, bibsProvided: true, bibCount: true, shirtColors: true, shirtColorCount: true, minPlayers: true, _count: { select: { signups: { where: { status: 'CONFIRMED' } } } }, startsAt: true, endsAt: true, status: true, cancellationCutoffHours: true, location: true, organizer: { select: appearanceSelect } } } }, orderBy: [{ queuedAt: 'desc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
     const additionalOrganizers = await organizerDirectory(this.db, seats.flatMap(seat => seat.event.coOrganizerIds));
-    return seats.map(seat => { const { _count, coOrganizerIds, ...event } = seat.event; const records = history.filter(record => record.eventId === seat.eventId); return { ...seat, bookingCount: records.reduce((sum, record) => sum + record._count, 0), playerCancellationCount: records.filter(record => record.status === 'CANCELLED' && record.cancellationSource === 'PLAYER').reduce((sum, record) => sum + record._count, 0), legacyCancellationCount: records.filter(record => record.status === 'CANCELLED' && record.cancellationSource === null).reduce((sum, record) => sum + record._count, 0), event: { ...event, coOrganizers: additionalOrganizers.filter(user => coOrganizerIds.includes(user.id)).map(user => ({ id: user.id, displayName: user.displayName, avatarUrl: user.avatarUrl, avatarColor: user.avatarColor })), confirmed: _count.signups, organizer: appearance(event.organizer) } }; });
+    return seats.map(seat => { const { _count, coOrganizerIds, ...event } = seat.event; const records = history.filter(record => record.eventId === seat.eventId); return { ...seat, bookingCount: records.reduce((sum, record) => sum + record._count, 0), playerCancellationCount: records.filter(record => record.cancellationSource === 'PLAYER').reduce((sum, record) => sum + record._count, 0), legacyCancellationCount: records.filter(record => record.status === 'CANCELLED' && record.cancellationSource === null).reduce((sum, record) => sum + record._count, 0), event: { ...event, coOrganizers: additionalOrganizers.filter(user => coOrganizerIds.includes(user.id)).map(user => ({ id: user.id, displayName: user.displayName, avatarUrl: user.avatarUrl, avatarColor: user.avatarColor })), confirmed: _count.signups, organizer: appearance(event.organizer) } }; });
   }
   async participants(userId: string, eventId: string) {
     uuid(eventId);
@@ -157,10 +200,10 @@ export class SignupsService {
     if (!membership) throw new NotFoundException('Join this game to view its players.');
     const seats = await this.db.signup.findMany({
       where: { eventId, status: { in: ['CONFIRMED', 'WAITLISTED'] } },
-      select: { id: true, teamNumber: true, guestNumber: true, guestName: true, status: true, user: { select: appearanceSelect } },
+      select: { id: true, subName: true, subResponsibilityAcknowledgedAt: true, teamNumber: true, guestNumber: true, guestName: true, status: true, user: { select: appearanceSelect } },
       orderBy: [{ queuedAt: 'asc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }]
     });
-    return seats.map(s => ({ id: s.id, name: s.guestNumber === 0 ? appearance(s.user).displayName : s.guestName, isGuest: s.guestNumber > 0, status: s.status, teamNumber: s.teamNumber, avatarUrl: s.guestNumber === 0 ? appearance(s.user).avatarUrl : null, avatarColor: s.user.avatarColor, guestOf: s.guestNumber > 0 ? appearance(s.user).displayName : null }));
+    return seats.map(s => ({ id: s.id, name: s.subResponsibilityAcknowledgedAt ? (s.subName || 'Sub needed') + ' (for ' + (s.guestNumber ? s.guestName : appearance(s.user).displayName) + ')' : s.guestNumber === 0 ? appearance(s.user).displayName : s.guestName, isGuest: s.guestNumber > 0, status: s.status, teamNumber: s.teamNumber, avatarUrl: s.guestNumber === 0 && !s.subResponsibilityAcknowledgedAt ? appearance(s.user).avatarUrl : null, avatarColor: s.user.avatarColor, guestOf: s.guestNumber > 0 ? appearance(s.user).displayName : null }));
   }
   async roster(userId: string, eventId: string, administrator = false) {
     uuid(eventId);
@@ -169,8 +212,8 @@ export class SignupsService {
     const userIds = accounts.map(seat => seat.userId);
     await refreshPaymentStrikes(this.db, userIds);
     const counts = await this.db.strike.groupBy({ by: ['userId'], where: { ...currentStrikes(), userId: { in: userIds } }, _count: true });
-    const seats = await this.db.signup.findMany({ where: { eventId }, select: { userId: true, cancellationSource: true, teamNumber: true, guestPaymentAcknowledgedAt: true, guestPaymentTermsVersion: true, attendance: true, lateCancellation: true, strikes: { select: { id: true, reason: true, revokedAt: true, expiresAt: true } }, id: true, bookingId: true, guestNumber: true, guestName: true, status: true, queuedAt: true, event: { select: { startsAt: true, endsAt: true, status: true } }, user: { select: { ...appearanceSelect, adminSkillLevel: true, skillLevel: true, preferredPositions: true, email: true, contactEmail: true, phone: true } }, payment: { select: { amountCents: true, status: true, playerPaid: true, playerReviewedAt: true, organizerPaid: true, organizerReviewedAt: true } } }, orderBy: [{ queuedAt: 'asc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
-    const cancellations = await this.db.signup.groupBy({ by: ['userId'], where: { eventId, guestNumber: 0, status: 'CANCELLED', cancellationSource: 'PLAYER' }, _count: true });
+    const seats = await this.db.signup.findMany({ where: { eventId }, select: { userId: true, cancellationSource: true, cancelledAt: true, subResponsibilityAcknowledgedAt: true, subName: true, subWillPay: true, teamNumber: true, guestPaymentAcknowledgedAt: true, guestPaymentTermsVersion: true, attendance: true, lateCancellation: true, strikes: { select: { id: true, reason: true, revokedAt: true, expiresAt: true } }, id: true, bookingId: true, guestNumber: true, guestName: true, status: true, queuedAt: true, event: { select: { startsAt: true, endsAt: true, status: true } }, user: { select: { ...appearanceSelect, adminSkillLevel: true, skillLevel: true, preferredPositions: true, email: true, contactEmail: true, phone: true } }, payment: { select: { amountCents: true, status: true, playerPaid: true, playerReviewedAt: true, organizerPaid: true, organizerReviewedAt: true } } }, orderBy: [{ queuedAt: 'asc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
+    const cancellations = await this.db.signup.groupBy({ by: ['userId'], where: { eventId, guestNumber: 0, cancellationSource: 'PLAYER', OR: [{ status: 'CANCELLED' }, { subResponsibilityAcknowledgedAt: { not: null } }] }, _count: true });
     return seats.map(seat => ({ ...seat, user: { ...appearance(seat.user), strikeCount: counts.find(record => record.userId === seat.userId)?._count ?? 0, eventCancellationCount: cancellations.find(record => record.userId === seat.userId)?._count ?? 0, accountName: seat.user.displayName, nickname: seat.user.nickname, skillLevel: seat.user.skillLevel, adminSkillLevel: seat.user.adminSkillLevel, preferredPositions: seat.user.preferredPositions, contactEmail: seat.user.contactEmail ?? seat.user.email, phone: seat.user.phone } }));
   }
 }
@@ -181,7 +224,11 @@ export class SignupsController {
   @Get('me/signups') mine(@Req() req: AuthRequest, @Query('includeEventId') includeEventId?: string) { return this.signups.mine(req.user.id, includeEventId); }
   @Get('events/:id/players') players(@Req() req: AuthRequest, @Param('id') id: string) { return this.signups.participants(req.user.id, id); }
   @Post('events/:id/signups') join(@Req() req: AuthRequest, @Param('id') id: string, @Body() value: unknown) { return this.signups.join(req.user.id, id, value); }
-  @Post('events/:id/signups/:bookingId/cancel') cancel(@Req() req: AuthRequest, @Param('id') id: string, @Param('bookingId') bookingId: string) { return this.signups.cancel(req.user.id, id, bookingId); }
+  @Post('events/:id/signups/:bookingId/cancel') cancel(@Req() req: AuthRequest, @Param('id') id: string, @Param('bookingId') bookingId: string, @Body() value: unknown) { return this.signups.cancel(req.user.id, id, bookingId, undefined, false, value ?? {}); }
+  @Get('events/:id/signups/:bookingId/cancellation') cancellationInfo(@Req() req: AuthRequest, @Param('id') id: string, @Param('bookingId') bookingId: string) { return this.signups.cancellationInfo(req.user.id, id, bookingId); }
+  @Get('events/:id/signups/:bookingId/waitlist-contacts') waitlistContacts(@Req() req: AuthRequest, @Param('id') id: string, @Param('bookingId') bookingId: string) { return this.signups.waitlistContacts(req.user.id, id, bookingId); }
+  @Post('signups/:id/substitute') substitute(@Req() req: AuthRequest, @Param('id') id: string, @Body() value: unknown) { return this.signups.updateSub(req.user.id, id, value); }
+  @Post('organizer/signups/:id/substitute') @UseGuards(OrganizerGuard) organizerSubstitute(@Req() req: AuthRequest, @Param('id') id: string, @Body() value: unknown) { return this.signups.updateSub(req.user.id, id, value, true, req.user.role === 'ADMINISTRATOR'); }
   @Get('organizer/events/:id/roster') @UseGuards(OrganizerGuard)
   roster(@Req() req: AuthRequest, @Param('id') id: string) { return this.signups.roster(req.user.id, id, req.user.role === 'ADMINISTRATOR'); }
   @Post('organizer/events/:id/bookings/:bookingId/remove') @UseGuards(OrganizerGuard)

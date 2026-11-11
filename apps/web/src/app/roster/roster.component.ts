@@ -1,3 +1,4 @@
+import { SubstituteSeatComponent } from '../substitute-seat/substitute-seat.component';
 import { PlayerPickerComponent } from '../player-picker/player-picker.component';
 import { IconComponent } from '../icon/icon.component';
 import { Component, EventEmitter, Input, OnChanges, SimpleChanges, Output, ViewChild, computed, inject, signal } from '@angular/core';
@@ -13,7 +14,7 @@ import { OrganizerSeat, OrganizerSeatComponent } from '../organizer-seat/organiz
 import { DatePipe } from '@angular/common';
 @Component({
   selector: 'app-roster',
-  imports: [PlayerPickerComponent, IconComponent, FormsModule, PaymentReviewComponent, OrganizerSeatComponent, DatePipe, AvatarComponent, EventTeamsComponent],
+  imports: [SubstituteSeatComponent, PlayerPickerComponent, IconComponent, FormsModule, PaymentReviewComponent, OrganizerSeatComponent, DatePipe, AvatarComponent, EventTeamsComponent],
   templateUrl: './roster.component.html',
   styleUrl: './roster.component.scss'
 })
@@ -40,7 +41,7 @@ export class RosterComponent implements OnChanges {
     waitlisted: this.seats().filter(seat => seat.status === 'WAITLISTED').length,
     cancelled: this.seats().filter(seat => seat.status === 'CANCELLED').length
   }));
-  readonly audit = signal<{ id: string; action: string; createdAt: string; actor: { displayName: string }; details: { note?: string; reason?: string; seatCount?: number; cancelledAt?: string; lateCancellation?: boolean; previousStatus?: string } }[]>([]);
+  readonly audit = signal<{ id: string; action: string; createdAt: string; actor: { displayName: string }; details: { note?: string; reason?: string; seatCount?: number; cancelledAt?: string; lateCancellation?: boolean; previousStatus?: string; seatReservedForSub?: boolean; subName?: string | null; subWillPay?: boolean } }[]>([]);
   readonly loading = signal(false);
   readonly auditLoading = signal(false);
   readonly error = signal('');
@@ -57,7 +58,7 @@ export class RosterComponent implements OnChanges {
     this.view.set('players'); this.statusFilter.set('active'); this.expandedSeat.set(''); this.search = '';
     void this.load();
   }
-  name(seat: OrganizerSeat) { return seat.guestNumber === 0 ? seat.user.displayName : seat.guestName || 'Guest'; }
+  name(seat: OrganizerSeat) { if (seat.subResponsibilityAcknowledgedAt) return (seat.subName || 'Sub needed') + ' / for ' + (seat.guestNumber ? seat.guestName || 'Guest' : seat.user.displayName); return seat.guestNumber === 0 ? seat.user.displayName : seat.guestName || 'Guest'; }
   label(value: string) { return value.replaceAll('_', ' ').toLowerCase(); }
   activeFilterCount() { return [!!this.search.trim(), this.statusFilter() !== 'all'].filter(Boolean).length; }
   filteredSeats() {

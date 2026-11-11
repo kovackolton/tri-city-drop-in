@@ -1,4 +1,7 @@
 import '@angular/compiler';
+import { CancelBookingComponent } from '../src/app/cancel-booking/cancel-booking.component';
+import { SubstituteSeatComponent } from '../src/app/substitute-seat/substitute-seat.component';
+import { WaitlistContactsComponent } from '../src/app/substitute-seat/waitlist-contacts.component';
 import { CalendarGameDatesDirective } from '../src/app/calendar-picker/calendar-game-dates.directive';
 import { PlayerPickerComponent } from '../src/app/player-picker/player-picker.component';
 import { PaymentLinksComponent } from '../src/app/payment-links/payment-links.component';
@@ -996,5 +999,45 @@ test('filter chips count active constraints, ignore whitespace and sorting, and 
     assert.equal(roster.activeFilterCount(), 1); roster.statusFilter.set('all'); assert.equal(roster.activeFilterCount(), 0);
     const picker = runInInjectionContext(injector, () => new PlayerPickerComponent());
     picker.minimumSkill = '3'; assert.equal(picker.activeFilterCount(), 0); picker.eventId = 'event'; assert.equal(picker.activeFilterCount(), 1);
+  } finally { injector.destroy(); }
+});
+
+test('late cancellation modal requires explicit acknowledgment and early cancellations do not create it', async () => {
+  let late = true, calls: any[] = [];
+  const injector = Injector.create({ providers: [
+    { provide: RegistrationsStore, useValue: { busy: () => false, loading: () => false, error: () => '', cancel: async (...args: any[]) => { calls.push(args); return true; } } },
+    { provide: HttpClient, useValue: { get: () => of({ late, alreadyCancelledForSub: false, seatCount: 1, amountCents: 1000, cutoffHours: 12 }) } }
+  ] });
+  try {
+    const component = runInInjectionContext(injector, () => new CancelBookingComponent());
+    component.seat = { eventId: 'event', bookingId: 'booking' } as Seat;
+    await component.open(); await component.confirm(); assert.equal(calls.length, 0);
+    component.acknowledged = true; await component.confirm(); assert.deepEqual(calls[0], ['event', 'booking', true]);
+    late = false; await component.open(); assert.equal(component.acknowledged, false); await component.confirm(); assert.deepEqual(calls[1], ['event', 'booking', false]);
+  } finally { injector.destroy(); }
+});
+
+test('sub editing closes for players at kickoff but remains available for staff without transferring liability', async () => {
+  const calls: any[] = [];
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: { post: (path: string, body: any) => { calls.push({ path, body }); return of({}); } } }] });
+  try {
+    const component = runInInjectionContext(injector, () => new SubstituteSeatComponent());
+    component.seat = { id: 'seat', status: 'CONFIRMED', subResponsibilityAcknowledgedAt: 'signed', subName: null, subWillPay: false, event: { startsAt: new Date(Date.now() + 3600000).toISOString(), status: 'PUBLISHED' } };
+    component.ngOnChanges(); component.name = 'Cover'; component.willPay = true; await component.save();
+    assert.deepEqual(calls[0], { path: '/api/signups/seat/substitute', body: { subName: 'Cover', subWillPay: true } });
+    component.seat.event.startsAt = new Date(Date.now() - 3600000).toISOString(); assert.equal(component.canEdit(), false); await component.save(); assert.equal(calls.length, 1);
+    component.organizer = true; await component.save(); assert.equal(calls[1].path, '/api/organizer/signups/seat/substitute');
+    component.seat.status = 'CANCELLED'; assert.equal(component.canEdit(), false);
+  } finally { injector.destroy(); }
+});
+
+test('waitlist contacts clear on collapse and stale responses cannot redisplay private details', async () => {
+  const response = new Subject<any>();
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: { get: () => response } }] });
+  try {
+    const component = runInInjectionContext(injector, () => new WaitlistContactsComponent());
+    component.eventId = 'event'; component.bookingId = 'booking'; const pending = component.toggled(true);
+    await component.toggled(false); response.next([{ name: 'Waiter', email: 'private@example.invalid', phone: null }]); response.complete(); await pending;
+    assert.deepEqual(component.contacts(), []);
   } finally { injector.destroy(); }
 });
