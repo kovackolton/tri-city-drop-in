@@ -1,5 +1,5 @@
 import { eligibleForEvent, skillEligibilityInput } from '../src/event-eligibility';
-import { paymentProfileUrl } from '../src/payment-links';
+import { paymentProfileUrl, zelleRecipient } from '../src/payment-links';
 import { coOrganizerInput, managesEvent } from '../src/event-organizers';
 import 'reflect-metadata';
 import { test } from 'node:test';
@@ -365,4 +365,16 @@ test('optional authentication allows anonymous browsing but never ignores invali
   let verified = 0; const guard = new OptionalFirebaseGuard({ verify: async () => { verified++; throw new UnauthorizedException(); } } as unknown as TokenVerifier, {} as Database);
   assert.equal(await guard.canActivate(context({ headers: {} })), true); assert.equal(verified, 0);
   await assert.rejects(guard.canActivate(context({ headers: { authorization: 'Bearer bad-token' } })), UnauthorizedException); assert.equal(verified, 1);
+});
+
+test('Zelle accepts enrolled email or US mobile recipient details, preserves omitted values and clears blank input', () => {
+  assert.equal(zelleRecipient(' Host@Example.com '), 'host@example.com');
+  assert.equal(zelleRecipient('(989) 555-0123'), '+19895550123');
+  assert.equal(zelleRecipient('+1 989 555 0123'), '+19895550123');
+  for (const value of ['https://zelle.com/host', 'javascript:alert(1)', 'abc', '+44 20 7946 0958', '1234567890', 'host@example.com\nBcc: bad@example.com', 123, {}, '']) assert.equal(zelleRecipient(value), null);
+  const previous = eventOptionsInput({ organizerZelleContact: 'host@example.com' });
+  assert.equal(eventOptionsInput({}, previous).organizerZelleContact, 'host@example.com');
+  for (const value of ['', '  ', null]) assert.equal(eventOptionsInput({ organizerZelleContact: value }, previous).organizerZelleContact, null);
+  assert.equal(eventOptionsInput({ organizerZelleContact: '(989) 555-0123' }).organizerZelleContact, '+19895550123');
+  for (const value of ['bad email', false, 123, {}]) assert.throws(() => eventOptionsInput({ organizerZelleContact: value }), /valid Zelle/);
 });

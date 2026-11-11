@@ -122,6 +122,7 @@ model Event {
   organizerVenmoUrl String?
   organizerCashAppUrl String?
   organizerPaypalUrl String?
+  organizerZelleContact String?
   contactCallAllowed Boolean @default(false)
   contactTextAllowed Boolean @default(false)
   // Per player/guest seat. Zero means Free; 1250 means USD $12.50.

@@ -881,13 +881,22 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
     });
     await t.test('organizer payment links persist through creation/editing and reach game, booking and private sharing cards', async () => {
       const controller = new EventsController(db, service), sharing = new EventSharingService(db), req = { user: users[0] } as AuthRequest;
-      const links = { organizerVenmoUrl: 'https://venmo.com/u/host', organizerCashAppUrl: 'https://cash.app/$host', organizerPaypalUrl: 'https://paypal.me/host' };
+      const links = { organizerVenmoUrl: 'https://venmo.com/u/host', organizerCashAppUrl: 'https://cash.app/$host', organizerPaypalUrl: 'https://paypal.me/host', organizerZelleContact: 'host@example.com' };
       const e = await controller.create(req, { title: 'Payment links fixture', locationId: location.id, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString(), capacity: 4, maxGuestsPerUser: 0, priceCents: 1000, status: 'PUBLISHED', ...links });
       assert.equal((await controller.events()).find(game => game.id === e.id)?.organizerCashAppUrl, links.organizerCashAppUrl);
       const player = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Payment link player' } });
       const booking = await service.join(player.id, e.id, { guests: [], costAcknowledged: true, expectedPriceCents: 1000 });
       assert.equal((await service.mine(player.id)).find(seat => seat.id === booking[0].id)?.event.organizerPaypalUrl, links.organizerPaypalUrl);
       assert.equal((await sharing.publicGame(e.id)).game.organizerVenmoUrl, links.organizerVenmoUrl);
+      assert.equal((await service.mine(player.id)).find(seat => seat.id === booking[0].id)?.event.organizerZelleContact, links.organizerZelleContact);
+      assert.equal((await sharing.publicGame(e.id)).game.organizerZelleContact, links.organizerZelleContact);
+      await administration.edit(users[0].id, e.id, { organizerZelleContact: '(989) 555-0123' });
+      assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).organizerZelleContact, '+19895550123');
+      await assert.rejects(administration.edit(users[0].id, e.id, { organizerZelleContact: 'https://evil.invalid' }), /valid Zelle/);
+      await administration.edit(users[0].id, e.id, { description: 'Preserve Zelle' });
+      assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).organizerZelleContact, '+19895550123');
+      await administration.edit(users[0].id, e.id, { organizerZelleContact: '' });
+      assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).organizerZelleContact, null);
       await assert.rejects(administration.edit(users[3].id, e.id, { organizerVenmoUrl: '' }), /Event not found/);
       await administration.edit(users[0].id, e.id, { description: 'Unrelated edit' }); assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).organizerVenmoUrl, links.organizerVenmoUrl);
       await administration.edit(users[0].id, e.id, { organizerVenmoUrl: '', organizerCashAppUrl: '', organizerPaypalUrl: '' });
