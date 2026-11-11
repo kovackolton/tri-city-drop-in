@@ -8,6 +8,7 @@ import { PaymentReview } from './app/payment-review/payment-review.component';
 
 export interface Seat {
   queuedAt?: string; cancelledAt?: string | null; cancellationSource?: 'PLAYER' | 'ORGANIZER' | 'EVENT' | null; playerCancellationCount?: number; legacyCancellationCount?: number; bookingCount?: number; id: string; eventId: string; bookingId: string; guestNumber: number; guestName: string | null;
+  subResponsibilityAcknowledgedAt?: string | null; subName?: string | null; subWillPay?: boolean;
   teamNumber?: number | null; status: 'CONFIRMED' | 'WAITLISTED' | 'CANCELLED'; quotedPriceCents: number; lateCancellation: boolean;
   payment: PaymentReview | null;
   attendance: string; guestPaymentAcknowledgedAt?: string | null; guestPaymentTermsVersion?: string | null;
@@ -47,7 +48,7 @@ export const RegistrationsStore = signalStore(
       load,
       reset() { revision++; focusedEventId = undefined; patchState(store, { seats: [], loading: false, busy: false, error: '', notice: '' }); },
       join(eventId: string, guests: string[], expectedPriceCents: number, guestPaymentAcknowledged = false, costAcknowledged = false, privateInviteToken?: string) { return mutate(`/api/events/${eventId}/signups`, { guests, expectedPriceCents, guestPaymentAcknowledged, costAcknowledged, ...(privateInviteToken ? { privateInviteToken } : {}) }, 'Booking saved. Check your confirmed or waitlisted status below.'); },
-      cancel(eventId: string, bookingId: string) { return mutate(`/api/events/${eventId}/signups/${bookingId}/cancel`, {}, 'Your whole party has been cancelled.'); }
+      cancel(eventId: string, bookingId: string, lateCancellationAcknowledged = false) { return mutate(`/api/events/${eventId}/signups/${bookingId}/cancel`, { lateCancellationAcknowledged }, 'Cancellation saved. Review My games for any reserved sub seats and retained payment responsibility.'); }
     };
   })
 );

@@ -1,3 +1,4 @@
+import { lateCancellationApplies, cancellationInput, substituteInput } from '../src/late-cancellation';
 import { calendarGameDates } from '../src/event-filters';
 import { eligibleForEvent, skillEligibilityInput } from '../src/event-eligibility';
 import { paymentProfileUrl, zelleRecipient } from '../src/payment-links';
@@ -393,4 +394,17 @@ test('preferred positions accept only unique supported codes, normalize order an
   assert.deepEqual(profileInput({ preferredPositions: [] }).preferredPositions, []);
   assert.equal(profileInput({}).preferredPositions, undefined);
   for (const value of [null, 'GK', ['GK', 'GK'], ['goalie'], ['DF', 'XX'], [1], ['GK', 'DF', 'MF', 'F', 'F']]) assert.throws(() => profileInput({ preferredPositions: value }), /preferred positions/);
+});
+
+test('late sub rules enforce cutoff boundaries, acknowledgment types and safe sub names', () => {
+  const now = new Date('2026-01-01T12:00:00Z'), e = { status: 'PUBLISHED', startsAt: new Date('2026-01-02T00:00:00Z'), cancellationCutoffHours: 12 };
+  assert.equal(lateCancellationApplies(e, 'CONFIRMED', now), true);
+  assert.equal(lateCancellationApplies(e, 'CONFIRMED', new Date(now.getTime() - 1)), false);
+  assert.equal(lateCancellationApplies(e, 'WAITLISTED', now), false);
+  assert.equal(lateCancellationApplies({ ...e, status: 'DRAFT' }, 'CONFIRMED', now), false);
+  assert.equal(cancellationInput({}), false); assert.equal(cancellationInput({ lateCancellationAcknowledged: true }), true);
+  assert.throws(() => cancellationInput({ lateCancellationAcknowledged: 'true' }));
+  assert.deepEqual(substituteInput({ subName: ' Cover ', subWillPay: true }), { subName: 'Cover', subWillPay: true });
+  assert.throws(() => substituteInput({ subName: '', subWillPay: true })); assert.throws(() => substituteInput({ subName: 'Cover', subWillPay: 'yes' }));
+  assert.deepEqual(substituteInput({ subName: '', subWillPay: false }), { subName: null, subWillPay: false });
 });
