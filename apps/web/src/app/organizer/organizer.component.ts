@@ -38,10 +38,10 @@ export class OrganizerComponent implements OnInit {
   readonly eventScope = signal<'mine' | 'all'>('mine');
   readonly overview = signal<EventOverview[]>([]);
   calendar: CalendarSelection = { period: 'all', date: calendarDate(new Date()) };
-  eventSearch = ''; eventHistory = 'all'; eventReview = ''; eventStatus = ''; eventLocation = '';
-  selectEventHistory(value: string) { this.eventHistory = value; void this.load(); }
+  eventSearch = ''; eventHistory = 'upcoming'; eventReview = ''; eventStatus = ''; eventLocation = '';
+  selectEventHistory(value: string) { this.eventHistory = value; this.eventReview = value === 'past' ? 'open' : ''; this.eventStatus = ''; this.calendar = { period: 'all', date: calendarDate(new Date()) }; this.expandedEvent.set(''); this.rosterEvent.set(''); void this.load(); }
   calendarChanged(selection: CalendarSelection) { this.calendar = selection; void this.load(); }
-  clearEventFilters() { this.calendar = { period: 'all', date: calendarDate(new Date()) }; this.eventSearch = ''; this.eventHistory = 'all'; this.eventReview = ''; this.eventStatus = ''; this.eventLocation = ''; void this.load(); }
+  clearEventFilters() { this.calendar = { period: 'all', date: calendarDate(new Date()) }; this.eventSearch = ''; this.eventReview = this.eventHistory === 'past' ? 'open' : ''; this.eventStatus = ''; this.eventLocation = ''; void this.load(); }
   visibleOverview() { return this.overview().filter(game => matchesCalendar(game.startsAt, game.location.timezone, this.calendar) && (!this.eventSearch.trim() || `${game.title} ${game.organizer.displayName} ${game.location.name}`.toLowerCase().includes(this.eventSearch.trim().toLowerCase()))); }
   private loadRevision = 0;
   organizerNames(game: ManagedEvent | EventOverview) { return [game.organizer?.displayName ?? 'Unknown', ...(game.coOrganizers ?? []).map(user => user.displayName)].join(', '); }

@@ -791,3 +791,29 @@ test('Zelle details normalize recipients and copy only the recipient, with a cli
     if (original) Object.defineProperty(globalThis, 'navigator', original); else Reflect.deleteProperty(globalThis, 'navigator');
   }
 });
+
+test('workspace starts upcoming and tab changes reset conflicting filters while clear preserves the tab', () => {
+  const injector = Injector.create({ providers: [
+    { provide: AuthService, useValue: { profile: () => ({ id: 'owner', role: 'ORGANIZER' }) } },
+    { provide: HttpClient, useValue: { get: () => of([]) } }
+  ] });
+  try {
+    const component = runInInjectionContext(injector, () => new OrganizerComponent());
+    component.load = async () => {};
+    assert.equal(component.eventHistory, 'upcoming'); assert.equal(component.eventScope(), 'mine');
+    component.eventStatus = 'CANCELLED'; component.calendar = { period: 'day', date: '2026-01-01' };
+    component.selectEventHistory('past'); assert.equal(component.eventReview, 'open'); assert.equal(component.eventStatus, ''); assert.equal(component.calendar.period, 'all');
+    component.eventReview = 'completed'; component.clearEventFilters(); assert.equal(component.eventHistory, 'past'); assert.equal(component.eventReview, 'open');
+    component.selectEventHistory('all'); assert.equal(component.eventReview, ''); component.clearEventFilters(); assert.equal(component.eventHistory, 'all');
+    component.selectEventHistory('upcoming'); assert.equal(component.eventReview, '');
+  } finally { injector.destroy(); }
+});
+
+test('cancelled booking labels distinguish player, organizer and event cancellation', () => {
+  const component = Object.create(MyGamesComponent.prototype) as MyGamesComponent;
+  assert.equal(component.bookingLabel({ status: 'CANCELLED', cancellationSource: 'PLAYER' } as any), 'You Cancelled');
+  assert.equal(component.bookingLabel({ status: 'CANCELLED', cancellationSource: 'ORGANIZER' } as any), 'Removed by organizer');
+  assert.equal(component.bookingLabel({ status: 'CANCELLED', cancellationSource: 'EVENT' } as any), 'Booking cancelled with event');
+  assert.equal(component.bookingLabel({ status: 'CANCELLED' } as any), 'Booking cancelled');
+  assert.equal(component.bookingLabel({ status: 'CONFIRMED' } as any), 'confirmed');
+});

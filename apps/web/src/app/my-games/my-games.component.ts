@@ -47,6 +47,10 @@ export class MyGamesComponent implements OnChanges {
   readonly time = eventTime;
   month(value: string, zone: string) { return new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: zone }).format(new Date(value)); }
   day(value: string, zone: string) { return new Intl.DateTimeFormat('en-US', { day: 'numeric', timeZone: zone }).format(new Date(value)); }
+  bookingLabel(seat: Seat) {
+    if (seat.status !== 'CANCELLED') return this.label(seat.status);
+    return seat.cancellationSource === 'PLAYER' ? 'You Cancelled' : seat.cancellationSource === 'ORGANIZER' ? 'Removed by organizer' : seat.cancellationSource === 'EVENT' ? 'Booking cancelled with event' : 'Booking cancelled';
+  }
   label(value: string) { return value.replaceAll('_', ' ').toLowerCase(); }
   gameGroups() {
     const now = Date.now();

@@ -740,6 +740,21 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.equal((await requests.users('DirectorySort', false, undefined, { rating: 'unrated' })).items[0].id, adminUser.id);
       for (const bad of [{ role: 'OWNER' }, { sort: 'password' }, { direction: 'sideways' }, { access: 'all-access' }]) await assert.rejects(requests.users('', false, undefined, bad), /valid user filters/);
     });
+    await t.test('workspace upcoming excludes inactive games by default and unfinished reviews can expand to full history', async () => {
+      const controller = new EventsController(db, service), req = { user: users[0] } as AuthRequest;
+      const first = await event(2), cancelled = await event(2), completed = await event(2), past = await event(2), signedOff = await event(2);
+      const fixtureIds = [first, cancelled, completed, past, signedOff].map(e => e.id);
+      await db.event.update({ where: { id: cancelled.id }, data: { status: 'CANCELLED' } });
+      await db.event.update({ where: { id: completed.id }, data: { status: 'COMPLETED' } });
+      for (const e of [past, signedOff]) await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000) } });
+      await db.auditLog.create({ data: { eventId: signedOff.id, actorId: users[0].id, action: 'EVENT_REVIEW_COMPLETED', details: {} } });
+      const ids = (events: { id: string }[]) => events.filter(e => fixtureIds.includes(e.id)).map(e => e.id).sort();
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'upcoming' })), [first.id]);
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'upcoming', status: 'all' })), [first.id, cancelled.id, completed.id].sort());
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'past', review: 'open' })), [past.id]);
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'past' })), [past.id, signedOff.id].sort());
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'all' })), fixtureIds.sort());
+    });
     await t.test('workspace calendar and follow-up queues count only reviewable confirmed seats and respect ownership', async () => {
       const e = await event(2); await db.event.update({ where: { id: e.id }, data: { title: 'ReviewQueueFixture' } });
       const seats = await join(1, e.id, ['Guest']); await join(2, e.id);
