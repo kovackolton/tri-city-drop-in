@@ -1,4 +1,4 @@
-<div class="border-t border-divider mt-5 pt-4">
+<div>
       @if (booking(); as seat) {
         <p class="font-semibold" [class.text-accent]="seat.status === 'CONFIRMED'">{{ seat.status === 'CONFIRMED' ? 'You are confirmed' : 'Your party is on the waitlist' }} · {{ partySize() }} player(s)</p>
         @if (seat.status === 'WAITLISTED') { <p class="text-xs text-muted mt-2">Your party stays together. You will move into a spot automatically when the whole party fits. Nothing is due while waiting.</p> }
@@ -13,7 +13,7 @@
             <label class="flex items-start gap-3 text-sm mt-4 rounded-xl border border-warning-border bg-warning p-3"><input class="!w-auto !mt-1" type="checkbox" [name]="'guest-payment-' + game.id" [(ngModel)]="guestPaymentAcknowledged" required [disabled]="store.busy()"><span>I acknowledge responsibility for paying for all my guests when a fee applies. Guest seats explicitly marked unpaid by the organizer receive strikes against my account after the 24-hour grace period.</span></label>
           }
           @if (acknowledgmentError()) { <p role="alert" class="text-sm text-warning-text mt-2">{{ acknowledgmentError() }}</p> }
-          <div class="flex flex-wrap gap-3 mt-3">
+          <div class="flex flex-wrap gap-3">
             @if (guests.length < guestLimit()) { <button type="button" class="secondary" (click)="add()" [disabled]="store.busy() || store.loading()">Add guest</button> }
             <button class="primary" [disabled]="!waiver.accepted() || strikes.blocked() || store.busy() || store.loading() || !!store.error() || (guests.length > 0 && !guestPaymentAcknowledged)">{{ game.waitlisted > 0 || game.confirmed + guests.length + 1 > game.capacity ? 'Join waitlist' : 'Join game' }}</button>
           </div>
