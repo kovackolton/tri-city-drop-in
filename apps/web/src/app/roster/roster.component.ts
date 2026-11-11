@@ -40,7 +40,7 @@ export class RosterComponent implements OnChanges {
     waitlisted: this.seats().filter(seat => seat.status === 'WAITLISTED').length,
     cancelled: this.seats().filter(seat => seat.status === 'CANCELLED').length
   }));
-  readonly audit = signal<{ id: string; action: string; createdAt: string; actor: { displayName: string }; details: { note?: string; reason?: string } }[]>([]);
+  readonly audit = signal<{ id: string; action: string; createdAt: string; actor: { displayName: string }; details: { note?: string; reason?: string; seatCount?: number; cancelledAt?: string; lateCancellation?: boolean; previousStatus?: string } }[]>([]);
   readonly loading = signal(false);
   readonly auditLoading = signal(false);
   readonly error = signal('');

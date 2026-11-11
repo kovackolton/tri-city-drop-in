@@ -103,6 +103,9 @@ export class SignupsService {
         await tx.auditLog.create({ data: { actorId: userId, eventId, action: 'ORGANIZER_REMOVED_PARTY', details: { bookingId, reason: organizerReason } } });
         await tx.notification.create({ data: { userId: seats[0].userId, kind: 'BOOKING_REMOVED', dedupeKey: `removed:${bookingId}`, payload: { eventId, bookingId } } });
       }
+      else {
+        await tx.auditLog.create({ data: { actorId: userId, eventId, action: 'PLAYER_CANCELLED_PARTY', createdAt: now, details: { bookingId, seatCount: seats.filter(seat => seat.status !== 'CANCELLED').length, previousStatus: seats.find(seat => seat.guestNumber === 0)?.status ?? seats[0].status, cancelledAt: now.toISOString(), lateCancellation } } });
+      }
       await this.promote(tx, event);
       return { status: 'CANCELLED', lateCancellation };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, maxWait: 10000, timeout: 15000 });
@@ -166,9 +169,9 @@ export class SignupsService {
     const userIds = accounts.map(seat => seat.userId);
     await refreshPaymentStrikes(this.db, userIds);
     const counts = await this.db.strike.groupBy({ by: ['userId'], where: { ...currentStrikes(), userId: { in: userIds } }, _count: true });
-    const seats = await this.db.signup.findMany({ where: { eventId }, select: { userId: true, cancellationSource: true, teamNumber: true, guestPaymentAcknowledgedAt: true, guestPaymentTermsVersion: true, attendance: true, lateCancellation: true, strikes: { select: { id: true, reason: true, revokedAt: true, expiresAt: true } }, id: true, bookingId: true, guestNumber: true, guestName: true, status: true, queuedAt: true, event: { select: { startsAt: true, endsAt: true, status: true } }, user: { select: { ...appearanceSelect, adminSkillLevel: true, skillLevel: true, email: true, contactEmail: true, phone: true } }, payment: { select: { amountCents: true, status: true, playerPaid: true, playerReviewedAt: true, organizerPaid: true, organizerReviewedAt: true } } }, orderBy: [{ queuedAt: 'asc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
+    const seats = await this.db.signup.findMany({ where: { eventId }, select: { userId: true, cancellationSource: true, teamNumber: true, guestPaymentAcknowledgedAt: true, guestPaymentTermsVersion: true, attendance: true, lateCancellation: true, strikes: { select: { id: true, reason: true, revokedAt: true, expiresAt: true } }, id: true, bookingId: true, guestNumber: true, guestName: true, status: true, queuedAt: true, event: { select: { startsAt: true, endsAt: true, status: true } }, user: { select: { ...appearanceSelect, adminSkillLevel: true, skillLevel: true, preferredPositions: true, email: true, contactEmail: true, phone: true } }, payment: { select: { amountCents: true, status: true, playerPaid: true, playerReviewedAt: true, organizerPaid: true, organizerReviewedAt: true } } }, orderBy: [{ queuedAt: 'asc' }, { bookingId: 'asc' }, { guestNumber: 'asc' }] });
     const cancellations = await this.db.signup.groupBy({ by: ['userId'], where: { eventId, guestNumber: 0, status: 'CANCELLED', cancellationSource: 'PLAYER' }, _count: true });
-    return seats.map(seat => ({ ...seat, user: { ...appearance(seat.user), strikeCount: counts.find(record => record.userId === seat.userId)?._count ?? 0, eventCancellationCount: cancellations.find(record => record.userId === seat.userId)?._count ?? 0, accountName: seat.user.displayName, nickname: seat.user.nickname, skillLevel: seat.user.skillLevel, adminSkillLevel: seat.user.adminSkillLevel, contactEmail: seat.user.contactEmail ?? seat.user.email, phone: seat.user.phone } }));
+    return seats.map(seat => ({ ...seat, user: { ...appearance(seat.user), strikeCount: counts.find(record => record.userId === seat.userId)?._count ?? 0, eventCancellationCount: cancellations.find(record => record.userId === seat.userId)?._count ?? 0, accountName: seat.user.displayName, nickname: seat.user.nickname, skillLevel: seat.user.skillLevel, adminSkillLevel: seat.user.adminSkillLevel, preferredPositions: seat.user.preferredPositions, contactEmail: seat.user.contactEmail ?? seat.user.email, phone: seat.user.phone } }));
   }
 }
 

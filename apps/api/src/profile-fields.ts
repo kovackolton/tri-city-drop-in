@@ -9,9 +9,14 @@ export function googleAvatarUrl(value: unknown): string | null {
   } catch { return null; }
 }
 export function profileInput(value: unknown) {
-  const b = object(value, ['nickname', 'skillLevel', 'contactEmail', 'phone', 'avatarColor', 'useGooglePhoto', 'accountName']);
-  const data: { nickname?: string | null; skillLevel?: number | null; accountName?: string; contactEmail?: string | null; phone?: string | null; avatarColor?: string; useGooglePhoto?: boolean } = {};
+  const b = object(value, ['nickname', 'skillLevel', 'preferredPositions', 'contactEmail', 'phone', 'avatarColor', 'useGooglePhoto', 'accountName']);
+  const data: { preferredPositions?: string[]; nickname?: string | null; skillLevel?: number | null; accountName?: string; contactEmail?: string | null; phone?: string | null; avatarColor?: string; useGooglePhoto?: boolean } = {};
   if (b.nickname !== undefined) data.nickname = b.nickname === '' || b.nickname === null ? null : text(b.nickname, 'Nickname', 80);
+  if (b.preferredPositions !== undefined) {
+    const positions = ['GK', 'DF', 'MF', 'F'];
+    if (!Array.isArray(b.preferredPositions) || b.preferredPositions.length > 4 || b.preferredPositions.some(value => typeof value !== 'string' || !positions.includes(value)) || new Set(b.preferredPositions).size !== b.preferredPositions.length) throw new BadRequestException('Choose preferred positions from GK, DF, MF and F.');
+    data.preferredPositions = positions.filter(position => (b.preferredPositions as string[]).includes(position));
+  }
   if (b.skillLevel !== undefined) data.skillLevel = b.skillLevel === null ? null : integer(b.skillLevel, 'Skill rating', 1, 5);
   if (b.accountName !== undefined) data.accountName = text(b.accountName, 'Account name', 80);
   if (b.contactEmail !== undefined) {

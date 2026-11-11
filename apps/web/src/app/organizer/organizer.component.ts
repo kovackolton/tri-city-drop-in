@@ -27,11 +27,24 @@ export type WorkspaceShortcut = 'upcoming' | 'recent' | 'review' | 'all' | 'loca
   styleUrl: './organizer.component.scss'
 })
 export class OrganizerComponent implements OnInit, OnChanges {
-  @Input() shortcutRequest: { view: WorkspaceShortcut; id: number } | null = null;
+  @Input() shortcutRequest: { view: WorkspaceShortcut; id: number; eventId?: string } | null = null;
   @Output() shortcutChanged = new EventEmitter<WorkspaceShortcut>();
-  ngOnChanges(changes: SimpleChanges) { if (changes['shortcutRequest'] && this.shortcutRequest) this.selectShortcut(this.shortcutRequest.view, !changes['shortcutRequest'].firstChange); }
+  reviewTargetId = '';
+  private reviewScrollPending = false;
+  ngOnChanges(changes: SimpleChanges) {
+    if (!changes['shortcutRequest'] || !this.shortcutRequest) return;
+    const request = this.shortcutRequest;
+    this.selectShortcut(request.view, false);
+    if (request.eventId) {
+      this.reviewTargetId = request.eventId; this.reviewScrollPending = true;
+      this.eventReview = ''; this.eventHistory = 'past';
+      if (this.auth.profile()?.role === 'ADMINISTRATOR') this.eventScope.set('all');
+    }
+    if (!changes['shortcutRequest'].firstChange) void this.load();
+  }
   selectShortcut(shortcut: WorkspaceShortcut, reload = true) {
     if (this.busy()) return;
+    this.reviewTargetId = ''; this.reviewScrollPending = false;
     this.view.set(shortcut === 'locations' ? 'locations' : 'events');
     this.eventScope.set('mine'); this.events.set([]); this.overview.set([]);
     if (shortcut !== 'locations') {
@@ -62,7 +75,7 @@ export class OrganizerComponent implements OnInit, OnChanges {
   readonly overview = signal<EventOverview[]>([]);
   calendar: CalendarSelection = { period: 'all', date: calendarDate(new Date()) };
   eventSearch = ''; eventHistory = 'upcoming'; eventReview = ''; eventStatus = ''; eventLocation = '';
-  selectEventHistory(value: string) { this.eventHistory = value; this.eventReview = ['past', 'recent'].includes(value) ? 'open' : ''; this.eventStatus = ''; this.calendar = { period: 'all', date: calendarDate(new Date()) }; this.expandedEvent.set(''); this.rosterEvent.set(''); this.emitShortcut(); void this.load(); }
+  selectEventHistory(value: string) { this.reviewTargetId = ''; this.reviewScrollPending = false; this.eventHistory = value; this.eventReview = ['past', 'recent'].includes(value) ? 'open' : ''; this.eventStatus = ''; this.calendar = { period: 'all', date: calendarDate(new Date()) }; this.expandedEvent.set(''); this.rosterEvent.set(''); this.emitShortcut(); void this.load(); }
   calendarChanged(selection: CalendarSelection) { this.calendar = selection; void this.load(); }
   clearEventFilters() { this.calendar = { period: 'all', date: calendarDate(new Date()) }; this.eventSearch = ''; this.eventReview = ['past', 'recent'].includes(this.eventHistory) ? 'open' : ''; this.eventStatus = ''; this.eventLocation = ''; void this.load(); }
   visibleOverview() { return this.overview().filter(game => matchesCalendar(game.startsAt, game.location.timezone, this.calendar) && (!this.eventSearch.trim() || `${game.title} ${game.organizer.displayName} ${game.location.name}`.toLowerCase().includes(this.eventSearch.trim().toLowerCase()))); }
@@ -71,6 +84,7 @@ export class OrganizerComponent implements OnInit, OnChanges {
   minimalView() { return this.eventScope() === 'all' && this.auth.profile()?.role !== 'ADMINISTRATOR'; }
   async selectEventScope(scope: 'mine' | 'all') {
     if (this.busy() || scope === this.eventScope()) return;
+    this.reviewTargetId = ''; this.reviewScrollPending = false;
     this.eventScope.set(scope); this.events.set([]); this.overview.set([]);
     this.rosterEvent.set(''); this.cancelling.set(''); this.deleting.set('');
     await this.load();
@@ -148,12 +162,23 @@ export class OrganizerComponent implements OnInit, OnChanges {
     const minimal = this.minimalView();
     this.loading.set(true); this.error.set('');
     try {
-      const [locations, events] = await Promise.all([firstValueFrom(this.http.get<Location[]>('/api/locations')), firstValueFrom(this.http.get<ManagedEvent[] | EventOverview[]>(minimal ? '/api/organizer/events/overview' : '/api/organizer/events', { params: minimal ? { period: this.calendar.period, date: this.calendar.date, search: this.eventSearch } : { scope: this.eventScope(), period: this.calendar.period, date: this.calendar.date, search: this.eventSearch, history: this.eventHistory, review: this.eventReview, status: this.eventStatus, locationId: this.eventLocation } }))]);
+      const [locations, events] = await Promise.all([firstValueFrom(this.http.get<Location[]>('/api/locations')), firstValueFrom(this.http.get<ManagedEvent[] | EventOverview[]>(minimal ? '/api/organizer/events/overview' : '/api/organizer/events', { params: minimal ? { period: this.calendar.period, date: this.calendar.date, search: this.eventSearch } : { scope: this.eventScope(), period: this.calendar.period, date: this.calendar.date, search: this.eventSearch, history: this.eventHistory, review: this.eventReview, status: this.eventStatus, locationId: this.eventLocation, ...(this.reviewTargetId ? { eventId: this.reviewTargetId } : {}) } }))]);
       if (revision !== this.loadRevision) return;
       this.calendarRevision.update(value => value + 1);
       this.locations.set(locations);
       if (minimal) { this.overview.set(events as EventOverview[]); this.events.set([]); }
       else { this.events.set(events as ManagedEvent[]); this.overview.set([]); }
+      if (this.reviewTargetId) {
+        const game = (events as ManagedEvent[]).find(game => game.id === this.reviewTargetId);
+        if (!game) this.error.set('This game is unavailable for review. It may have been deleted or your organizer access changed.');
+        else {
+          this.expandedEvent.set(game.id); this.rosterEvent.set(game.id);
+          if (this.reviewScrollPending) {
+            this.reviewScrollPending = false;
+            requestAnimationFrame(() => { const panel = document.getElementById('event-management-' + game.id); panel?.scrollIntoView({ block: 'start' }); panel?.focus({ preventScroll: true }); });
+          }
+        }
+      }
     } catch (error) { if (revision === this.loadRevision) this.error.set(message(error)); }
     finally { if (revision === this.loadRevision) this.loading.set(false); }
   }
