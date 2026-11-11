@@ -160,7 +160,7 @@ test('mobile navigation closes on selection and Escape, restores focus and label
   Object.defineProperty(globalThis, 'requestAnimationFrame', { configurable: true, value: (callback: () => void) => { callback(); return 1; } });
   try {
     const component: AppComponent = Object.assign(Object.create(AppComponent.prototype), {
-      mobileNavigationOpen: signal(false), bottomNavigationHidden: signal(false), page: signal('games'), profileSectionRequest: signal(null), auth: { profile: () => ({ role: 'ADMINISTRATOR' }) }
+      myGamesMenuOpen: signal(false), mobileNavigationOpen: signal(false), bottomNavigationHidden: signal(false), page: signal('games'), profileSectionRequest: signal(null), auth: { profile: () => ({ role: 'ADMINISTRATOR' }) }
     });
     assert.equal(component.pageLabel(), 'Upcoming games');
     component.toggleMobileNavigation(); assert.equal(component.mobileNavigationOpen(), true);
@@ -330,11 +330,11 @@ test('My Games date tiles use the pitch timezone rather than the device calendar
 
 test('My Games keeps ongoing games visible and sorts collapsed history separately from upcoming games', () => {
   const now = Date.now();
-  const booking = (id: string, start: number, end: number, guestNumber = 0) => ({ id, eventId: id, bookingId: id, guestNumber, event: { startsAt: new Date(now + start).toISOString(), endsAt: new Date(now + end).toISOString() } }) as Seat;
+  const booking = (id: string, start: number, end: number, guestNumber = 0) => ({ id, eventId: id, bookingId: id, guestNumber, status: 'CONFIRMED', event: { startsAt: new Date(now + start).toISOString(), endsAt: new Date(now + end).toISOString() } }) as Seat;
   const seats = [booking('future-later', 7200000, 10800000), booking('oldest', -14400000, -10800000), booking('ongoing', -3600000, 3600000), booking('recent', -7200000, -3600000), booking('guest', -7200000, -3600000, 1)];
   const injector = Injector.create({ providers: [{ provide: AuthService, useValue: {} }, { provide: RegistrationsStore, useValue: { seats: () => seats } }] });
   const component = runInInjectionContext(injector, () => new MyGamesComponent());
-  assert.equal(component.showPast(), false);
+  assert.equal(component.view(), 'all');
   const [upcoming, past] = component.gameGroups();
   assert.deepEqual(upcoming.games.map(seat => seat.id), ['ongoing', 'future-later']);
   assert.deepEqual(past.games.map(seat => seat.id), ['recent', 'oldest']);
@@ -410,7 +410,7 @@ test('My Games renders one card per event, prefers the active booking and keeps 
   const component = runInInjectionContext(injector, () => new MyGamesComponent());
   assert.equal(component.gameGroups()[0].games.length, 1); assert.equal(component.gameGroups()[0].games[0].id, 'active');
   assert.deepEqual(component.previousBookings(seats[2]).map(seat => seat.id), ['latest-cancel', 'first']);
-  seats[2].status = 'CANCELLED'; assert.equal(component.gameGroups()[0].games[0].id, 'latest-cancel');
+  seats[2].status = 'CANCELLED'; assert.equal(component.gameGroups()[0].games.length, 0); component.bookingStatus = ''; assert.equal(component.gameGroups()[0].games[0].id, 'latest-cancel');
 });
 
 
@@ -816,4 +816,57 @@ test('cancelled booking labels distinguish player, organizer and event cancellat
   assert.equal(component.bookingLabel({ status: 'CANCELLED', cancellationSource: 'EVENT' } as any), 'Booking cancelled with event');
   assert.equal(component.bookingLabel({ status: 'CANCELLED' } as any), 'Booking cancelled');
   assert.equal(component.bookingLabel({ status: 'CONFIRMED' } as any), 'confirmed');
+});
+
+test('My games views separate future bookings, outstanding party reports and past paid participation', () => {
+  const now = Date.now();
+  const make = (id: string, start: number, end: number, status = 'CONFIRMED', paid: boolean | null = null, amount = 1000) => ({ id, eventId: id, bookingId: id, guestNumber: 0, status, payment: { amountCents: amount, status: 'UNPAID', playerPaid: paid }, event: { status: 'PUBLISHED', title: id, startsAt: new Date(now + start).toISOString(), endsAt: new Date(now + end).toISOString(), location: { name: 'Pitch', timezone: 'UTC' }, organizer: { displayName: 'Organizer' } } }) as Seat;
+  const future = make('future', 3600000, 7200000), waiting = make('waiting', 3600000, 7200000, 'WAITLISTED');
+  const ongoing = make('ongoing', -3600000, 3600000), needs = make('needs', -7200000, -3600000);
+  const paid = make('paid', -7200000, -3600000, 'CONFIRMED', true), unpaid = make('unpaid', -7200000, -3600000, 'CONFIRMED', false);
+  const cancelled = make('cancelled', -7200000, -3600000, 'CANCELLED', true), free = make('free', -7200000, -3600000, 'CONFIRMED', null, 0);
+  const guest = { ...needs, id: 'guest', eventId: paid.eventId, bookingId: paid.bookingId, guestNumber: 1 };
+  const seats = [future, waiting, ongoing, needs, paid, unpaid, cancelled, free, guest];
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: {} }, { provide: RegistrationsStore, useValue: { seats: () => seats } }] });
+  try {
+    const component = runInInjectionContext(injector, () => new MyGamesComponent());
+    const ids = () => component.gameGroups().filter(group => component.groupVisible(group.id)).flatMap(group => group.games.map(game => game.id)).sort();
+    assert.equal(component.bookingStatus, 'active'); assert.ok(!ids().includes('cancelled')); assert.ok(ids().includes('waiting'));
+    component.bookingStatus = ''; assert.ok(ids().includes('cancelled'));
+    component.bookingStatus = 'CANCELLED'; assert.deepEqual(ids(), ['cancelled']);
+    component.clearFilters(); assert.equal(component.bookingStatus, 'active');
+    component.selectView('upcoming'); assert.deepEqual(ids(), ['future', 'waiting']);
+    component.selectView('payments'); assert.deepEqual(ids(), ['needs', 'paid']);
+    guest.payment = { ...guest.payment!, playerPaid: false }; assert.deepEqual(ids(), ['needs']);
+    component.selectView('completed'); assert.deepEqual(ids(), ['paid']);
+    paid.event.status = 'CANCELLED'; assert.deepEqual(ids(), []); paid.event.status = 'PUBLISHED';
+    component.revealHistory = true; component.ngOnChanges(); assert.equal(component.view(), 'payments');
+    component.clearFilters(); assert.equal(component.view(), 'payments'); assert.equal(component.bookingStatus, 'active');
+  } finally { injector.destroy(); }
+});
+
+test('My games navigation opens the complete resource and shortcuts target views on an already mounted page', () => {
+  const visits: string[] = [];
+  const component = Object.assign(Object.create(AppComponent.prototype), {
+    myGamesView: signal('completed'), myGamesRequest: signal(null), myGamesMenuOpen: signal(false), myGamesRequestId: 0,
+    navigate: (page: string) => { visits.push(page); component.myGamesMenuOpen.set(false); }
+  }) as AppComponent;
+  component.openMyGames(); assert.equal(component.myGamesView(), 'all'); assert.equal(component.myGamesRequest()!.view, 'all');
+  component.openMyGames('payments'); assert.equal(component.myGamesRequest()!.view, 'payments');
+  const first = component.myGamesRequest()!.id; component.openMyGames('payments'); assert.ok(component.myGamesRequest()!.id > first);
+  component.toggleMyGamesMenu(); assert.equal(component.myGamesMenuOpen(), true); assert.equal(component.myGamesView(), 'all');
+  component.openMyGames('upcoming'); assert.equal(component.myGamesMenuOpen(), false); assert.equal(component.myGamesView(), 'upcoming');
+  assert.ok(visits.every(page => page === 'mygames'));
+});
+
+test('My games accepts navigation requests and synchronizes selected tabs with the nav', () => {
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: {} }, { provide: RegistrationsStore, useValue: {} }] });
+  try {
+    const component = runInInjectionContext(injector, () => new MyGamesComponent());
+    const changes: string[] = []; const subscription = component.viewChanged.subscribe(view => changes.push(view));
+    component.viewRequest = { view: 'upcoming', id: 1 }; component.ngOnChanges(); assert.equal(component.view(), 'upcoming');
+    component.selectView('completed'); assert.equal(changes.at(-1), 'completed');
+    component.viewRequest = { view: 'all', id: 2 }; component.ngOnChanges(); assert.equal(component.view(), 'all');
+    subscription.unsubscribe();
+  } finally { injector.destroy(); }
 });
