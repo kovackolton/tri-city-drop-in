@@ -970,3 +970,31 @@ test('organizer notification links target a specific event and open its review w
     component.selectEventHistory('all'); assert.equal(component.reviewTargetId, '');
   } finally { injector.destroy(); }
 });
+
+test('filter chips count active constraints, ignore whitespace and sorting, and respect minimal workspace views', async () => {
+  let role = 'ADMINISTRATOR';
+  const injector = Injector.create({ providers: [
+    { provide: AuthService, useValue: { profile: () => ({ id: 'owner', role }) } },
+    { provide: RegistrationsStore, useValue: { seats: () => [] } },
+    { provide: HttpClient, useValue: { get: () => of({ items: [], nextCursor: null, totalCount: 0, pendingCount: 0 }) } }
+  ] });
+  try {
+    const games = runInInjectionContext(injector, () => new MyGamesComponent());
+    assert.equal(games.activeFilterCount(), 1); games.search = '  '; assert.equal(games.activeFilterCount(), 1);
+    games.bookingStatus = ''; assert.equal(games.activeFilterCount(), 0); games.location = 'Pitch'; assert.equal(games.activeFilterCount(), 1);
+    const locations = runInInjectionContext(injector, () => new LocationsComponent());
+    locations.sort = 'city'; locations.search = ' '; assert.equal(locations.activeFilterCount(), 0);
+    locations.city = 'Midland'; locations.media = 'map'; assert.equal(locations.activeFilterCount(), 2);
+    const users = runInInjectionContext(injector, () => new AdminUsersComponent());
+    users.roleFilter = 'PLAYER'; assert.equal(users.activeFilterCount(), 0); await users.load(); assert.equal(users.activeFilterCount(), 1);
+    users.sort = 'createdAt'; users.direction = 'desc'; assert.equal(users.activeFilterCount(), 1);
+    const workspace = runInInjectionContext(injector, () => new OrganizerComponent());
+    assert.equal(workspace.activeEventFilterCount(), 2); workspace.eventHistory = 'all'; assert.equal(workspace.activeEventFilterCount(), 0);
+    workspace.eventReview = 'open'; workspace.eventStatus = 'CANCELLED'; workspace.eventLocation = 'Pitch'; assert.equal(workspace.activeEventFilterCount(), 3);
+    role = 'ORGANIZER'; workspace.eventScope.set('all'); assert.equal(workspace.activeEventFilterCount(), 0);
+    const roster = runInInjectionContext(injector, () => new RosterComponent());
+    assert.equal(roster.activeFilterCount(), 1); roster.statusFilter.set('all'); assert.equal(roster.activeFilterCount(), 0);
+    const picker = runInInjectionContext(injector, () => new PlayerPickerComponent());
+    picker.minimumSkill = '3'; assert.equal(picker.activeFilterCount(), 0); picker.eventId = 'event'; assert.equal(picker.activeFilterCount(), 1);
+  } finally { injector.destroy(); }
+});

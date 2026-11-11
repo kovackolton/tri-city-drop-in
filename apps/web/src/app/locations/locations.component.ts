@@ -25,6 +25,7 @@ export class LocationsComponent implements OnInit {
     const search = this.search.trim().toLowerCase();
     return this.locations().filter(location => (!search || `${location.name} ${location.address} ${location.city ?? ''}`.toLowerCase().includes(search)) && (!this.city || location.city === this.city) && (!this.media || (this.media === 'photo' ? !!location.photoUrl : this.media === 'map' ? !!location.mapEmbedUrl : !location.photoUrl || !location.mapEmbedUrl))).sort((a, b) => (this.sort === 'city' ? (a.city ?? '').localeCompare(b.city ?? '') : 0) || a.name.localeCompare(b.name));
   }
+  activeFilterCount() { return [!!this.search.trim(), !!this.city, !!this.media].filter(Boolean).length; }
   clearFilters() { this.search = ''; this.city = ''; this.media = ''; this.sort = 'name'; }
   form = { name: '', city: '', address: '', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, photoUrl: '', photoCredit: '', mapEmbedUrl: '' };
   ngOnInit() { void this.load(); }

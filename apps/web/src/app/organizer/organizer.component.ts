@@ -94,6 +94,7 @@ export class OrganizerComponent implements OnInit, OnChanges {
   playersHadOpportunity = false;
   toggleEvent(id: string) { this.expandedEvent.set(this.expandedEvent() === id ? '' : id); this.rosterEvent.set(''); }
   eventPhase(game: ManagedEvent) { return game.status === 'CANCELLED' ? 'cancelled' : game.status === 'COMPLETED' || Date.parse(game.endsAt) <= Date.now() ? 'past' : Date.parse(game.startsAt) <= Date.now() ? 'ongoing' : 'upcoming'; }
+  activeEventFilterCount() { const full = !this.minimalView(); return [this.calendar.period !== 'all', !!this.eventSearch.trim(), full && this.eventHistory !== 'all', full && !!this.eventReview, full && (!!this.eventStatus && this.eventStatus !== 'all' || !this.eventStatus && ['upcoming', 'recent'].includes(this.eventHistory)), full && !!this.eventLocation, full && !!this.reviewTargetId].filter(Boolean).length; }
   calendarMarkerQuery() { return JSON.stringify({ scope: this.eventScope(), history: this.eventHistory, review: this.eventReview, status: this.eventStatus, locationId: this.eventLocation, search: this.eventSearch }); }
   reviewLabel(game: ManagedEvent) { return game.reviewStatus === 'COMPLETED' ? 'Completed' : game.reviewStatus === 'IN_PROGRESS' ? 'In progress' : 'Needs review'; }
   startReviewCompletion(game: ManagedEvent) { this.playersHadOpportunity = false; this.reviewCompletion.set(game); this.error.set(''); }

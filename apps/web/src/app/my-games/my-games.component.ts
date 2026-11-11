@@ -38,6 +38,7 @@ export class MyGamesComponent implements OnChanges {
   groupLabel(id: string) { return this.view() === 'payments' ? 'Report Payments' : this.view() === 'completed' ? 'Completed' : id === 'past' ? 'Past games' : 'Upcoming & ongoing games'; }
   calendar: CalendarSelection = { period: 'all', date: calendarDate(new Date()) };
   search = ''; location = ''; organizer = ''; bookingStatus = 'active'; paymentFilter = '';
+  activeFilterCount() { return [this.calendar.period !== 'all', !!this.search.trim(), !!this.location, !!this.organizer, !!this.bookingStatus, (this.view() === 'all' || this.view() === 'upcoming') && !!this.paymentFilter, this.view() !== 'all'].filter(Boolean).length; }
   locations() { return [...new Set(this.store.seats().map(seat => seat.event.location.name))].sort(); }
   organizers() { return [...new Set(this.store.seats().flatMap(seat => [seat.event.organizer.displayName, ...(seat.event.coOrganizers ?? []).map(user => user.displayName)]))].sort(); }
   needsPayment(host: Seat) { return this.party(host).some(seat => seat.status === 'CONFIRMED' && ['PUBLISHED', 'COMPLETED'].includes(seat.event.status) && Date.parse(seat.event.endsAt) <= Date.now() && seat.payment && seat.payment.amountCents > 0 && !['VOID', 'NOT_REQUIRED'].includes(seat.payment.status) && seat.payment.playerPaid === null); }
