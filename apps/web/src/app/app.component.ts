@@ -1,3 +1,4 @@
+import { siteContent } from './site-content';
 import { CalendarPickerComponent } from './calendar-picker/calendar-picker.component';
 import { CalendarSelection } from '../calendar';
 import { HowToComponent } from './how-to/how-to.component';
@@ -29,6 +30,21 @@ import { EventsStore, defaultGameFilters, activeGameFilterCount } from '../event
   styleUrl: './app.component.scss'
 })
 export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
+  readonly siteContent = siteContent;
+  readonly siteContacts = siteContent.contacts.map(contact => ({
+    ...contact, name: contact.name?.trim() || '', email: contact.email?.trim(), phone: contact.phone?.trim(), phoneLink: contact.phoneLink?.trim(), address: contact.address?.trim(), hours: contact.hours?.trim(), responseTime: contact.responseTime?.trim(),
+    socialLinks: [
+      { name: 'Facebook', icon: 'facebook' as const, value: contact.facebookUrl },
+      { name: 'Instagram', icon: 'instagram' as const, value: contact.instagramUrl },
+    ].flatMap(({ name, icon, value }) => {
+      try {
+        if (!value?.trim()) return [];
+        const url = new URL(value.trim());
+        return url.protocol === 'https:' && !url.username && !url.password ? [{ name, icon, url: url.href }] : [];
+      } catch { return []; }
+    }),
+  })).filter(contact => !!(contact.name || contact.email || contact.phone || contact.address || contact.hours || contact.responseTime || contact.socialLinks.length));
+  readonly copyrightYear = new Date().getFullYear();
   private readonly hostElement = inject<ElementRef<HTMLElement>>(ElementRef);
   private navigationObserver?: ResizeObserver;
   @ViewChild('appSidebar') sidebarElement?: ElementRef<HTMLElement>;
