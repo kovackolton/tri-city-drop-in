@@ -43,3 +43,35 @@
 .main-navigation button { transition: background-color .15s ease; }
 .main-navigation button:hover:not([aria-current="page"]), .main-navigation button:focus-visible:not([aria-current="page"]) { background: var(--nav-hover); }
 @media (prefers-reduced-motion: reduce) { .main-navigation button { transition: none; } }
+
+.mobile-header-actions, .mobile-bottom-navigation { display: none; }
+@media (max-width: 767.98px) {
+  :host { --app-scroll-offset: calc(var(--app-sidebar-height) + 1rem); }
+  .app-header { display: none; }
+  .app-sidebar { max-height: 100dvh; overflow: visible; }
+  .sidebar-top { flex-wrap: nowrap; gap: .5rem; align-items: center; }
+  .sidebar-top > a { flex: 1; min-width: 0; font-size: 1.125rem; white-space: nowrap; }
+  .sidebar-top > a > .block { font-size: .58rem; letter-spacing: .16em; }
+  .mobile-header-actions { display: flex; align-items: center; gap: .35rem; margin-left: auto; }
+  .app-sidebar { padding: .5rem .75rem; }
+  .mobile-header-actions .icon-button, .mobile-header-actions .mobile-account > summary, .mobile-navigation-toggle { color: var(--on-sidebar); background: transparent; border-color: var(--banner-border); }
+  .mobile-header-actions .icon-button.selected { border-color: var(--on-sidebar); background: var(--nav-active); }
+  .mobile-header-actions .icon-button:hover, .mobile-header-actions .mobile-account > summary:hover { background: var(--nav-active); }
+  .mobile-header-actions .mobile-account > summary { width: 44px; height: 44px; justify-content: center; padding: 0; }
+  .mobile-navigation-toggle { padding: .5rem .6rem; font-size: .875rem; }
+  .mobile-current-page { margin-top: .35rem; font-size: .75rem; gap: .3rem; }
+  .mobile-current-page span { font-size: .65rem; }
+  .mobile-header-actions .mobile-account { margin-left: 0; }
+  .main-navigation.mobile-open { max-height: calc(100dvh - 210px); overflow-y: auto; }
+  main { padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px)); }
+  main.documentation-main { padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px)); }
+  .mobile-bottom-navigation { display: flex; position: fixed; z-index: 45; bottom: calc(.75rem + env(safe-area-inset-bottom, 0px)); left: 50%; width: calc(100% - 1.5rem); max-width: 30rem; padding: .4rem; gap: .25rem; border: 1px solid var(--border); border-radius: 2rem; background: var(--surface); color: var(--text); box-shadow: 0 4px 24px var(--dialog-shadow); transform: translateX(-50%); transition: transform .2s ease, opacity .2s ease; }
+  .mobile-bottom-navigation.scroll-hidden:not(:has(:focus-visible)) { transform: translate(-50%, calc(100% + 2rem + env(safe-area-inset-bottom, 0px))); opacity: 0; pointer-events: none; }
+  .mobile-bottom-navigation button { position: relative; display: flex; flex: 1; min-width: 0; min-height: 52px; flex-direction: column; align-items: center; justify-content: center; gap: .2rem; padding: .35rem .1rem; border-radius: 1.5rem; font-size: .65rem; font-weight: 600; }
+  .mobile-bottom-navigation button.selected { background: var(--secondary-bg); color: var(--secondary-text); box-shadow: inset 0 0 0 1px var(--secondary-border); }
+  .mobile-bottom-navigation button:hover { background: var(--surface-muted); }
+  .mobile-bottom-navigation .unread-badge { top: 0; right: .2rem; }
+}
+@media (prefers-reduced-motion: reduce) { .mobile-bottom-navigation { transition: none; } }
+
+@media (max-width: 359px) { .mobile-navigation-toggle > span { display: none; } .mobile-navigation-toggle { width: 44px; padding: .5rem; } .mobile-header-actions { gap: .25rem; } .app-sidebar { padding-inline: .5rem; } }

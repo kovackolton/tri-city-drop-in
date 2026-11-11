@@ -160,7 +160,7 @@ test('mobile navigation closes on selection and Escape, restores focus and label
   Object.defineProperty(globalThis, 'requestAnimationFrame', { configurable: true, value: (callback: () => void) => { callback(); return 1; } });
   try {
     const component: AppComponent = Object.assign(Object.create(AppComponent.prototype), {
-      mobileNavigationOpen: signal(false), page: signal('games'), profileSectionRequest: signal(null), auth: { profile: () => ({ role: 'ADMINISTRATOR' }) }
+      mobileNavigationOpen: signal(false), bottomNavigationHidden: signal(false), page: signal('games'), profileSectionRequest: signal(null), auth: { profile: () => ({ role: 'ADMINISTRATOR' }) }
     });
     assert.equal(component.pageLabel(), 'Upcoming games');
     component.toggleMobileNavigation(); assert.equal(component.mobileNavigationOpen(), true);
@@ -748,4 +748,23 @@ test('audience reset drops restricted results and ignores stale list, facet and 
   const requests: Subject<any>[] = []; const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: { get: () => { const response = new Subject<any>(); requests.push(response); return response; } } }, EventsStore] }); const store = injector.get(EventsStore);
   const list = store.load(), facets = store.loadFilters(), selected = store.loadSelected('game'); store.resetAudience();
   requests[0].next([{ id: 'old' }]); requests[0].complete(); requests[1].next({ locations: [{ id: 'old' }], organizers: [] }); requests[1].complete(); requests[2].next({ game: { id: 'old' } }); requests[2].complete(); await Promise.all([list, facets, selected]); assert.deepEqual(store.events(), []); assert.deepEqual(store.locations(), []); assert.equal(store.selectedGame(), null); injector.destroy();
+});
+
+test('mobile quick navigation ignores scroll jitter, hides downward, and returns upward or at the top', () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const viewport = { scrollY: 0 };
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: viewport });
+  try {
+    const component: AppComponent = Object.assign(Object.create(AppComponent.prototype), {
+      bottomNavigationHidden: signal(false), lastScrollPosition: 0, scrollTravel: 0
+    });
+    viewport.scrollY = 100; component.updateBottomNavigation(); assert.equal(component.bottomNavigationHidden(), true);
+    viewport.scrollY = 97; component.updateBottomNavigation(); assert.equal(component.bottomNavigationHidden(), true);
+    viewport.scrollY = 84; component.updateBottomNavigation(); assert.equal(component.bottomNavigationHidden(), false);
+    viewport.scrollY = 110; component.updateBottomNavigation(); assert.equal(component.bottomNavigationHidden(), true);
+    viewport.scrollY = 0; component.updateBottomNavigation(); assert.equal(component.bottomNavigationHidden(), false);
+    viewport.scrollY = -10; component.updateBottomNavigation(); assert.equal(component.bottomNavigationHidden(), false);
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'window', original); else Reflect.deleteProperty(globalThis, 'window');
+  }
 });
