@@ -4,6 +4,12 @@
    tertiary green #348062. Text/hover variants are adjusted for contrast.
    Avatar colors remain the user's chosen identity color in both modes. */
 :root {
+  --booking-confirmed-bg: #eef4ff;
+  --booking-confirmed-text: #173d73;
+  --booking-confirmed-border: #b6d2ff;
+  --game-date-bg: #ffffff;
+  --game-date-text: #173b2d;
+  --game-date-border: #ffffff;
   --payment-logo-bg: #ffffff;
   --nav-hover: color-mix(in srgb, var(--nav-active) 65%, var(--sidebar));
   color-scheme: light;
@@ -36,6 +42,7 @@
   --nav-active: #8e211e;
   --brand-highlight: #ffffff;
   --card-banner: var(--tertiary);
+  --card-date-banner: #245640;
   --on-banner: #ffffff;
   --banner-muted: #ffffff;
   --banner-tile: #0000000d;
@@ -72,6 +79,12 @@
   --avatar-slate-bg: #e2e8f0; --avatar-slate-text: #334155;
 }
 :root[data-theme="dark"] {
+  --booking-confirmed-bg: #dbeafe;
+  --booking-confirmed-text: #173d73;
+  --booking-confirmed-border: #b6d2ff;
+  --game-date-bg: #13171e;
+  --game-date-text: #edf9f2;
+  --game-date-border: #bce7cc;
   color-scheme: dark;
   --secondary-bg: #1b2e4b;
   --secondary-text: #b6d2ff;
@@ -97,6 +110,7 @@
   --nav-active: #8e302b;
   --brand-highlight: #ffd2cf;
   --card-banner: #214b3b;
+  --card-date-banner: #173b2d;
   --on-banner: #edf9f2;
   --banner-muted: #d0e9db;
   --banner-tile: #ffffff0d;

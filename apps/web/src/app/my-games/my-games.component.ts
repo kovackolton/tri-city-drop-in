@@ -1,3 +1,4 @@
+import { PaymentLinksComponent } from '../payment-links/payment-links.component';
 import { IconComponent } from '../icon/icon.component';
 import { CalendarPickerComponent } from '../calendar-picker/calendar-picker.component';
 import { FormsModule } from '@angular/forms';
@@ -16,7 +17,7 @@ import { AvatarComponent } from '../avatar/avatar.component';
 import { EventInvitationsComponent } from '../event-invitations/event-invitations.component';
 import { PlayersComponent } from '../players/players.component';
 @Component({
-  selector: 'app-my-games', imports: [IconComponent, CalendarPickerComponent, FormsModule, CurrencyPipe, PaymentReviewComponent, PlayersComponent, AvatarComponent, LocationMapComponent, LocationThumbnailComponent, EventGuidanceComponent, OrganizerContactComponent, EventInvitationsComponent],
+  selector: 'app-my-games', imports: [PaymentLinksComponent, IconComponent, CalendarPickerComponent, FormsModule, CurrencyPipe, PaymentReviewComponent, PlayersComponent, AvatarComponent, LocationMapComponent, LocationThumbnailComponent, EventGuidanceComponent, OrganizerContactComponent, EventInvitationsComponent],
   templateUrl: './my-games.component.html',
   styleUrl: './my-games.component.scss'
 })
