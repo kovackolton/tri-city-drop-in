@@ -2,7 +2,14 @@
     <aside #appSidebar class="app-sidebar bg-sidebar text-on-sidebar p-7 md:min-h-screen" (keydown.escape)="closeMobileNavigation(true)">
       <div class="sidebar-top">
       <a href="/" class="text-xl font-black tracking-tight">TRI-CITY <span class="text-brand-highlight">&#8599;</span><span class="block text-xs tracking-[.25em] font-normal mt-1">DROP-IN SOCCER</span></a>
+
+      <div class="mobile-header-actions">
+        @if (auth.profile()) {             <button type="button" class="icon-button" [class.selected]="page() === 'profile'" [attr.aria-current]="page() === 'profile' ? 'page' : null" aria-label="Settings: My profile" title="Settings: My profile" (click)="navigate('profile')"><app-icon name="settings" /></button> }
+                  <button type="button" class="icon-button" [attr.aria-pressed]="theme.dark()" [attr.aria-label]="theme.dark() ? 'Switch to light mode' : 'Switch to dark mode'" [title]="theme.dark() ? 'Switch to light mode' : 'Switch to dark mode'" (click)="theme.toggle()"><app-icon [name]="theme.dark() ? 'sun' : 'moon'" /></button>
+        @if (auth.firebaseUser()) { <details #accountMenu class="mobile-account" (keydown.escape)="accountMenu.open = false; accountToggle.focus(); $event.stopPropagation()"><summary #accountToggle aria-label="Account menu"><app-avatar [name]="auth.profile()?.displayName" [color]="auth.profile()?.avatarColor" [photoUrl]="auth.profile()?.useGooglePhoto !== false ? auth.profile()?.avatarUrl : null" [size]="28" /></summary><div class="mobile-account-panel"><p class="font-semibold break-words">{{ auth.profile()?.displayName || 'Signed in' }}</p>@if (auth.needsVerification()) { <button class="primary" (click)="navigate('signin')">Verify email</button> }<button class="secondary" [disabled]="auth.busy()" (click)="logout()">Sign out</button></div></details> }
+        @else if (auth.ready()) { <button type="button" class="primary" [disabled]="!auth.configured" (click)="navigate('signin')">Sign in</button> }
         <button id="mobile-navigation-toggle" type="button" class="mobile-navigation-toggle" [attr.aria-expanded]="mobileNavigationOpen()" aria-controls="main-navigation" [attr.aria-label]="mobileNavigationOpen() ? 'Close navigation' : 'Open navigation'" (click)="toggleMobileNavigation()"><app-icon [name]="mobileNavigationOpen() ? 'close' : 'menu'" /><span>Menu</span></button>
+      </div>
       </div>
       <p class="mobile-current-page"><span>Current page</span><strong>{{ pageLabel() }}</strong></p>
       <nav id="main-navigation" aria-label="Main navigation" class="main-navigation mt-8 space-y-2" [class.mobile-open]="mobileNavigationOpen()">
@@ -27,7 +34,7 @@
           <button type="button" class="icon-button" [class.selected]="page() === 'howto'" [attr.aria-current]="page() === 'howto' ? 'page' : null" aria-label="How to" title="How to" (click)="navigate('howto')"><app-icon name="help" /></button>
           <button type="button" class="icon-button" [attr.aria-pressed]="theme.dark()" [attr.aria-label]="theme.dark() ? 'Switch to light mode' : 'Switch to dark mode'" [title]="theme.dark() ? 'Switch to light mode' : 'Switch to dark mode'" (click)="theme.toggle()"><app-icon [name]="theme.dark() ? 'sun' : 'moon'" /></button>
           @if (!auth.ready()) { <span role="status">Checking your session...</span> }
-          @else if (auth.firebaseUser()) { <div class="desktop-account"><app-avatar [name]="auth.profile()?.displayName" [color]="auth.profile()?.avatarColor" [photoUrl]="auth.profile()?.useGooglePhoto !== false ? auth.profile()?.avatarUrl : null" [size]="32" /><span class="text-sm">{{ auth.profile()?.displayName || 'Signed in' }}</span>@if (auth.needsVerification()) { <button class="primary" (click)="navigate('signin')">Verify email</button> }<button class="secondary" [disabled]="auth.busy()" (click)="logout()">Sign out</button></div><details #accountMenu class="mobile-account" (keydown.escape)="accountMenu.open = false; accountToggle.focus(); $event.stopPropagation()"><summary #accountToggle><app-avatar [name]="auth.profile()?.displayName" [color]="auth.profile()?.avatarColor" [photoUrl]="auth.profile()?.useGooglePhoto !== false ? auth.profile()?.avatarUrl : null" [size]="28" /><span>Account</span></summary><div class="mobile-account-panel"><p class="font-semibold break-words">{{ auth.profile()?.displayName || 'Signed in' }}</p>@if (auth.needsVerification()) { <button class="primary" (click)="navigate('signin')">Verify email</button> }<button class="secondary" [disabled]="auth.busy()" (click)="logout()">Sign out</button></div></details> }
+          @else if (auth.firebaseUser()) { <div class="desktop-account"><app-avatar [name]="auth.profile()?.displayName" [color]="auth.profile()?.avatarColor" [photoUrl]="auth.profile()?.useGooglePhoto !== false ? auth.profile()?.avatarUrl : null" [size]="32" /><span class="text-sm">{{ auth.profile()?.displayName || 'Signed in' }}</span>@if (auth.needsVerification()) { <button class="primary" (click)="navigate('signin')">Verify email</button> }<button class="secondary" [disabled]="auth.busy()" (click)="logout()">Sign out</button></div> }
           @else { <button class="primary" [disabled]="!auth.configured" (click)="navigate('signin')" [attr.aria-current]="page() === 'signin' ? 'page' : null">Sign in</button> }
         </div>
       </header>
@@ -85,7 +92,7 @@
           @if (store.selectedId()) { <section id="shared-game" tabindex="-1" aria-labelledby="shared-game-heading" class="mt-6 mb-8"><div class="flex flex-wrap justify-between items-center gap-3 mb-4"><div><h1 id="shared-game-heading" class="text-2xl font-bold">Shared game</h1><p class="text-sm text-muted mt-1">This game is shown separately from the filters below. Availability is checked again when you join.</p></div><button type="button" class="secondary" (click)="dismissSharedGame()">Browse all games</button></div>
             @if (store.selectedLoading()) { <p role="status">Loading the shared game...</p> }@else if (store.selectedError()) { <p role="alert" class="notice error">{{ store.selectedError() }}</p> }@else if (store.selectedGame(); as game) { <app-event-card [game]="game" (changed)="refreshAfterJoin()" (signIn)="navigate('signin')" /> }
           </section> }
-          <section aria-labelledby="games-heading" class="mt-10">
+          <section aria-labelledby="games-heading">
             <div class="flex justify-between items-center mb-5"><h2 id="games-heading" class="text-xl font-bold">Upcoming games</h2><button class="secondary refresh-icon-button" [disabled]="store.loading()" (click)="refreshGames()" aria-label="Refresh" title="Refresh"><app-icon name="refresh" /></button></div>
             <div class="calendar-layout"><aside class="calendar-aside"><app-calendar-picker [selection]="store.filters()" (selectionChange)="calendarChanged($event)" /></aside><div class="calendar-content">
             <details class="game-filters panel mb-5" [open]="filtersOpen()" (toggle)="filtersOpen.set($any($event.target).open)"><summary>Filters <span class="filter-count">{{ activeFilterCount() }} active</span></summary>
@@ -116,3 +123,10 @@
       </main>
     </div>
   </div>
+
+<nav class="mobile-bottom-navigation" aria-label="Quick navigation" [class.scroll-hidden]="bottomNavigationHidden()" (focusin)="bottomNavigationHidden.set(false)">
+  <button type="button" [class.selected]="page() === 'games'" [attr.aria-current]="page() === 'games' ? 'page' : null" aria-label="Upcoming games" title="Upcoming games" (click)="navigate('games')"><app-icon name="calendar" /><span>Upcoming</span></button>
+  <button type="button" [class.selected]="page() === 'mygames'" [attr.aria-current]="page() === 'mygames' ? 'page' : null" aria-label="My games" title="My games" (click)="navigate(auth.profile() ? 'mygames' : 'signin')"><app-icon name="ticket" /><span>My games</span></button>
+  <button type="button" [class.selected]="page() === 'notifications'" [attr.aria-current]="page() === 'notifications' ? 'page' : null" [attr.aria-label]="'Notifications, ' + notifications.unread() + ' unread'" title="Notifications" (click)="navigate(auth.profile() ? 'notifications' : 'signin')"><app-icon name="bell" /><span>Notifications</span>@if (notifications.unread()) { <span class="unread-badge" aria-hidden="true">{{ notifications.unread() > 99 ? '99+' : notifications.unread() }}</span> }</button>
+  <button type="button" [class.selected]="page() === 'howto'" [attr.aria-current]="page() === 'howto' ? 'page' : null" aria-label="How to" title="How to" (click)="navigate('howto')"><app-icon name="help" /><span>How to</span></button>
+</nav>
