@@ -10,6 +10,15 @@
   --game-date-bg: #ffffff;
   --game-date-text: #173b2d;
   --game-date-border: #ffffff;
+  --event-blue-bg: #e5edf8;
+  --event-blue-header: #244d7b;
+  --event-blue-text: #ffffff;
+  --event-info-bg: #e1edff;
+  --event-info-text: #173d73;
+  --event-info-border: #5378aa;
+  --event-danger-bg: #fce8e6;
+  --event-danger-text: #8d2521;
+  --event-danger-border: #bd514b;
   --payment-logo-bg: #ffffff;
   --nav-hover: color-mix(in srgb, var(--nav-active) 65%, var(--sidebar));
   color-scheme: light;
@@ -79,6 +88,15 @@
   --avatar-slate-bg: #e2e8f0; --avatar-slate-text: #334155;
 }
 :root[data-theme="dark"] {
+  --event-blue-bg: #192b43;
+  --event-blue-header: #203e66;
+  --event-blue-text: #edf4ff;
+  --event-info-bg: #243e61;
+  --event-info-text: #d4e5ff;
+  --event-info-border: #82a8dc;
+  --event-danger-bg: #492321;
+  --event-danger-text: #ffd1cc;
+  --event-danger-border: #e0928c;
   --booking-confirmed-bg: #dbeafe;
   --booking-confirmed-text: #173d73;
   --booking-confirmed-border: #b6d2ff;

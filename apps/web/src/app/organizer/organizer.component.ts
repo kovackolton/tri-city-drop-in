@@ -1,3 +1,4 @@
+import { CalendarGameDatesDirective } from '../calendar-picker/calendar-game-dates.directive';
 import { paymentProfileUrl, PaymentMethod } from '../../payment-links';
 import { PlayerPickerComponent, PlayerChoice } from '../player-picker/player-picker.component';
 import { IconComponent } from '../icon/icon.component';
@@ -5,7 +6,7 @@ import { CalendarPickerComponent } from '../calendar-picker/calendar-picker.comp
 import { CalendarSelection, calendarDate, matchesCalendar } from '../../calendar';
 import { EventShareComponent } from '../event-share/event-share.component';
 import { EventGuidanceComponent } from '../event-guidance/event-guidance.component';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, OnChanges, SimpleChanges, Input, Output, EventEmitter, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CurrencyPipe } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
@@ -18,12 +19,34 @@ import { DialogComponent } from '../dialog/dialog.component';
 import { AvatarComponent } from '../avatar/avatar.component';
 import { OrganizerContactComponent } from '../organizer-contact/organizer-contact.component';
 
+export type WorkspaceShortcut = 'upcoming' | 'recent' | 'review' | 'all' | 'locations';
+
 @Component({
-  selector: 'app-organizer', imports: [PlayerPickerComponent, IconComponent, CalendarPickerComponent, DialogComponent, AvatarComponent, OrganizerContactComponent, EventShareComponent, FormsModule, CurrencyPipe, RosterComponent, LocationsComponent, EventGuidanceComponent],
+  selector: 'app-organizer', imports: [CalendarGameDatesDirective, PlayerPickerComponent, IconComponent, CalendarPickerComponent, DialogComponent, AvatarComponent, OrganizerContactComponent, EventShareComponent, FormsModule, CurrencyPipe, RosterComponent, LocationsComponent, EventGuidanceComponent],
   templateUrl: './organizer.component.html',
   styleUrl: './organizer.component.scss'
 })
-export class OrganizerComponent implements OnInit {
+export class OrganizerComponent implements OnInit, OnChanges {
+  @Input() shortcutRequest: { view: WorkspaceShortcut; id: number } | null = null;
+  @Output() shortcutChanged = new EventEmitter<WorkspaceShortcut>();
+  ngOnChanges(changes: SimpleChanges) { if (changes['shortcutRequest'] && this.shortcutRequest) this.selectShortcut(this.shortcutRequest.view, !changes['shortcutRequest'].firstChange); }
+  selectShortcut(shortcut: WorkspaceShortcut, reload = true) {
+    if (this.busy()) return;
+    this.view.set(shortcut === 'locations' ? 'locations' : 'events');
+    this.eventScope.set('mine'); this.events.set([]); this.overview.set([]);
+    if (shortcut !== 'locations') {
+      this.eventHistory = shortcut === 'review' ? 'past' : shortcut;
+      this.calendar = { period: 'all', date: calendarDate(new Date()) };
+      this.eventSearch = ''; this.eventStatus = ''; this.eventLocation = '';
+      this.eventReview = ['review', 'recent'].includes(shortcut) ? 'open' : '';
+      this.expandedEvent.set(''); this.rosterEvent.set('');
+    }
+    this.shortcutChanged.emit(shortcut);
+    if (reload) void this.load();
+  }
+  selectSection(section: 'events' | 'locations') { this.view.set(section); this.emitShortcut(); if (section === 'events') void this.load(); }
+  private emitShortcut() { this.shortcutChanged.emit(this.view() === 'locations' ? 'locations' : this.eventHistory === 'past' ? 'review' : this.eventHistory as WorkspaceShortcut); }
+
   readonly auth = inject(AuthService);
   readonly view = signal<'events' | 'locations'>('events');
   readonly showEventForm = signal(false);
@@ -39,9 +62,9 @@ export class OrganizerComponent implements OnInit {
   readonly overview = signal<EventOverview[]>([]);
   calendar: CalendarSelection = { period: 'all', date: calendarDate(new Date()) };
   eventSearch = ''; eventHistory = 'upcoming'; eventReview = ''; eventStatus = ''; eventLocation = '';
-  selectEventHistory(value: string) { this.eventHistory = value; this.eventReview = value === 'past' ? 'open' : ''; this.eventStatus = ''; this.calendar = { period: 'all', date: calendarDate(new Date()) }; this.expandedEvent.set(''); this.rosterEvent.set(''); void this.load(); }
+  selectEventHistory(value: string) { this.eventHistory = value; this.eventReview = ['past', 'recent'].includes(value) ? 'open' : ''; this.eventStatus = ''; this.calendar = { period: 'all', date: calendarDate(new Date()) }; this.expandedEvent.set(''); this.rosterEvent.set(''); this.emitShortcut(); void this.load(); }
   calendarChanged(selection: CalendarSelection) { this.calendar = selection; void this.load(); }
-  clearEventFilters() { this.calendar = { period: 'all', date: calendarDate(new Date()) }; this.eventSearch = ''; this.eventReview = this.eventHistory === 'past' ? 'open' : ''; this.eventStatus = ''; this.eventLocation = ''; void this.load(); }
+  clearEventFilters() { this.calendar = { period: 'all', date: calendarDate(new Date()) }; this.eventSearch = ''; this.eventReview = ['past', 'recent'].includes(this.eventHistory) ? 'open' : ''; this.eventStatus = ''; this.eventLocation = ''; void this.load(); }
   visibleOverview() { return this.overview().filter(game => matchesCalendar(game.startsAt, game.location.timezone, this.calendar) && (!this.eventSearch.trim() || `${game.title} ${game.organizer.displayName} ${game.location.name}`.toLowerCase().includes(this.eventSearch.trim().toLowerCase()))); }
   private loadRevision = 0;
   organizerNames(game: ManagedEvent | EventOverview) { return [game.organizer?.displayName ?? 'Unknown', ...(game.coOrganizers ?? []).map(user => user.displayName)].join(', '); }
@@ -56,6 +79,8 @@ export class OrganizerComponent implements OnInit {
   readonly reviewCompletion = signal<ManagedEvent | null>(null);
   playersHadOpportunity = false;
   toggleEvent(id: string) { this.expandedEvent.set(this.expandedEvent() === id ? '' : id); this.rosterEvent.set(''); }
+  eventPhase(game: ManagedEvent) { return game.status === 'CANCELLED' ? 'cancelled' : game.status === 'COMPLETED' || Date.parse(game.endsAt) <= Date.now() ? 'past' : Date.parse(game.startsAt) <= Date.now() ? 'ongoing' : 'upcoming'; }
+  calendarMarkerQuery() { return JSON.stringify({ scope: this.eventScope(), history: this.eventHistory, review: this.eventReview, status: this.eventStatus, locationId: this.eventLocation, search: this.eventSearch }); }
   reviewLabel(game: ManagedEvent) { return game.reviewStatus === 'COMPLETED' ? 'Completed' : game.reviewStatus === 'IN_PROGRESS' ? 'In progress' : 'Needs review'; }
   startReviewCompletion(game: ManagedEvent) { this.playersHadOpportunity = false; this.reviewCompletion.set(game); this.error.set(''); }
   async completeReview() {
@@ -65,6 +90,7 @@ export class OrganizerComponent implements OnInit {
   readonly rosterEvent = signal('');
   readonly busy = signal(false);
   readonly loading = signal(true);
+  readonly calendarRevision = signal(0);
   readonly error = signal('');
   readonly fieldErrors = signal<Record<string, string>>({});
   clearFieldError(name: string) { this.fieldErrors.update(errors => { const next = { ...errors }; delete next[name]; return next; }); }
@@ -124,6 +150,7 @@ export class OrganizerComponent implements OnInit {
     try {
       const [locations, events] = await Promise.all([firstValueFrom(this.http.get<Location[]>('/api/locations')), firstValueFrom(this.http.get<ManagedEvent[] | EventOverview[]>(minimal ? '/api/organizer/events/overview' : '/api/organizer/events', { params: minimal ? { period: this.calendar.period, date: this.calendar.date, search: this.eventSearch } : { scope: this.eventScope(), period: this.calendar.period, date: this.calendar.date, search: this.eventSearch, history: this.eventHistory, review: this.eventReview, status: this.eventStatus, locationId: this.eventLocation } }))]);
       if (revision !== this.loadRevision) return;
+      this.calendarRevision.update(value => value + 1);
       this.locations.set(locations);
       if (minimal) { this.overview.set(events as EventOverview[]); this.events.set([]); }
       else { this.events.set(events as ManagedEvent[]); this.overview.set([]); }

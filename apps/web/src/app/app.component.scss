@@ -132,3 +132,7 @@
 .my-games-menu button:hover, .my-games-menu button.selected { background: var(--secondary-bg); color: var(--secondary-text); }
 .mobile-my-games-menu { display: none; }
 @media (max-width: 767.98px) { .mobile-my-games-menu { display: grid; position: fixed; top: auto; bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px)); left: 50%; right: auto; transform: translateX(-50%); width: min(20rem, calc(100% - 2rem)); } }
+
+.sidebar-contact-toggle { display: flex; align-items: center; justify-content: space-between; gap: .75rem; width: 100%; min-height: 44px; padding: .6rem .75rem; border: 1px solid var(--banner-border); border-radius: .7rem; color: var(--on-sidebar); text-align: left; font-weight: 700; }
+.sidebar-contact-toggle:hover { background: var(--nav-active); }
+#sidebar-contact-details { padding-top: .75rem; }

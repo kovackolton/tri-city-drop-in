@@ -20,3 +20,11 @@ export function matchesEventDate(startsAt: Date, timezone: string, filters: Even
   const end = new Date(start); end.setUTCDate(end.getUTCDate() + 7);
   return local >= start.toISOString().slice(0, 10) && local < end.toISOString().slice(0, 10);
 }
+
+export function calendarGameDates(events: { startsAt: Date | string; timezone?: string; location?: string | { timezone: string } }[]): string[] {
+  return [...new Set(events.map(event => {
+    const parts = new Intl.DateTimeFormat('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: event.timezone ?? (typeof event.location === 'object' ? event.location.timezone : undefined) ?? 'UTC' }).formatToParts(new Date(event.startsAt));
+    const part = (name: string) => parts.find(value => value.type === name)!.value;
+    return `${part('year')}-${part('month')}-${part('day')}`;
+  }))].sort();
+}

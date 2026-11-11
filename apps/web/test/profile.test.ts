@@ -1,4 +1,5 @@
 import '@angular/compiler';
+import { CalendarGameDatesDirective } from '../src/app/calendar-picker/calendar-game-dates.directive';
 import { PlayerPickerComponent } from '../src/app/player-picker/player-picker.component';
 import { PaymentLinksComponent } from '../src/app/payment-links/payment-links.component';
 import { matchesCalendar, venueDate } from '../src/calendar';
@@ -868,5 +869,72 @@ test('My games accepts navigation requests and synchronizes selected tabs with t
     component.selectView('completed'); assert.equal(changes.at(-1), 'completed');
     component.viewRequest = { view: 'all', id: 2 }; component.ngOnChanges(); assert.equal(component.view(), 'all');
     subscription.unsubscribe();
+  } finally { injector.destroy(); }
+});
+
+test('workspace shortcuts reset stale filters, restore owned event views and allow expanded history', () => {
+  const injector = Injector.create({ providers: [
+    { provide: AuthService, useValue: { profile: () => ({ id: 'owner', role: 'ORGANIZER' }) } },
+    { provide: HttpClient, useValue: { get: () => of([]) } }
+  ] });
+  try {
+    const component = runInInjectionContext(injector, () => new OrganizerComponent());
+    let loads = 0; component.load = async () => { loads++; };
+    const changes: string[] = []; component.shortcutChanged.subscribe(value => changes.push(value));
+    component.eventScope.set('all'); component.eventSearch = 'old'; component.eventStatus = 'CANCELLED';
+    component.selectShortcut('recent');
+    assert.equal(component.eventScope(), 'mine'); assert.equal(component.eventHistory, 'recent'); assert.equal(component.eventReview, 'open'); assert.equal(component.eventSearch, ''); assert.equal(component.eventStatus, '');
+    component.eventReview = ''; component.eventStatus = 'all'; component.clearEventFilters();
+    assert.equal(component.eventHistory, 'recent'); assert.equal(component.eventReview, 'open'); assert.equal(component.eventStatus, '');
+    component.selectShortcut('review'); assert.equal(component.eventHistory, 'past'); assert.equal(component.eventReview, 'open');
+    component.selectShortcut('locations'); assert.equal(component.view(), 'locations'); assert.equal(changes.at(-1), 'locations');
+    component.selectShortcut('all'); assert.equal(component.view(), 'events'); assert.equal(component.eventReview, ''); assert.equal(component.eventHistory, 'all');
+    component.selectEventHistory('recent'); assert.equal(changes.at(-1), 'recent');
+    component.selectShortcut('upcoming', false); assert.equal(component.eventHistory, 'upcoming'); assert.equal(component.eventReview, '');
+    assert.equal(loads, 6);
+  } finally { injector.destroy(); }
+});
+
+test('calendar dots survive date selection and do not select every date in All dates mode', () => {
+  const calendar = new CalendarPickerComponent(); calendar.gameDates = ['2027-01-01', '2027-01-03'];
+  assert.equal(calendar.hasGame('2027-01-01'), true); assert.equal(calendar.hasGame('2027-01-02'), false);
+  calendar.selection = { period: 'all', date: '2027-01-01' }; assert.equal(calendar.selected('2027-01-01'), false);
+  calendar.selection = { period: 'day', date: '2027-01-01' }; assert.equal(calendar.selected('2027-01-01'), true); assert.equal(calendar.hasGame('2027-01-03'), true);
+});
+
+test('review rows keep assigned teams together and do not invent shirt colors for other teams', async () => {
+  const calls: any[] = [];
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: { post: (url: string, body: unknown) => { calls.push({ url, body }); return of({}); } } }] });
+  try {
+    const roster = runInInjectionContext(injector, () => new RosterComponent());
+    roster.shirtColors = ['dark', 'light']; roster.load = async () => {};
+    const seat = (id: string, team: number | null, status = 'CONFIRMED') => ({ id, teamNumber: team, status, guestNumber: 0, user: { displayName: id, accountName: id }, event: { status: 'PUBLISHED', startsAt: new Date(Date.now() - 7200000).toISOString(), endsAt: new Date(Date.now() - 3600000).toISOString() } }) as OrganizerSeat;
+    const team2 = seat('second', 2), team1 = seat('first', 1), guest = { ...seat('guest', 1), guestNumber: 1, guestName: 'Guest' };
+    roster.seats.set([team2, team1, guest, seat('waiting', 1, 'WAITLISTED'), seat('unassigned', null)]);
+    assert.deepEqual(roster.seatGroups().map(group => group.key), ['team-1', 'team-2', 'unassigned', 'waitlist']);
+    assert.deepEqual(roster.seatGroups()[0].seats.map(s => s.id), ['first', 'guest']);
+    assert.equal(roster.shirt(1), 'dark'); assert.equal(roster.shirt(3), ''); assert.equal(roster.shirtSwatch(2), '#f1f3f5');
+    await roster.markAttendance(team1, 'PRESENT'); assert.deepEqual(calls[0], { url: '/api/organizer/signups/first/attendance', body: { attendance: 'PRESENT' } });
+    roster.archived = true; await roster.markAttendance(team2, 'PRESENT'); assert.equal(calls.length, 1);
+    roster.archived = false; roster.search = 'first'; roster.expandedSeat.set('first');
+    roster.ngOnChanges({ shirtColors: { firstChange: false } } as any); assert.equal(roster.search, 'first'); assert.equal(roster.expandedSeat(), 'first');
+  } finally { injector.destroy(); }
+});
+
+test('calendar metadata rejects stale responses and clears old dots on failure or audience changes', async () => {
+  const requests: Subject<string[]>[] = [], calendar = new CalendarPickerComponent();
+  const injector = Injector.create({ providers: [
+    { provide: CalendarPickerComponent, useValue: calendar },
+    { provide: HttpClient, useValue: { get: () => { const request = new Subject<string[]>(); requests.push(request); return request; } } }
+  ] });
+  try {
+    const directive = runInInjectionContext(injector, () => new CalendarGameDatesDirective());
+    directive.gameDatesUrl = '/api/events/calendar'; directive.ngOnChanges(); directive.gameDatesQuery = '{"city":"New"}'; directive.ngOnChanges();
+    requests[1].next(['2027-01-02']); requests[1].complete(); await new Promise(resolve => setTimeout(resolve, 0));
+    requests[0].next(['2027-01-01']); requests[0].complete(); await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(calendar.hasGame('2027-01-02'), true); assert.equal(calendar.hasGame('2027-01-01'), false);
+    directive.ngOnChanges(); assert.equal(calendar.hasGame('2027-01-02'), false);
+    requests[2].error(new Error('Unavailable')); await new Promise(resolve => setTimeout(resolve, 0)); assert.equal(calendar.markerError(), true);
+    directive.ngOnChanges(); directive.ngOnDestroy(); requests[3].next(['2027-01-03']); requests[3].complete(); await new Promise(resolve => setTimeout(resolve, 0)); assert.equal(calendar.hasGame('2027-01-03'), false);
   } finally { injector.destroy(); }
 });

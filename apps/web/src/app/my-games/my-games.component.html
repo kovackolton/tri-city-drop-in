@@ -5,7 +5,7 @@
 @if (view() === 'all') { <p class="text-sm text-muted mt-3">Confirmed and waitlisted bookings are shown by default. Choose All bookings or Cancelled in the filters to see cancelled games.</p> }
 @if (view() === 'upcoming') { <p class="text-sm text-muted mt-3">Games that have not started yet.</p> }
 @if (view() === 'completed') { <p class="text-sm text-muted mt-3">Past confirmed games where you reported your own seat paid. Your report is separate from the organizer's payment confirmation.</p> }
-<div class="calendar-layout mt-5"><aside class="calendar-aside"><app-calendar-picker [selection]="calendar" (selectionChange)="calendar = $event" /></aside><div class="calendar-content">
+<div class="calendar-layout mt-5"><aside class="calendar-aside"><app-calendar-picker [gameDates]="calendarGameDates()" [selection]="calendar" (selectionChange)="calendar = $event" /></aside><div class="calendar-content">
 <details class="panel game-filters"><summary>Filter my games</summary><div class="filter-toolbar mt-4">
 <label>Search<input type="search" [(ngModel)]="search" placeholder="Game, venue or city" maxlength="80"></label>
 <label>Location<select [(ngModel)]="location"><option value="">All locations</option>@for (name of locations(); track name) { <option [value]="name">{{ name }}</option> }</select></label>

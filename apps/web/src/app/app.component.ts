@@ -1,3 +1,4 @@
+import { CalendarGameDatesDirective } from './calendar-picker/calendar-game-dates.directive';
 import { siteContent } from './site-content';
 import { CalendarPickerComponent } from './calendar-picker/calendar-picker.component';
 import { CalendarSelection } from '../calendar';
@@ -12,7 +13,7 @@ import { IconComponent } from './icon/icon.component';
 import { Component, ElementRef, ViewChild, HostListener, effect, inject, AfterViewInit, OnInit, OnDestroy, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../auth.service';
-import { OrganizerComponent } from './organizer/organizer.component';
+import { OrganizerComponent, WorkspaceShortcut } from './organizer/organizer.component';
 import { eventTime } from '../models';
 import { RegistrationsStore } from '../registrations.store';
 import { SignInComponent } from './sign-in/sign-in.component';
@@ -25,12 +26,14 @@ import { NotificationsStore } from '../notifications.store';
 import { EventsStore, defaultGameFilters, activeGameFilterCount } from '../events.store';
 
 @Component({
-  selector: 'app-root', imports: [CalendarPickerComponent, HowToComponent, IconComponent, EventCardComponent, FormsModule, ProfileComponent, AvatarComponent, OrganizerComponent, MyGamesComponent, SignInComponent, AdminUsersComponent],
+  selector: 'app-root', imports: [CalendarGameDatesDirective, CalendarPickerComponent, HowToComponent, IconComponent, EventCardComponent, FormsModule, ProfileComponent, AvatarComponent, OrganizerComponent, MyGamesComponent, SignInComponent, AdminUsersComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss'
 })
 export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly siteContent = siteContent;
+  readonly sidebarContactOpen = signal(false);
+  readonly toggleContact = (open: boolean) => !open;
   readonly siteContacts = siteContent.contacts.map(contact => ({
     ...contact, name: contact.name?.trim() || '', email: contact.email?.trim(), phone: contact.phone?.trim(), phoneLink: contact.phoneLink?.trim(), address: contact.address?.trim(), hours: contact.hours?.trim(), responseTime: contact.responseTime?.trim(),
     socialLinks: [
@@ -54,6 +57,13 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   private profileRequestId = 0;
   readonly strikes = inject(StrikesStore);
   readonly paymentEventId = signal('');
+  readonly workspaceShortcut = signal<WorkspaceShortcut>('upcoming');
+  readonly workspaceRequest = signal<{ view: WorkspaceShortcut; id: number } | null>(null);
+  private workspaceRequestId = 0;
+  openWorkspace(view: WorkspaceShortcut = 'upcoming') {
+    this.navigate('organizer'); this.workspaceShortcut.set(view);
+    this.workspaceRequest.set({ view, id: ++this.workspaceRequestId });
+  }
   readonly myGamesView = signal<'all' | 'upcoming' | 'payments' | 'completed'>('all');
   readonly myGamesRequest = signal<{ view: 'all' | 'upcoming' | 'payments' | 'completed'; id: number } | null>(null);
   readonly myGamesMenuOpen = signal(false);
@@ -118,6 +128,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly filtersOpen = signal(false);
   activeFilterCount() { return activeGameFilterCount(this.store.filters()); }
   cities() { return [...new Set(this.store.locations().map(location => location.city).filter((city): city is string => !!city))].sort((a, b) => a.localeCompare(b)); }
+  calendarMarkerQuery() { return JSON.stringify(this.store.filters()); }
   calendarChanged(selection: CalendarSelection) { this.filters = { ...this.filters, ...selection }; this.applyFilters(); }
   applyFilters() { this.filtersOpen.set(false); void this.store.load(this.filters); }
   resetFilters() { this.filters = defaultGameFilters(); this.applyFilters(); }

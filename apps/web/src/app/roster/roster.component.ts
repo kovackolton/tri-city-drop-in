@@ -1,6 +1,6 @@
 import { PlayerPickerComponent } from '../player-picker/player-picker.component';
 import { IconComponent } from '../icon/icon.component';
-import { Component, EventEmitter, Input, OnChanges, Output, ViewChild, computed, inject, signal } from '@angular/core';
+import { Component, EventEmitter, Input, OnChanges, SimpleChanges, Output, ViewChild, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
@@ -26,6 +26,8 @@ export class RosterComponent implements OnChanges {
   @Input() startsAt = '';
   @Input() priceCents = 0;
   @Input() isPrivate = false;
+  @Input() shirtColors: string[] = [];
+  readonly savingAttendance = signal('');
   @Output() changed = new EventEmitter<void>();
   @ViewChild(EventTeamsComponent) teamView?: EventTeamsComponent;
   private readonly http = inject(HttpClient);
@@ -48,7 +50,8 @@ export class RosterComponent implements OnChanges {
   search = '';
   private loadRevision = 0;
   private auditRevision = 0;
-  ngOnChanges() {
+  ngOnChanges(changes?: SimpleChanges) {
+    if (changes && !changes['eventId']) { if (changes['eventStatus'] || changes['archived']) void this.load(); return; }
     this.showAddPlayer.set(false);
     this.seats.set([]); this.audit.set([]); this.auditRevision++; this.auditLoading.set(false);
     this.view.set('players'); this.statusFilter.set('active'); this.expandedSeat.set(''); this.search = '';
@@ -60,6 +63,27 @@ export class RosterComponent implements OnChanges {
     const search = this.search.trim().toLocaleLowerCase(), filter = this.statusFilter();
     return this.seats().filter(seat => (filter === 'all' || (filter === 'active' ? seat.status !== 'CANCELLED' : seat.status === filter)) &&
       (!search || [this.name(seat), seat.user.accountName, seat.user.displayName].some(name => name.toLocaleLowerCase().includes(search))));
+  }
+  seatGroups() {
+    const groups = new Map<string, { key: string; label: string; team: number | null; seats: OrganizerSeat[] }>();
+    for (const seat of this.filteredSeats()) {
+      const team = seat.status === 'CONFIRMED' ? seat.teamNumber ?? null : null;
+      const key = seat.status === 'WAITLISTED' ? 'waitlist' : seat.status === 'CANCELLED' ? 'cancelled' : team ? 'team-' + team : 'unassigned';
+      if (!groups.has(key)) groups.set(key, { key, label: key === 'waitlist' ? 'Waitlist' : key === 'cancelled' ? 'Cancelled bookings' : team ? 'Team ' + team : 'Unassigned players', team, seats: [] });
+      groups.get(key)!.seats.push(seat);
+    }
+    return [...groups.values()].sort((a, b) => (a.team ?? (a.key === 'unassigned' ? 100 : a.key === 'waitlist' ? 101 : 102)) - (b.team ?? (b.key === 'unassigned' ? 100 : b.key === 'waitlist' ? 101 : 102)));
+  }
+  shirt(team: number | null | undefined) { return team && team > 0 ? this.shirtColors[team - 1]?.trim() || '' : ''; }
+  shirtSwatch(team: number | null | undefined) { const color = this.shirt(team).toLowerCase(); return ({ dark: '#20242c', light: '#f1f3f5', black: '#111111', white: '#ffffff', red: '#c02f2a', blue: '#3c7cdb', green: '#348062', yellow: '#f1cf3a', orange: '#df7527', purple: '#8655bc', pink: '#e48ebc', grey: '#838b96', gray: '#838b96' } as Record<string, string>)[color] ?? 'transparent'; }
+  endedSeat(seat: OrganizerSeat) { return Date.parse(seat.event.endsAt) <= Date.now(); }
+  canReviewAttendance(seat: OrganizerSeat) { return !this.archived && seat.status === 'CONFIRMED' && ['PUBLISHED', 'COMPLETED'].includes(seat.event.status) && Date.parse(seat.event.startsAt) <= Date.now(); }
+  async markAttendance(seat: OrganizerSeat, attendance: string, control?: HTMLSelectElement) {
+    if (this.savingAttendance() || !this.canReviewAttendance(seat)) { if (control) control.value = seat.attendance; return; }
+    this.savingAttendance.set(seat.id); this.error.set('');
+    try { await firstValueFrom(this.http.post(`/api/organizer/signups/${seat.id}/attendance`, { attendance })); await this.load(); this.changed.emit(); }
+    catch (error) { if (control?.isConnected) control.value = seat.attendance; this.error.set(message(error)); }
+    finally { this.savingAttendance.set(''); }
   }
   paymentSummary(seat: OrganizerSeat) {
     const payment = seat.payment;
