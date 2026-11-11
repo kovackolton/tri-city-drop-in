@@ -6,6 +6,8 @@ The original [architecture draft](architecture.md) proposed separate web/API ser
 
 These are instructions and templates, not an executed deployment. Commands that create resources incur charges. No GitHub workflow is enabled merely by adding this document.
 
+For optional email copies of notifications and background reminders while nobody is online, follow [Resend email notifications](resend-email-notifications.md). It uses this same image in a separate scheduled Cloud Run Job. Keep the worker disabled until Resend and the rollout timestamp are configured.
+
 ## 1. Prepare your accounts and choose the environment
 
 Use **Google Cloud Shell with Bash** for all terminal commands below. They are not PowerShell commands. Clone your GitHub repository into Cloud Shell, open it, and keep commands in that directory. A fresh Cloud Shell session requires re-exporting the variables below. Use GitHub's web editor or your normal local editor for committing the Dockerfile and workflow templates.

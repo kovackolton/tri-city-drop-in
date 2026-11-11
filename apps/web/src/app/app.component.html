@@ -87,6 +87,7 @@
         }
         @else if (page() === 'howto') { <app-how-to [guideId]="howToGuideId()" (guideChanged)="updateHowToLocation($event)" /> }
         @else if (page() === 'users' && auth.profile()?.role === 'ADMINISTRATOR') { <app-admin-users [requestsOnly]="userRequestsOnly()" /> }
+        @else if (page() === 'notifications' && !auth.profile()) { <section class="panel"><h1 class="text-3xl font-bold">Notifications</h1><p class="mt-3">Sign in to view your notifications.</p><button type="button" class="primary mt-4" (click)="navigate('signin')">Sign in to view notifications</button></section> }
         @else if (page() === 'notifications' && auth.profile()) {
           <section aria-labelledby="notifications-heading">
             <h1 id="notifications-heading" class="text-3xl font-bold">Notifications</h1>@if (auth.profile()?.role === 'ADMINISTRATOR') { <button class="secondary mt-4" (click)="reviewOrganizerRequests()">Review organizer requests</button> }

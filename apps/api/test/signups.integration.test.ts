@@ -1,3 +1,6 @@
+import { emailConfig, emailQuotaWindows, NotificationEmailWorker, EmailSender } from '../src/email-delivery';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { readFileSync } from 'node:fs';
 import 'reflect-metadata';
 import { test } from 'node:test';
@@ -63,6 +66,114 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
     const location = await db.location.create({ data: { name: 'Test pitch', address: 'Test only', timezone: 'America/New_York' } });
     const event = (capacity: number, priceCents = 1000) => db.event.create({ data: { title: 'Test game', organizerId: users[0].id, locationId: location.id, capacity, priceCents, maxGuestsPerUser: Math.min(3, capacity - 1), status: 'PUBLISHED', startsAt: new Date(Date.now() + 86400000), endsAt: new Date(Date.now() + 90000000) } });
     const join = (user: number, eventId: string, guests: string[] = [], expectedPriceCents = 1000) => service.join(users[user].id, eventId, { guests, costAcknowledged: true, expectedPriceCents, guestPaymentAcknowledged: guests.length > 0 });
+
+    await t.test('notification email queue respects rollout, preferences, deduplication and read status', async () => {
+      const start = new Date();
+      const config = emailConfig({ EMAIL_ENABLED: 'true', EMAIL_NOTIFICATIONS_START_AT: start.toISOString() })!;
+      const old = await db.notification.create({ data: { userId: users[23].id, kind: 'USER_ROLE_CHANGED', payload: {}, dedupeKey: randomUUID(), createdAt: new Date(start.getTime() - 10000) } });
+      const fresh = await db.notification.create({ data: { userId: users[23].id, kind: 'USER_ROLE_CHANGED', payload: {}, dedupeKey: randomUUID(), readAt: start } });
+      await db.user.update({ where: { id: users[22].id }, data: { emailNotificationsEnabled: false } });
+      const disabled = await db.notification.create({ data: { userId: users[22].id, kind: 'USER_ROLE_CHANGED', payload: {}, dedupeKey: randomUUID() } });
+      try {
+        const worker = new NotificationEmailWorker(db, notifications, config);
+        await Promise.all([worker.generate(), worker.generate()]);
+        assert.equal(await db.notificationEmail.count({ where: { notificationId: fresh.id } }), 1);
+        assert.equal(await db.notificationEmail.count({ where: { notificationId: old.id } }), 0);
+        assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { notificationId: disabled.id } })).status, 'SKIPPED');
+        assert.equal((await db.notification.findUniqueOrThrow({ where: { id: fresh.id } })).readAt!.toISOString(), start.toISOString());
+      } finally {
+        await db.notification.deleteMany({ where: { id: { in: [old.id, fresh.id, disabled.id] } } });
+        await db.user.update({ where: { id: users[22].id }, data: { emailNotificationsEnabled: true } });
+      }
+    });
+    await t.test('email delivery handles concurrent claims, free quotas, opt-out, preview and uncertain sends', async tEmail => {
+      const config = { ...emailConfig({ EMAIL_ENABLED: 'true', EMAIL_NOTIFICATIONS_START_AT: new Date(0).toISOString(), PUBLIC_SITE_ORIGIN: 'https://soccer.example.test' })!, mode: 'resend' as const };
+      let fixtureIds: string[] = [];
+      const make = async (data: Record<string, unknown> = {}, kind = 'USER_ROLE_CHANGED', payload = {}) => {
+        const notification = await db.notification.create({ data: { userId: users[23].id, kind, payload, dedupeKey: randomUUID() } });
+        fixtureIds.push(notification.id);
+        return db.notificationEmail.create({ data: { notificationId: notification.id, ...data } });
+      };
+      const clean = async () => { await db.notification.deleteMany({ where: { id: { in: fixtureIds } } }); fixtureIds = []; };
+      const worker = (sender: EmailSender, extra = {}) => new NotificationEmailWorker(db, notifications, { ...config, ...extra }, sender, async () => {});
+      try {
+        await tEmail.test('overlapping workers send once and leave inbox unread', async () => {
+          const row = await make(); let sends = 0;
+          const sender = { send: async () => { sends++; return 'fake-provider-id'; } };
+          await Promise.all([worker(sender).deliver(), worker(sender).deliver()]);
+          assert.equal(sends, 1); const saved = await db.notificationEmail.findUniqueOrThrow({ where: { id: row.id } });
+          assert.equal(saved.status, 'SENT'); assert.equal(saved.providerMessageId, 'fake-provider-id');
+          assert.equal((await db.notification.findUniqueOrThrow({ where: { id: row.notificationId } })).readAt, null);
+          await clean();
+        });
+        await tEmail.test('daily and monthly limits defer without a provider call or attempt consumption', async () => {
+          for (const period of ['daily', 'monthly']) {
+            await make({ status: 'SENT', attempts: 1, claimedAt: new Date(), sentAt: new Date() });
+            const queued = await make(); let sends = 0;
+            const result = await worker({ send: async () => { sends++; return 'unused'; } }, period === 'daily' ? { dailyLimit: 1 } : { monthlyLimit: 1 }).deliver();
+            assert.equal(sends, 0); assert.equal(result.deferred, 1);
+            const saved = await db.notificationEmail.findUniqueOrThrow({ where: { id: queued.id } });
+            assert.equal(saved.status, 'PENDING'); assert.equal(saved.attempts, 0);
+            assert.equal(saved.nextAttemptAt.toISOString(), (period === 'daily' ? emailQuotaWindows().nextDay : emailQuotaWindows().nextMonth).toISOString());
+            await clean();
+          }
+        });
+        await tEmail.test('provider daily/monthly quotas preserve pending deliveries for the reset', async () => {
+          for (const name of ['daily_quota_exceeded', 'monthly_quota_exceeded']) {
+            const row = await make(); await make(); let sends = 0;
+            const result = await worker({ send: async () => { sends++; throw Object.assign(new Error('quota'), { name, status: 429 }); } }).deliver();
+            assert.equal(sends, 1); assert.equal(result.deferred, 1);
+            const saved = await db.notificationEmail.findUniqueOrThrow({ where: { id: row.id } });
+            // Ordering ties use UUIDs, so check both deliveries rather than assuming which was attempted.
+            const pending = await db.notificationEmail.findMany({ where: { notificationId: { in: fixtureIds } } });
+            assert.ok(pending.every(r => r.status === 'PENDING' && r.attempts === 0 && r.nextAttemptAt > new Date()));
+            assert.equal(saved.status, 'PENDING'); await clean();
+          }
+        });
+        await tEmail.test('uncertain sends are quarantined and definite rejection is not resent', async () => {
+          for (const [error, expected] of [[new Error('network lost'), 'UNKNOWN'], [Object.assign(new Error('rejected'), { status: 403 }), 'FAILED']] as const) {
+            const row = await make(); let sends = 0;
+            const instance = worker({ send: async () => { sends++; throw error; } });
+            await instance.deliver(); await instance.deliver(); assert.equal(sends, 1);
+            assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { id: row.id } })).status, expected); await clean();
+          }
+          const stale = await make({ status: 'SENDING', attempts: 1, claimedAt: new Date(Date.now() - 20 * 60000) });
+          await worker({ send: async () => { throw new Error('must not send'); } }).deliver();
+          assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { id: stale.id } })).status, 'UNKNOWN'); await clean();
+        });
+        await tEmail.test('ordinary throttling retries later and stops after five definitive failures', async () => {
+          const row = await make(); let sends = 0;
+          const instance = worker({ send: async () => { sends++; throw Object.assign(new Error('throttled'), { status: 429, name: 'rate_limit_exceeded' }); } });
+          assert.equal((await instance.deliver()).retrying, 1);
+          const saved = await db.notificationEmail.findUniqueOrThrow({ where: { id: row.id } });
+          assert.equal(saved.status, 'PENDING'); assert.equal(saved.attempts, 1); assert.ok(saved.nextAttemptAt > new Date());
+          await instance.deliver(); assert.equal(sends, 1);
+          await db.notificationEmail.update({ where: { id: row.id }, data: { attempts: 4, nextAttemptAt: new Date(0) } });
+          assert.equal((await instance.deliver()).failed, 1);
+          assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { id: row.id } })).status, 'FAILED');
+          await clean();
+        });
+        await tEmail.test('opted-out users and expired kickoff reminders are skipped', async () => {
+          const optedOut = await make(); await db.user.update({ where: { id: users[23].id }, data: { emailNotificationsEnabled: false } });
+          try { assert.equal((await worker({ send: async () => { throw new Error('must not send'); } }).deliver()).skipped, 1); }
+          finally { await db.user.update({ where: { id: users[23].id }, data: { emailNotificationsEnabled: true } }); }
+          assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { id: optedOut.id } })).status, 'SKIPPED'); await clean();
+          const e = await event(2); await join(23, e.id);
+          await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000) } });
+          const expired = await make({}, 'EVENT_REMINDER', { eventId: e.id });
+          assert.equal((await worker({ send: async () => { throw new Error('must not send'); } }).deliver()).skipped, 1);
+          assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { id: expired.id } })).status, 'SKIPPED'); await clean();
+        });
+        await tEmail.test('preview writes inspectable files without sending or consuming attempts', async () => {
+          const row = await make(); const dir = await mkdtemp(resolve(tmpdir(), 'tricity-email-'));
+          try {
+            const result = await worker({ send: async () => { throw new Error('must not send'); } }, { mode: 'preview', previewDir: dir }).deliver();
+            assert.equal(result.previewed, 1); assert.match(await readFile(resolve(dir, row.id + '.html'), 'utf8'), /Open Notifications/);
+            const saved = await db.notificationEmail.findUniqueOrThrow({ where: { id: row.id } }); assert.equal(saved.status, 'PENDING'); assert.equal(saved.attempts, 0);
+          } finally { await rm(dir, { recursive: true, force: true }); await clean(); }
+        });
+      } finally { await clean(); }
+    });
 
     await t.test('player cancellations create one timestamped history entry for the whole party', async () => {
       const e = await event(4), seats = await service.join(users[1].id, e.id, { guests: ['History guest'], costAcknowledged: true, expectedPriceCents: 1000, guestPaymentAcknowledged: true });

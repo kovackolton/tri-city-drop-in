@@ -1041,3 +1041,32 @@ test('waitlist contacts clear on collapse and stale responses cannot redisplay p
     assert.deepEqual(component.contacts(), []);
   } finally { injector.destroy(); }
 });
+
+
+test('notification email destination survives sign-in and profile completion', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const location = { hash: '#notifications' };
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { location } });
+  try {
+    const destinations: string[] = [];
+    const component = Object.assign(Object.create(AppComponent.prototype), { store: { selectedInviteToken: () => '' }, navigate: (page: string) => destinations.push(page), pendingNotifications: false }) as AppComponent;
+    component.returnToSharedOrGames(); assert.equal(destinations.pop(), 'notifications');
+    location.hash = ''; (component as any).pendingNotifications = true;
+    component.returnToSharedOrGames(); assert.equal(destinations.pop(), 'notifications');
+    assert.equal((component as any).pendingNotifications, false);
+    component.returnToSharedOrGames(); assert.equal(destinations.pop(), 'games');
+    (component as any).store.selectedInviteToken = () => 'private-token';
+    component.returnToSharedOrGames(); assert.equal(destinations.pop(), 'privategame');
+  } finally { if (descriptor) Object.defineProperty(globalThis, 'window', descriptor); else Reflect.deleteProperty(globalThis, 'window'); }
+});
+test('notification deep link opens the inbox and asks signed-out users to sign in', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { location: { hash: '#notifications' } } });
+  try {
+    let signedIn = false, loaded = 0;
+    const component = Object.assign(Object.create(AppComponent.prototype), { page: signal('games'), closeMobileNavigation: () => {}, auth: { profile: () => signedIn ? {} : null }, notifications: { load: async () => { loaded++; } } }) as AppComponent;
+    component.restoreHowToLocation(); assert.equal(component.page(), 'notifications'); assert.equal(loaded, 0);
+    signedIn = true; component.restoreHowToLocation(); assert.equal(loaded, 1);
+    const template = readFileSync(resolve('src/app/app.component.html'), 'utf8'); assert.match(template, /Sign in to view notifications/);
+  } finally { if (descriptor) Object.defineProperty(globalThis, 'window', descriptor); else Reflect.deleteProperty(globalThis, 'window'); }
+});
