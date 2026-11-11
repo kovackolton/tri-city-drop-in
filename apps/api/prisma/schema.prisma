@@ -56,6 +56,7 @@ model User {
   email       String   @unique
   displayName String
   nickname    String?
+  emailNotificationsEnabled Boolean @default(true)
   shareWaitlistContact Boolean @default(false)
   preferredPositions String[] @default([])
   skillLevel  Int?
@@ -220,6 +221,7 @@ model Notification {
   id        String @id @default(uuid()) @db.Uuid
   userId    String @db.Uuid
   user      User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  emailDelivery NotificationEmail?
   kind      String
   payload   Json
   dedupeKey String @unique
@@ -284,4 +286,21 @@ model WaiverAcceptance {
   signedEmail String
   acceptedAt DateTime @default(now()) @db.Timestamptz(3)
   @@unique([userId, version])
+}
+
+model NotificationEmail {
+  id String @id @default(uuid()) @db.Uuid
+  notificationId String @unique @db.Uuid
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  status String @default("PENDING")
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now()) @db.Timestamptz(3)
+  claimedAt DateTime? @db.Timestamptz(3)
+  sentAt DateTime? @db.Timestamptz(3)
+  recipient String?
+  providerMessageId String?
+  lastError String?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  @@index([status, nextAttemptAt])
 }

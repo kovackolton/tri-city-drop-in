@@ -26,12 +26,13 @@ export class ProfileComponent implements OnInit {
   readonly positions = [{ code: 'GK', label: 'Goal keeper' }, { code: 'DF', label: 'Defense' }, { code: 'MF', label: 'Midfield' }, { code: 'F', label: 'Forward' }];
   preferredPositions: string[] = [];
   shareWaitlistContact = false;
+  emailNotificationsEnabled = true;
   togglePosition(code: string, selected: boolean) { this.preferredPositions = selected ? [...new Set([...this.preferredPositions, code])] : this.preferredPositions.filter(position => position !== code); }
   accountName = ''; nickname = ''; skillLevel: number | null = null; contactEmail = ''; phone = ''; avatarColor = 'emerald'; useGooglePhoto = true;
   constructor() {
     effect(() => {
       const profile = this.auth.profile();
-      this.accountName = profile?.accountName ?? ''; this.nickname = profile?.nickname ?? ''; this.skillLevel = profile?.skillLevel ?? null; this.preferredPositions = [...(profile?.preferredPositions ?? [])]; this.shareWaitlistContact = profile?.shareWaitlistContact ?? false;
+      this.accountName = profile?.accountName ?? ''; this.nickname = profile?.nickname ?? ''; this.skillLevel = profile?.skillLevel ?? null; this.preferredPositions = [...(profile?.preferredPositions ?? [])]; this.shareWaitlistContact = profile?.shareWaitlistContact ?? false; this.emailNotificationsEnabled = profile?.emailNotificationsEnabled ?? true;
       this.contactEmail = profile?.contactEmail ?? ''; this.phone = profile?.phone ?? ''; this.avatarColor = profile?.avatarColor ?? 'emerald'; this.useGooglePhoto = profile?.useGooglePhoto ?? true;
     });
   }
@@ -56,7 +57,7 @@ export class ProfileComponent implements OnInit {
     const onboarding = !this.auth.profile()?.profileCompletedAt;
     this.saving.set(true); this.notice.set(''); this.error.set('');
     try {
-      await this.auth.saveProfile({ nickname: this.nickname.trim() || null, skillLevel: this.skillLevel, preferredPositions: this.preferredPositions, shareWaitlistContact: this.shareWaitlistContact, ...(!this.auth.profile()?.accountNameSetAt ? { accountName: this.accountName } : {}), contactEmail: this.contactEmail.trim() || null, phone: this.phone.trim() || null, avatarColor: this.avatarColor, useGooglePhoto: this.useGooglePhoto });
+      await this.auth.saveProfile({ nickname: this.nickname.trim() || null, skillLevel: this.skillLevel, preferredPositions: this.preferredPositions, shareWaitlistContact: this.shareWaitlistContact, emailNotificationsEnabled: this.emailNotificationsEnabled, ...(!this.auth.profile()?.accountNameSetAt ? { accountName: this.accountName } : {}), contactEmail: this.contactEmail.trim() || null, phone: this.phone.trim() || null, avatarColor: this.avatarColor, useGooglePhoto: this.useGooglePhoto });
       this.notice.set('Profile saved.'); if (onboarding) this.completed.emit();
     } catch (error) { this.error.set(message(error)); }
     finally { this.saving.set(false); }

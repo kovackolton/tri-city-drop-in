@@ -62,3 +62,6 @@ dumps/
 *.db
 *.sql.gz
 scripts/check-secrets.mjs
+
+# Local email previews can contain account/game information.
+email-previews/

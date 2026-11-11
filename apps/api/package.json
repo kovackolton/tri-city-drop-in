@@ -1,32 +1,33 @@
 {
-    "name":  "@tri-city/api",
-    "private":  true,
-    "scripts":  {
-                    "dev":  "node --env-file=.env --import tsx --watch src/main.ts",
-                    "build":  "prisma generate \u0026\u0026 tsc -p tsconfig.json",
-                    "start":  "node dist/main.js",
-                    "db:generate":  "prisma generate",
-                    "db:migrate":  "prisma migrate dev",
-                    "db:deploy":  "prisma migrate deploy",
-                    "organizer:grant":  "node --env-file=.env --import tsx src/grant-organizer.ts",
-                    "administrator:grant": "node --env-file=.env --import tsx src/grant-organizer.ts --administrator",
-                    "test":  "tsc -p tsconfig.test.json && node --test .test-build/test/core.test.js",
-                    "test:validation": "tsc src/validation.ts --target ES2022 --module commonjs --esModuleInterop --skipLibCheck --outDir dist && node --test test/validation.test.cjs",
-                    "test:integration": "tsc -p tsconfig.test.json && node --env-file=.env --test .test-build/test/signups.integration.test.js"
-                },
-    "dependencies":  {
-                         "@nestjs/common":  "^11.0.0",
-                         "@nestjs/core":  "^11.0.0",
-                         "@nestjs/platform-express":  "^11.0.0",
-                         "@prisma/client":  "^6.19.0",
-                         "reflect-metadata":  "^0.2.2",
-                         "rxjs":  "^7.8.2",
-                         "firebase-admin":  "^13.0.0"
-                     },
-    "devDependencies":  {
-                            "@types/node":  "^22.0.0",
-                            "prisma":  "^6.19.0",
-                            "tsx":  "^4.20.0",
-                            "typescript":  "~5.9.0"
-                        }
+  "name": "@tri-city/api",
+  "private": true,
+  "scripts": {
+    "dev": "node --env-file=.env --import tsx --watch src/main.ts",
+    "build": "prisma generate && tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "organizer:grant": "node --env-file=.env --import tsx src/grant-organizer.ts",
+    "administrator:grant": "node --env-file=.env --import tsx src/grant-organizer.ts --administrator",
+    "test": "tsc -p tsconfig.test.json && node --test .test-build/test/core.test.js .test-build/test/email.test.js",
+    "test:validation": "tsc src/validation.ts --target ES2022 --module commonjs --esModuleInterop --skipLibCheck --outDir dist && node --test test/validation.test.cjs",
+    "test:integration": "tsc -p tsconfig.test.json && node --env-file=.env --test .test-build/test/signups.integration.test.js",
+    "notifications:email": "node --env-file=.env --import tsx src/email-worker.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "@prisma/client": "^6.19.0",
+    "firebase-admin": "^13.0.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "prisma": "^6.19.0",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.0"
+  }
 }

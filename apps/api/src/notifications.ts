@@ -5,7 +5,7 @@ import { Database } from './database';
 import { paymentGraceMs, refreshPaymentStrikes } from './strike-policy';
 import { uuid } from './validation';
 
-const descriptions: Record<string, string> = {
+export const notificationDescriptions: Record<string, string> = {
   ORGANIZER_REVIEW_REMINDER: 'This game has ended. Review the player roster to record attendance and payment received. Administrators complete the final sign-off after players have had an opportunity to resolve discrepancies.',
   STALE_EVENT_REVIEW_REMINDER: 'This game ended at least one week ago and its review is still unfinished. Organizers should finish recording attendance and payments; administrators should review outstanding discrepancies before final sign-off.',
   PAYMENT_REVIEW_REMINDER: 'It has been over 24 hours since this event ended. Please mark whether you paid for your seat and any guests. Your report helps you and the organizer resolve differences; the organizer confirms payment received.',
@@ -31,6 +31,7 @@ const descriptions: Record<string, string> = {
   EVENT_CANCELLED: 'The event was cancelled. Your booking has been cancelled.',
   EVENT_REMINDER: 'Your game starts within 24 hours. Check the time and location in My games.'
 };
+export function notificationMessage(kind: string) { return notificationDescriptions[kind] ?? 'There is an update about your game.'; }
 @Injectable()
 export class NotificationsService {
   constructor(@Inject(Database) private readonly db: Database) {}
@@ -99,7 +100,7 @@ export class NotificationsService {
     const events = await this.db.event.findMany({ where: { id: { in: ids } }, select: { id: true, title: true } });
     return { unread, items: rows.map(row => {
       const payload = row.payload as { eventId?: string; bookingId?: string; title?: string; note?: string };
-      return { id: row.id, eventId: payload.eventId ?? null, bookingId: payload.bookingId ?? null, kind: row.kind, reviewAvailable: ['ORGANIZER_REVIEW_REMINDER', 'STALE_EVENT_REVIEW_REMINDER'].includes(row.kind) && !!payload.eventId && reviewEvents.has(payload.eventId), title: payload.title ?? events.find(e => e.id === payload.eventId)?.title ?? 'Game update', message: descriptions[row.kind] ?? 'There is an update about your game.', createdAt: row.createdAt, readAt: row.readAt };
+      return { id: row.id, eventId: payload.eventId ?? null, bookingId: payload.bookingId ?? null, kind: row.kind, reviewAvailable: ['ORGANIZER_REVIEW_REMINDER', 'STALE_EVENT_REVIEW_REMINDER'].includes(row.kind) && !!payload.eventId && reviewEvents.has(payload.eventId), title: payload.title ?? events.find(e => e.id === payload.eventId)?.title ?? 'Game update', message: notificationMessage(row.kind), createdAt: row.createdAt, readAt: row.readAt };
     }) };
   }
   async read(userId: string, id?: string) {
