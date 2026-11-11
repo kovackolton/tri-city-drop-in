@@ -768,3 +768,26 @@ test('mobile quick navigation ignores scroll jitter, hides downward, and returns
     if (original) Object.defineProperty(globalThis, 'window', original); else Reflect.deleteProperty(globalThis, 'window');
   }
 });
+
+import { zelleRecipient } from '../src/payment-links';
+
+test('Zelle details normalize recipients and copy only the recipient, with a clipboard fallback', async () => {
+  assert.equal(zelleRecipient(' HOST@example.com '), 'host@example.com');
+  assert.equal(zelleRecipient('(989) 555-0123'), '+19895550123');
+  assert.equal(zelleRecipient('https://evil.invalid'), null);
+  const component = new PaymentLinksComponent();
+  assert.equal(component.recipient(), null);
+  component.zelleContact = 'host@example.com'; assert.equal(component.recipient(), 'host@example.com');
+  assert.deepEqual(component.methods(), []);
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const copied: string[] = [];
+  try {
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { clipboard: { writeText: async (text: string) => { copied.push(text); } } } });
+    await component.copyRecipient(); assert.deepEqual(copied, ['host@example.com']); assert.match(component.copyNotice(), /copied/);
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {} });
+    await component.copyRecipient(); assert.match(component.copyNotice(), /Select and copy/);
+    component.zelleContact = ''; await component.copyRecipient(); assert.equal(component.recipient(), null);
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'navigator', original); else Reflect.deleteProperty(globalThis, 'navigator');
+  }
+});
