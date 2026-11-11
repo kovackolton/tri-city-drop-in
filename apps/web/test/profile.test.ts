@@ -29,6 +29,7 @@ import { Observable, Subject, of, throwError } from 'rxjs';
 import { EventInvitationsComponent } from '../src/app/event-invitations/event-invitations.component';
 import { SignupComponent } from '../src/app/signup/signup.component';
 import { Game } from '../src/models';
+import { ProfileComponent } from '../src/app/profile/profile.component';
 import { MyGamesComponent } from '../src/app/my-games/my-games.component';
 import { AuthService } from '../src/auth.service';
 import { EventShareComponent } from '../src/app/event-share/event-share.component';
@@ -936,5 +937,36 @@ test('calendar metadata rejects stale responses and clears old dots on failure o
     directive.ngOnChanges(); assert.equal(calendar.hasGame('2027-01-02'), false);
     requests[2].error(new Error('Unavailable')); await new Promise(resolve => setTimeout(resolve, 0)); assert.equal(calendar.markerError(), true);
     directive.ngOnChanges(); directive.ngOnDestroy(); requests[3].next(['2027-01-03']); requests[3].complete(); await new Promise(resolve => setTimeout(resolve, 0)); assert.equal(calendar.hasGame('2027-01-03'), false);
+  } finally { injector.destroy(); }
+});
+
+test('profile preferred-position checkboxes save multiple choices and allow clearing', async () => {
+  let saved: any;
+  const component = Object.assign(Object.create(ProfileComponent.prototype), {
+    preferredPositions: [], saving: signal(false), error: signal(''), notice: signal(''), nickname: '', skillLevel: null, contactEmail: '', phone: '', avatarColor: 'teal', useGooglePhoto: false,
+    auth: { profile: () => ({ accountNameSetAt: 'set', profileCompletedAt: 'done' }), saveProfile: async (body: any) => { saved = body; } }
+  }) as ProfileComponent;
+  component.togglePosition('GK', true); component.togglePosition('DF', true); component.togglePosition('GK', true);
+  await component.save({ invalid: false } as any); assert.deepEqual(saved.preferredPositions, ['GK', 'DF']);
+  component.togglePosition('GK', false); component.togglePosition('DF', false); await component.save({ invalid: false } as any); assert.deepEqual(saved.preferredPositions, []);
+});
+
+test('organizer notification links target a specific event and open its review without unrelated filters', async () => {
+  const requests: any[] = [], id = '11111111-1111-4111-8111-111111111111';
+  const injector = Injector.create({ providers: [
+    { provide: AuthService, useValue: { profile: () => ({ id: 'admin', role: 'ADMINISTRATOR' }) } },
+    { provide: HttpClient, useValue: { get: (url: string, options: any) => { requests.push({ url, ...options }); return of(url === '/api/locations' ? [] : [{ id }]); } } }
+  ] });
+  try {
+    const component = runInInjectionContext(injector, () => new OrganizerComponent());
+    component.shortcutRequest = { view: 'review', id: 1, eventId: id };
+    component.ngOnChanges({ shortcutRequest: { firstChange: true } } as any);
+    assert.equal(component.reviewTargetId, id); assert.equal(component.eventReview, ''); assert.equal(component.eventScope(), 'all');
+    const animation = Object.getOwnPropertyDescriptor(globalThis, 'requestAnimationFrame');
+    Object.defineProperty(globalThis, 'requestAnimationFrame', { configurable: true, value: () => 1 });
+    try { await component.load(); } finally { if (animation) Object.defineProperty(globalThis, 'requestAnimationFrame', animation); else Reflect.deleteProperty(globalThis, 'requestAnimationFrame'); }
+    assert.equal(requests.find(request => request.url === '/api/organizer/events').params.eventId, id);
+    assert.equal(component.expandedEvent(), id); assert.equal(component.rosterEvent(), id);
+    component.selectEventHistory('all'); assert.equal(component.reviewTargetId, '');
   } finally { injector.destroy(); }
 });

@@ -56,6 +56,7 @@ model User {
   email       String   @unique
   displayName String
   nickname    String?
+  preferredPositions String[] @default([])
   skillLevel  Int?
   adminSkillLevel Int?
   accountNameSetAt DateTime? @db.Timestamptz(3)

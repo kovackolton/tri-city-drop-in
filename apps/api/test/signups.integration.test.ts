@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import 'reflect-metadata';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -63,6 +64,68 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
     const event = (capacity: number, priceCents = 1000) => db.event.create({ data: { title: 'Test game', organizerId: users[0].id, locationId: location.id, capacity, priceCents, maxGuestsPerUser: Math.min(3, capacity - 1), status: 'PUBLISHED', startsAt: new Date(Date.now() + 86400000), endsAt: new Date(Date.now() + 90000000) } });
     const join = (user: number, eventId: string, guests: string[] = [], expectedPriceCents = 1000) => service.join(users[user].id, eventId, { guests, costAcknowledged: true, expectedPriceCents, guestPaymentAcknowledged: guests.length > 0 });
 
+    await t.test('player cancellations create one timestamped history entry for the whole party', async () => {
+      const e = await event(4), seats = await service.join(users[1].id, e.id, { guests: ['History guest'], costAcknowledged: true, expectedPriceCents: 1000, guestPaymentAcknowledged: true });
+      await service.cancel(users[1].id, e.id, seats[0].bookingId);
+      await service.cancel(users[1].id, e.id, seats[0].bookingId);
+      const logs = (await organizer.audit(users[0].id, e.id)).filter(log => log.action === 'PLAYER_CANCELLED_PARTY');
+      assert.equal(logs.length, 1); assert.equal(logs[0].actor.displayName, users[1].displayName);
+      const signup = await db.signup.findUniqueOrThrow({ where: { id: seats[0].id } });
+      assert.equal(logs[0].createdAt.toISOString(), signup.cancelledAt!.toISOString());
+      assert.equal((logs[0].details as any).cancelledAt, signup.cancelledAt!.toISOString());
+      assert.equal((logs[0].details as any).seatCount, 2);
+      assert.equal((logs[0].details as any).previousStatus, 'CONFIRMED');
+      await assert.rejects(organizer.audit(users[3].id, e.id), /Event not found/);
+    });
+    await t.test('legacy player cancellation timestamps are backfilled once without fabricating unknown dates', async () => {
+      const e = await event(4), seats = await join(2, e.id, ['Legacy guest']);
+      const cancelledAt = new Date('2025-01-02T03:04:05.000Z');
+      await db.signup.updateMany({ where: { bookingId: seats[0].bookingId }, data: { status: 'CANCELLED', cancellationSource: 'PLAYER', cancelledAt } });
+      const sql = readFileSync(resolve('prisma/migrations/20261111020000_player_cancellation_history/migration.sql'), 'utf8');
+      await db.$executeRawUnsafe(sql); await db.$executeRawUnsafe(sql);
+      const entries = await db.auditLog.findMany({ where: { eventId: e.id, action: 'PLAYER_CANCELLED_PARTY' } });
+      assert.equal(entries.length, 1); assert.equal(entries[0].createdAt.toISOString(), cancelledAt.toISOString()); assert.equal((entries[0].details as any).seatCount, 2);
+    });
+    await t.test('profile preferred positions persist, preserve omitted values and can be cleared', async () => {
+      const profiles = new ProfilesController(db), user = users[5], req = { user } as AuthRequest;
+      const saved = await profiles.update(req, { preferredPositions: ['F', 'GK'] });
+      assert.deepEqual(saved.preferredPositions, ['GK', 'F']);
+      await profiles.update(req, { nickname: 'Position player' });
+      const fresh = await db.user.findUniqueOrThrow({ where: { id: user.id } });
+      assert.deepEqual(profiles.me({ user: fresh } as AuthRequest).preferredPositions, ['GK', 'F']);
+      await assert.rejects(profiles.update(req, { preferredPositions: ['XX'] }), /preferred positions/);
+      assert.deepEqual((await profiles.update(req, { preferredPositions: [] })).preferredPositions, []);
+    });
+    await t.test('organizer reminders are immediate, escalate once after a week and stop on sign-off or lost access', async () => {
+      const owner = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Review owner', role: 'ORGANIZER' } });
+      const co = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Review helper', role: 'ORGANIZER' } });
+      const adminUser = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Review admin', role: 'ADMINISTRATOR' } });
+      const e = await db.event.create({ data: { organizerId: owner.id, coOrganizerIds: [co.id], locationId: location.id, title: 'Private review reminder', privateInviteToken: 'a'.repeat(64), startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000), status: 'PUBLISHED', isPrivate: true, capacity: 2, maxGuestsPerUser: 0, priceCents: 0 } });
+      const relevant = (inbox: Awaited<ReturnType<typeof notifications.inbox>>) => inbox.items.filter(item => item.eventId === e.id && ['ORGANIZER_REVIEW_REMINDER', 'STALE_EVENT_REVIEW_REMINDER'].includes(item.kind));
+      await Promise.all([notifications.inbox(owner.id), notifications.inbox(owner.id)]);
+      assert.equal(relevant(await notifications.inbox(owner.id)).length, 1);
+      assert.equal(relevant(await notifications.inbox(co.id))[0].kind, 'ORGANIZER_REVIEW_REMINDER');
+      assert.equal(relevant(await notifications.inbox(adminUser.id)).length, 0);
+      assert.equal(relevant(await notifications.inbox(users[3].id)).length, 0);
+      const controller = new EventsController(db, service);
+      assert.equal((await controller.ownEvents({ user: owner } as AuthRequest, 'mine', { history: 'past', eventId: e.id })).length, 1);
+      assert.equal((await controller.ownEvents({ user: co } as AuthRequest, 'mine', { history: 'past', eventId: e.id })).length, 1);
+      assert.equal((await controller.ownEvents({ user: users[3] } as AuthRequest, 'mine', { eventId: e.id })).length, 0);
+      await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 9 * 86400000), endsAt: new Date(Date.now() - 8 * 86400000) } });
+      const stale = relevant(await notifications.inbox(owner.id));
+      assert.equal(stale.filter(item => !item.readAt).length, 1); assert.equal(stale.find(item => !item.readAt)!.kind, 'STALE_EVENT_REVIEW_REMINDER');
+      const adminReminder = relevant(await notifications.inbox(adminUser.id)); assert.equal(adminReminder.length, 1); assert.equal(adminReminder[0].reviewAvailable, true);
+      await notifications.read(adminUser.id, adminReminder[0].id); assert.equal(relevant(await notifications.inbox(adminUser.id)).filter(item => !item.readAt).length, 0);
+      await db.event.update({ where: { id: e.id }, data: { coOrganizerIds: [] } });
+      const removed = relevant(await notifications.inbox(co.id)); assert.ok(removed.every(item => item.readAt && !item.reviewAvailable));
+      assert.equal((await controller.ownEvents({ user: co } as AuthRequest, 'mine', { eventId: e.id })).length, 0);
+      await management.completeReview(adminUser.id, e.id, { playersHadOpportunity: true });
+      for (const user of [owner, adminUser]) assert.ok(relevant(await notifications.inbox(user.id)).every(item => item.readAt && !item.reviewAvailable));
+      for (const status of ['CANCELLED', 'DRAFT'] as const) {
+        const hidden = await db.event.create({ data: { organizerId: owner.id, locationId: location.id, title: 'No reminder ' + status, startsAt: new Date(Date.now() - 9 * 86400000), endsAt: new Date(Date.now() - 8 * 86400000), status, capacity: 2, maxGuestsPerUser: 0, priceCents: 0 } });
+        assert.ok(!(await notifications.inbox(owner.id)).items.some(item => item.eventId === hidden.id));
+      }
+    });
     await t.test('cancellation is owner-only, idempotent, retains parties and voids charges', async () => {
       const e = await event(2);
       await join(1, e.id, ['Guest']); await join(2, e.id);
@@ -1030,7 +1093,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
     await t.test('team assignment and balancing are owner-only, use confirmed players and stay private', async () => {
       const e = await event(4); await join(1, e.id); await join(2, e.id, ['Guest']); await join(3, e.id); const waiting = await join(4, e.id);
       await db.user.update({ where: { id: users[1].id }, data: { skillLevel: 5 } });
-      await db.user.update({ where: { id: users[2].id }, data: { skillLevel: 1 } });
+      await db.user.update({ where: { id: users[2].id }, data: { skillLevel: 1, preferredPositions: ['GK', 'MF'] } });
       await assert.rejects(teams.data(users[5].id, e.id), /Event not found/);
       await assert.rejects(teams.balance(users[0].id, e.id), /Enable rating/);
       await teams.settings(users[0].id, e.id, { teamCount: 2, teamBalancingEnabled: true });
@@ -1038,6 +1101,8 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       const data = await teams.data(users[0].id, e.id); assert.equal(data.players.length, 4);
       assert.equal(data.players.filter(player => player.teamNumber === 1).length, 2); assert.equal(data.players.filter(player => player.teamNumber === 2).length, 2);
       assert.equal(data.players.find(player => player.isGuest)?.rating, null);
+      assert.deepEqual(data.players.find(player => player.accountName === users[2].displayName && !player.isGuest)?.preferredPositions, ['GK', 'MF']);
+      assert.deepEqual(data.players.find(player => player.isGuest)?.preferredPositions, []);
       await assert.rejects(teams.assign(users[0].id, e.id, { signupId: waiting[0].id, teamNumber: 1 }), /Confirmed seat/);
       await assert.rejects(teams.assign(users[0].id, e.id, { signupId: data.players[0].id, teamNumber: 3 }), /Team must/);
       await assert.rejects(teams.assign(users[5].id, e.id, { signupId: data.players[0].id, teamNumber: 1 }), /Event not found/);

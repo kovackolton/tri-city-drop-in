@@ -9,7 +9,7 @@ export interface OrganizerSeat {
   id: string; bookingId: string; guestNumber: number; guestName: string | null; status: string; attendance: string; lateCancellation: boolean;
   teamNumber?: number | null; queuedAt?: string;
   guestPaymentAcknowledgedAt?: string | null; guestPaymentTermsVersion?: string | null;
-  user: { strikeCount?: number; eventCancellationCount?: number; accountName: string; nickname: string | null; skillLevel: number | null; adminSkillLevel?: number | null; displayName: string; contactEmail: string; phone: string | null; avatarUrl?: string | null; avatarColor?: string }; event: { startsAt: string; endsAt: string; status: string }; payment: PaymentReview | null;
+  user: { strikeCount?: number; eventCancellationCount?: number; accountName: string; nickname: string | null; skillLevel: number | null; adminSkillLevel?: number | null; preferredPositions?: string[]; displayName: string; contactEmail: string; phone: string | null; avatarUrl?: string | null; avatarColor?: string }; event: { startsAt: string; endsAt: string; status: string }; payment: PaymentReview | null;
   strikes: { id: string; reason: string; revokedAt: string | null; expiresAt: string | null }[];
 }
 @Component({

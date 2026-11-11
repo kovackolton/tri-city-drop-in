@@ -58,11 +58,16 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly strikes = inject(StrikesStore);
   readonly paymentEventId = signal('');
   readonly workspaceShortcut = signal<WorkspaceShortcut>('upcoming');
-  readonly workspaceRequest = signal<{ view: WorkspaceShortcut; id: number } | null>(null);
+  readonly workspaceRequest = signal<{ view: WorkspaceShortcut; id: number; eventId?: string } | null>(null);
   private workspaceRequestId = 0;
   openWorkspace(view: WorkspaceShortcut = 'upcoming') {
     this.navigate('organizer'); this.workspaceShortcut.set(view);
     this.workspaceRequest.set({ view, id: ++this.workspaceRequestId });
+  }
+  openWorkspaceReview(eventId: string | null | undefined) {
+    if (!eventId || !['ORGANIZER', 'ADMINISTRATOR'].includes(this.auth.profile()?.role ?? '')) return;
+    this.navigate('organizer'); this.workspaceShortcut.set('review');
+    this.workspaceRequest.set({ view: 'review', id: ++this.workspaceRequestId, eventId });
   }
   readonly myGamesView = signal<'all' | 'upcoming' | 'payments' | 'completed'>('all');
   readonly myGamesRequest = signal<{ view: 'all' | 'upcoming' | 'payments' | 'completed'; id: number } | null>(null);

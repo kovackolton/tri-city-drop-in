@@ -387,3 +387,10 @@ test('calendar game dates are unique, sorted and follow each venue timezone', ()
     { startsAt: '2027-01-02T12:00:00Z', timezone: 'UTC' }
   ]), ['2026-12-31', '2027-01-02']);
 });
+
+test('preferred positions accept only unique supported codes, normalize order and allow clearing', () => {
+  assert.deepEqual(profileInput({ preferredPositions: ['F', 'GK', 'MF'] }).preferredPositions, ['GK', 'MF', 'F']);
+  assert.deepEqual(profileInput({ preferredPositions: [] }).preferredPositions, []);
+  assert.equal(profileInput({}).preferredPositions, undefined);
+  for (const value of [null, 'GK', ['GK', 'GK'], ['goalie'], ['DF', 'XX'], [1], ['GK', 'DF', 'MF', 'F', 'F']]) assert.throws(() => profileInput({ preferredPositions: value }), /preferred positions/);
+});
