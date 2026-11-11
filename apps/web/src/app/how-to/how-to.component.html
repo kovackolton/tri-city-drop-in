@@ -2,7 +2,7 @@
   <div class="docs-directory">
     <div class="directory-heading"><div><p class="eyebrow">PLAYER HANDBOOK</p><h2>How to</h2></div><button type="button" class="secondary directory-toggle" [attr.aria-expanded]="directoryOpen()" aria-controls="guide-directory" (click)="directoryOpen.set(!directoryOpen())">{{ directoryOpen() ? 'Close guides' : 'Browse guides' }}</button></div>
     <div id="guide-directory" class="guide-tree" [class.open]="directoryOpen()">
-      <label class="guide-search">Search guides<input type="search" [ngModel]="search()" (ngModelChange)="search.set($event)" placeholder="Try payments or private games" maxlength="100"></label>
+      <label class="guide-search">Search guides <span class="filter-count">{{ search().trim() ? 1 : 0 }} active</span><input type="search" [ngModel]="search()" (ngModelChange)="search.set($event)" placeholder="Try payments or private games" maxlength="100"></label>
       <p class="directory-note">{{ auth.profile()?.role === 'ADMINISTRATOR' ? 'Player, organizer and administrator guides' : auth.profile()?.role === 'ORGANIZER' ? 'Player and organizer guides' : 'Player guides' }}</p>
       <nav aria-label="How to guide directories">
         @for (group of groups(); track group.name) { <details class="guide-group" open><summary>{{ group.name }}</summary><ul>@for (item of group.guides; track item.id) { <li><a [href]="'#how-to/' + item.id" [class.active]="guide().id === item.id" [attr.aria-current]="guide().id === item.id ? 'page' : null" (click)="$event.preventDefault(); openGuide(item.id)">{{ item.title }}</a></li> }</ul></details> }

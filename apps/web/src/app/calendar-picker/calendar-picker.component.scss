@@ -18,3 +18,7 @@
 
 .calendar-grid button { position: relative; padding-bottom: .45rem; }
 .game-dot { position: absolute; bottom: .2rem; left: 50%; transform: translateX(-50%); width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+.calendar-heading-title { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem; min-width: 0; }
+.calendar-heading-title .filter-count { margin-left: 0; }
+.calendar-month-controls { display: flex; flex-shrink: 0; }

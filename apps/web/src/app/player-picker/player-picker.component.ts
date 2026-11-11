@@ -26,6 +26,7 @@ export class PlayerPickerComponent implements OnChanges, OnDestroy {
   ngOnChanges(changes: SimpleChanges) { if (changes['eventId']) { this.revision++; this.results.set([]); this.players = []; this.search = ''; this.minimumSkill = ''; this.bulkEnabled = false; this.bulkPreview.set(null); this.error.set(''); this.notice.set(''); this.busy.set(false); this.searching.set(false); } }
   ngOnDestroy() { this.revision++; }
   clearFoundPlayers() { if (!this.disabled && !this.busy() && !this.searching()) this.results.set([]); }
+  activeFilterCount() { return [!!this.search.trim(), !!this.eventId && !!this.minimumSkill].filter(Boolean).length; }
   selected(id: string) { return this.players.some(player => player.id === id); }
   private update(players: PlayerChoice[]) { this.players = players; this.playersChange.emit(players); }
   select(player: PlayerChoice) { if (!this.disabled && !this.busy() && !this.selected(player.id) && this.players.length < 100) this.update([...this.players, { ...player, mode: 'INVITE' }]); }

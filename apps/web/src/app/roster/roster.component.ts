@@ -59,6 +59,7 @@ export class RosterComponent implements OnChanges {
   }
   name(seat: OrganizerSeat) { return seat.guestNumber === 0 ? seat.user.displayName : seat.guestName || 'Guest'; }
   label(value: string) { return value.replaceAll('_', ' ').toLowerCase(); }
+  activeFilterCount() { return [!!this.search.trim(), this.statusFilter() !== 'all'].filter(Boolean).length; }
   filteredSeats() {
     const search = this.search.trim().toLocaleLowerCase(), filter = this.statusFilter();
     return this.seats().filter(seat => (filter === 'all' || (filter === 'active' ? seat.status !== 'CANCELLED' : seat.status === filter)) &&
