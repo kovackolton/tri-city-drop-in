@@ -19,9 +19,30 @@
         @if (auth.profile()?.role === 'ADMINISTRATOR') { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'users'" [attr.aria-current]="page() === 'users' ? 'page' : null" (click)="openUsers()">Users</button> }
         <button type="button" class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'howto'" [attr.aria-current]="page() === 'howto' ? 'page' : null" (click)="navigate('howto')">How to</button>
       </nav>
-      <!-- <p class="mt-10 text-sm text-banner-muted">Good games. New faces.<br>Everyone belongs on the pitch.</p> -->
+      <!-- Named contacts: edit src/app/site-content.ts. -->
+      @if (siteContacts.length) {
+        <section class="sidebar-contact" aria-labelledby="sidebar-contact-heading">
+          <h2 id="sidebar-contact-heading">Contact Us</h2>
+          @for (siteContact of siteContacts; track $index) {
+  <section class="named-contact" [attr.aria-label]="siteContact.name || 'Contact details'">
+    @if (siteContact.name) { <h3>{{ siteContact.name }}</h3> }
+    @if (siteContact.email || siteContact.phone || siteContact.address) {
+  <address>
+    @if (siteContact.email) { <a [href]="'mailto:' + siteContact.email">{{ siteContact.email }}</a> }
+    @if (siteContact.phone) { @if (siteContact.phoneLink) { <a [href]="'tel:' + siteContact.phoneLink">{{ siteContact.phone }}</a> } @else { <p>{{ siteContact.phone }}</p> } }
+    @if (siteContact.address) { <p>{{ siteContact.address }}</p> }
+  </address>
+}
+@if (siteContact.hours) { <p class="contact-hours">{{ siteContact.hours }}</p> }
+@if (siteContact.responseTime) { <p class="contact-hours">{{ siteContact.responseTime }}</p> }
+@if (siteContact.socialLinks.length) { <div class="contact-social-links" [attr.aria-label]="siteContact.name + ' social profiles'">@for (social of siteContact.socialLinks; track social.icon) { <a class="social-link" [href]="social.url" target="_blank" rel="noopener noreferrer" [attr.aria-label]="siteContact.name + ': ' + social.name + ' (opens in a new tab)'" [title]="siteContact.name + ': ' + social.name + ' (opens in a new tab)'"><app-icon [name]="social.icon" /></a> }</div> }
+
+  </section>
+}
+        </section>
+      }
     </aside>
-    <div class="min-w-0">
+    <div class="app-content min-w-0">
       <header #appHeader class="app-header flex flex-wrap gap-4 justify-between items-center border-b border-default bg-surface px-6 py-5 md:px-10">
         <span class="header-tagline text-sm text-muted">The Beautiful Game</span>
         <div class="header-actions flex flex-wrap gap-3 items-center justify-end">
@@ -121,6 +142,36 @@
           </section>
         }
       </main>
+      <!-- Footer content: edit src/app/site-content.ts. -->
+      <footer class="app-footer" aria-label="Site footer">
+        <div class="footer-columns">
+          <section aria-labelledby="footer-about-heading"><h2 id="footer-about-heading">{{ siteContent.name }}</h2><p>{{ siteContent.description }}</p><nav class="footer-useful-links" aria-label="Footer navigation"><h3>Useful links</h3><button type="button" (click)="navigate('games')">Upcoming games</button><button type="button" (click)="navigate('howto')">How to</button></nav></section>
+          @if (siteContacts.length) {
+            <section aria-labelledby="footer-contact-heading"><h2 id="footer-contact-heading">Contact Us</h2>
+              @for (siteContact of siteContacts; track $index) {
+  <section class="named-contact" [attr.aria-label]="siteContact.name || 'Contact details'">
+    @if (siteContact.name) { <h3>{{ siteContact.name }}</h3> }
+    @if (siteContact.email || siteContact.phone || siteContact.address) {
+  <address>
+    @if (siteContact.email) { <a [href]="'mailto:' + siteContact.email">{{ siteContact.email }}</a> }
+    @if (siteContact.phone) { @if (siteContact.phoneLink) { <a [href]="'tel:' + siteContact.phoneLink">{{ siteContact.phone }}</a> } @else { <p>{{ siteContact.phone }}</p> } }
+    @if (siteContact.address) { <p>{{ siteContact.address }}</p> }
+  </address>
+}
+@if (siteContact.hours) { <p class="contact-hours">{{ siteContact.hours }}</p> }
+@if (siteContact.responseTime) { <p class="contact-hours">{{ siteContact.responseTime }}</p> }
+@if (siteContact.socialLinks.length) { <div class="contact-social-links" [attr.aria-label]="siteContact.name + ' social profiles'">@for (social of siteContact.socialLinks; track social.icon) { <a class="social-link" [href]="social.url" target="_blank" rel="noopener noreferrer" [attr.aria-label]="siteContact.name + ': ' + social.name + ' (opens in a new tab)'" [title]="siteContact.name + ': ' + social.name + ' (opens in a new tab)'"><app-icon [name]="social.icon" /></a> }</div> }
+
+  </section>
+}
+            </section>
+          }
+
+        </div>
+        @if (siteContent.copyrightOwner?.trim() || siteContent.privacy?.trim() || siteContent.terms?.trim()) {
+          <div class="footer-bottom">@if (siteContent.copyrightOwner?.trim()) { <p>&copy; {{ copyrightYear }} {{ siteContent.copyrightOwner }}. All rights reserved.</p> }@if (siteContent.privacy?.trim()) { <p>{{ siteContent.privacy }}</p> }@if (siteContent.terms?.trim()) { <p>{{ siteContent.terms }}</p> }</div>
+        }
+      </footer>
     </div>
   </div>
 
