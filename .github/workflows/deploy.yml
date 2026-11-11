@@ -113,6 +113,11 @@ jobs:
             --port=8080 --cpu=1 --memory=512Mi --concurrency=20 \
             --min-instances=0 --max-instances=3 --timeout=60 \
             --ingress=all --quiet
+      - name: Update configured notification email worker
+        if: vars.EMAIL_WORKER_ENABLED == 'true'
+        run: |
+          gcloud run jobs update tricity-email-notifications --region="$REGION" \
+            --image="$IMAGE_BASE/app:$GITHUB_SHA" --quiet
       - name: Public smoke checks
         run: |
           curl --fail --retry 4 --retry-all-errors "$PUBLIC_ORIGIN/api/health"

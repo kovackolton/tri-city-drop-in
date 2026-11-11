@@ -98,6 +98,7 @@ export class AdminUsersComponent implements OnChanges {
   }
   sortBy(sort: string) { this.direction = this.sort === sort && this.direction === 'asc' ? 'desc' : 'asc'; this.sort = sort; void this.load(); }
   ariaSort(sort: string): 'ascending' | 'descending' | 'none' { return this.sort !== sort ? 'none' : this.direction === 'asc' ? 'ascending' : 'descending'; }
+  activeFilterCount() { const filters = this.loadedFilter; return [!!filters.search.trim(), filters.pending, !!filters.role, !!filters.rating, !!filters.access].filter(Boolean).length; }
   clearFilters() { this.search = ''; this.pendingOnly = false; this.roleFilter = ''; this.ratingFilter = ''; this.accessFilter = ''; this.sort = 'name'; this.direction = 'asc'; void this.load(); }
   filter(pending: boolean) { this.pendingOnly = pending; this.confirming.set(null); void this.load(); }
   async saveRating(user: AdminUser) {

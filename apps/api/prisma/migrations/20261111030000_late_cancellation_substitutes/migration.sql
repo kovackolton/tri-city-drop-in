@@ -1,0 +1,4 @@
+ALTER TABLE "User" ADD COLUMN "shareWaitlistContact" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "Signup" ADD COLUMN "subResponsibilityAcknowledgedAt" TIMESTAMPTZ(3), ADD COLUMN "subResponsibilityTermsVersion" TEXT, ADD COLUMN "subName" TEXT, ADD COLUMN "subWillPay" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "Signup" ADD CONSTRAINT "Signup_sub_responsibility_check" CHECK (("subResponsibilityAcknowledgedAt" IS NULL AND "subResponsibilityTermsVersion" IS NULL AND "subName" IS NULL AND NOT "subWillPay") OR ("subResponsibilityAcknowledgedAt" IS NOT NULL AND "subResponsibilityTermsVersion" IS NOT NULL AND "lateCancellation"));
+ALTER TABLE "Signup" ADD CONSTRAINT "Signup_sub_name_check" CHECK (("subName" IS NULL OR length(trim("subName")) BETWEEN 1 AND 80) AND (NOT "subWillPay" OR "subName" IS NOT NULL));

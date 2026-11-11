@@ -1,9 +1,9 @@
-<div class="border-t border-divider mt-5 pt-4">
+<div>
       @if (booking(); as seat) {
-        <p class="font-semibold" [class.text-accent]="seat.status === 'CONFIRMED'">{{ seat.status === 'CONFIRMED' ? 'You are confirmed' : 'Your party is on the waitlist' }} · {{ partySize() }} player(s)</p>
+        <p class="font-semibold" [class.text-accent]="seat.status === 'CONFIRMED'">{{ seat.subResponsibilityAcknowledgedAt ? 'Seats reserved for your subs' : seat.status === 'CONFIRMED' ? 'You are confirmed' : 'Your party is on the waitlist' }} · {{ partySize() }} player(s)</p>
         @if (seat.status === 'WAITLISTED') { <p class="text-xs text-muted mt-2">Your party stays together. You will move into a spot automatically when the whole party fits. Nothing is due while waiting.</p> }
-        @if (!confirmCancel()) { <button class="secondary mt-3" [disabled]="store.busy() || store.loading()" (click)="confirmCancel.set(true)">Cancel booking</button> }
-        @else { <p class="text-sm mt-3">Cancel your place and all guests? The event has a {{ game.cancellationCutoffHours }}-hour cancellation cutoff. Late cancellations are recorded for organizer review.</p><div class="signup-actions flex gap-3 mt-3"><button class="primary" [disabled]="store.busy()" (click)="cancel(seat.bookingId)">Yes, cancel party</button><button class="secondary" [disabled]="store.busy()" (click)="confirmCancel.set(false)">Keep booking</button></div> }
+        @if (seat.subResponsibilityAcknowledgedAt) { <p class="notice mt-3 text-sm">You cancelled inside the cutoff. Seats remain reserved under your account for subs and payment. Open My games to manage sub details.</p> }
+        @else { <app-cancel-booking class="block mt-3" [seat]="seat" (changed)="changed.emit()" /> }
       } @else {
         @if (!waiver.accepted()) { <p class="notice error mt-3 text-sm">New bookings require the current waiver. Review and press I agree in the waiver section on My profile.</p> }
         @if (strikes.blocked()) { <p role="alert" class="strike-alert blocked mt-3"><strong>Joining blocked: {{ strikes.count() }} current strikes.</strong> Open My profile to review payment discrepancies from previous games and other strike reasons. Contact the organizer about unpaid seats or an administrator about permanent strikes. Existing bookings are kept.</p> }
@@ -13,7 +13,7 @@
             <label class="flex items-start gap-3 text-sm mt-4 rounded-xl border border-warning-border bg-warning p-3"><input class="!w-auto !mt-1" type="checkbox" [name]="'guest-payment-' + game.id" [(ngModel)]="guestPaymentAcknowledged" required [disabled]="store.busy()"><span>I acknowledge responsibility for paying for all my guests when a fee applies. Guest seats explicitly marked unpaid by the organizer receive strikes against my account after the 24-hour grace period.</span></label>
           }
           @if (acknowledgmentError()) { <p role="alert" class="text-sm text-warning-text mt-2">{{ acknowledgmentError() }}</p> }
-          <div class="flex flex-wrap gap-3 mt-3">
+          <div class="flex flex-wrap gap-3">
             @if (guests.length < guestLimit()) { <button type="button" class="secondary" (click)="add()" [disabled]="store.busy() || store.loading()">Add guest</button> }
             <button class="primary" [disabled]="!waiver.accepted() || strikes.blocked() || store.busy() || store.loading() || !!store.error() || (guests.length > 0 && !guestPaymentAcknowledged)">{{ game.waitlisted > 0 || game.confirmed + guests.length + 1 > game.capacity ? 'Join waitlist' : 'Join game' }}</button>
           </div>

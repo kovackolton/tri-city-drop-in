@@ -26,6 +26,7 @@ export class PaymentReviewComponent {
   @Input() playerName: string | null | undefined = '';
   readonly showReview = signal(false);
   openReview() { this.error.set(''); this.showReview.set(true); }
+  @Input() compact = false;
   @Input() side: 'player' | 'organizer' = 'player';
   @Output() changed = new EventEmitter<void>();
   private readonly http = inject(HttpClient);

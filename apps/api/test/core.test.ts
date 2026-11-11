@@ -1,5 +1,7 @@
+import { lateCancellationApplies, cancellationInput, substituteInput } from '../src/late-cancellation';
+import { calendarGameDates } from '../src/event-filters';
 import { eligibleForEvent, skillEligibilityInput } from '../src/event-eligibility';
-import { paymentProfileUrl } from '../src/payment-links';
+import { paymentProfileUrl, zelleRecipient } from '../src/payment-links';
 import { coOrganizerInput, managesEvent } from '../src/event-organizers';
 import 'reflect-metadata';
 import { test } from 'node:test';
@@ -365,4 +367,44 @@ test('optional authentication allows anonymous browsing but never ignores invali
   let verified = 0; const guard = new OptionalFirebaseGuard({ verify: async () => { verified++; throw new UnauthorizedException(); } } as unknown as TokenVerifier, {} as Database);
   assert.equal(await guard.canActivate(context({ headers: {} })), true); assert.equal(verified, 0);
   await assert.rejects(guard.canActivate(context({ headers: { authorization: 'Bearer bad-token' } })), UnauthorizedException); assert.equal(verified, 1);
+});
+
+test('Zelle accepts enrolled email or US mobile recipient details, preserves omitted values and clears blank input', () => {
+  assert.equal(zelleRecipient(' Host@Example.com '), 'host@example.com');
+  assert.equal(zelleRecipient('(989) 555-0123'), '+19895550123');
+  assert.equal(zelleRecipient('+1 989 555 0123'), '+19895550123');
+  for (const value of ['https://zelle.com/host', 'javascript:alert(1)', 'abc', '+44 20 7946 0958', '1234567890', 'host@example.com\nBcc: bad@example.com', 123, {}, '']) assert.equal(zelleRecipient(value), null);
+  const previous = eventOptionsInput({ organizerZelleContact: 'host@example.com' });
+  assert.equal(eventOptionsInput({}, previous).organizerZelleContact, 'host@example.com');
+  for (const value of ['', '  ', null]) assert.equal(eventOptionsInput({ organizerZelleContact: value }, previous).organizerZelleContact, null);
+  assert.equal(eventOptionsInput({ organizerZelleContact: '(989) 555-0123' }).organizerZelleContact, '+19895550123');
+  for (const value of ['bad email', false, 123, {}]) assert.throws(() => eventOptionsInput({ organizerZelleContact: value }), /valid Zelle/);
+});
+
+test('calendar game dates are unique, sorted and follow each venue timezone', () => {
+  assert.deepEqual(calendarGameDates([
+    { startsAt: '2027-01-01T01:00:00Z', timezone: 'America/New_York', location: 'Pitch' },
+    { startsAt: new Date('2027-01-01T02:00:00Z'), location: { timezone: 'America/New_York' } },
+    { startsAt: '2027-01-02T12:00:00Z', timezone: 'UTC' }
+  ]), ['2026-12-31', '2027-01-02']);
+});
+
+test('preferred positions accept only unique supported codes, normalize order and allow clearing', () => {
+  assert.deepEqual(profileInput({ preferredPositions: ['F', 'GK', 'MF'] }).preferredPositions, ['GK', 'MF', 'F']);
+  assert.deepEqual(profileInput({ preferredPositions: [] }).preferredPositions, []);
+  assert.equal(profileInput({}).preferredPositions, undefined);
+  for (const value of [null, 'GK', ['GK', 'GK'], ['goalie'], ['DF', 'XX'], [1], ['GK', 'DF', 'MF', 'F', 'F']]) assert.throws(() => profileInput({ preferredPositions: value }), /preferred positions/);
+});
+
+test('late sub rules enforce cutoff boundaries, acknowledgment types and safe sub names', () => {
+  const now = new Date('2026-01-01T12:00:00Z'), e = { status: 'PUBLISHED', startsAt: new Date('2026-01-02T00:00:00Z'), cancellationCutoffHours: 12 };
+  assert.equal(lateCancellationApplies(e, 'CONFIRMED', now), true);
+  assert.equal(lateCancellationApplies(e, 'CONFIRMED', new Date(now.getTime() - 1)), false);
+  assert.equal(lateCancellationApplies(e, 'WAITLISTED', now), false);
+  assert.equal(lateCancellationApplies({ ...e, status: 'DRAFT' }, 'CONFIRMED', now), false);
+  assert.equal(cancellationInput({}), false); assert.equal(cancellationInput({ lateCancellationAcknowledged: true }), true);
+  assert.throws(() => cancellationInput({ lateCancellationAcknowledged: 'true' }));
+  assert.deepEqual(substituteInput({ subName: ' Cover ', subWillPay: true }), { subName: 'Cover', subWillPay: true });
+  assert.throws(() => substituteInput({ subName: '', subWillPay: true })); assert.throws(() => substituteInput({ subName: 'Cover', subWillPay: 'yes' }));
+  assert.deepEqual(substituteInput({ subName: '', subWillPay: false }), { subName: null, subWillPay: false });
 });

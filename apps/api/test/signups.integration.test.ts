@@ -1,3 +1,7 @@
+import { emailConfig, emailQuotaWindows, NotificationEmailWorker, EmailSender } from '../src/email-delivery';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import 'reflect-metadata';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -63,6 +67,176 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
     const event = (capacity: number, priceCents = 1000) => db.event.create({ data: { title: 'Test game', organizerId: users[0].id, locationId: location.id, capacity, priceCents, maxGuestsPerUser: Math.min(3, capacity - 1), status: 'PUBLISHED', startsAt: new Date(Date.now() + 86400000), endsAt: new Date(Date.now() + 90000000) } });
     const join = (user: number, eventId: string, guests: string[] = [], expectedPriceCents = 1000) => service.join(users[user].id, eventId, { guests, costAcknowledged: true, expectedPriceCents, guestPaymentAcknowledged: guests.length > 0 });
 
+    await t.test('notification email queue respects rollout, preferences, deduplication and read status', async () => {
+      const start = new Date();
+      const config = emailConfig({ EMAIL_ENABLED: 'true', EMAIL_NOTIFICATIONS_START_AT: start.toISOString() })!;
+      const old = await db.notification.create({ data: { userId: users[23].id, kind: 'USER_ROLE_CHANGED', payload: {}, dedupeKey: randomUUID(), createdAt: new Date(start.getTime() - 10000) } });
+      const fresh = await db.notification.create({ data: { userId: users[23].id, kind: 'USER_ROLE_CHANGED', payload: {}, dedupeKey: randomUUID(), readAt: start } });
+      await db.user.update({ where: { id: users[22].id }, data: { emailNotificationsEnabled: false } });
+      const disabled = await db.notification.create({ data: { userId: users[22].id, kind: 'USER_ROLE_CHANGED', payload: {}, dedupeKey: randomUUID() } });
+      try {
+        const worker = new NotificationEmailWorker(db, notifications, config);
+        await Promise.all([worker.generate(), worker.generate()]);
+        assert.equal(await db.notificationEmail.count({ where: { notificationId: fresh.id } }), 1);
+        assert.equal(await db.notificationEmail.count({ where: { notificationId: old.id } }), 0);
+        assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { notificationId: disabled.id } })).status, 'SKIPPED');
+        assert.equal((await db.notification.findUniqueOrThrow({ where: { id: fresh.id } })).readAt!.toISOString(), start.toISOString());
+      } finally {
+        await db.notification.deleteMany({ where: { id: { in: [old.id, fresh.id, disabled.id] } } });
+        await db.user.update({ where: { id: users[22].id }, data: { emailNotificationsEnabled: true } });
+      }
+    });
+    await t.test('email delivery handles concurrent claims, free quotas, opt-out, preview and uncertain sends', async tEmail => {
+      const config = { ...emailConfig({ EMAIL_ENABLED: 'true', EMAIL_NOTIFICATIONS_START_AT: new Date(0).toISOString(), PUBLIC_SITE_ORIGIN: 'https://soccer.example.test' })!, mode: 'resend' as const };
+      let fixtureIds: string[] = [];
+      const make = async (data: Record<string, unknown> = {}, kind = 'USER_ROLE_CHANGED', payload = {}) => {
+        const notification = await db.notification.create({ data: { userId: users[23].id, kind, payload, dedupeKey: randomUUID() } });
+        fixtureIds.push(notification.id);
+        return db.notificationEmail.create({ data: { notificationId: notification.id, ...data } });
+      };
+      const clean = async () => { await db.notification.deleteMany({ where: { id: { in: fixtureIds } } }); fixtureIds = []; };
+      const worker = (sender: EmailSender, extra = {}) => new NotificationEmailWorker(db, notifications, { ...config, ...extra }, sender, async () => {});
+      try {
+        await tEmail.test('overlapping workers send once and leave inbox unread', async () => {
+          const row = await make(); let sends = 0;
+          const sender = { send: async () => { sends++; return 'fake-provider-id'; } };
+          await Promise.all([worker(sender).deliver(), worker(sender).deliver()]);
+          assert.equal(sends, 1); const saved = await db.notificationEmail.findUniqueOrThrow({ where: { id: row.id } });
+          assert.equal(saved.status, 'SENT'); assert.equal(saved.providerMessageId, 'fake-provider-id');
+          assert.equal((await db.notification.findUniqueOrThrow({ where: { id: row.notificationId } })).readAt, null);
+          await clean();
+        });
+        await tEmail.test('daily and monthly limits defer without a provider call or attempt consumption', async () => {
+          for (const period of ['daily', 'monthly']) {
+            await make({ status: 'SENT', attempts: 1, claimedAt: new Date(), sentAt: new Date() });
+            const queued = await make(); let sends = 0;
+            const result = await worker({ send: async () => { sends++; return 'unused'; } }, period === 'daily' ? { dailyLimit: 1 } : { monthlyLimit: 1 }).deliver();
+            assert.equal(sends, 0); assert.equal(result.deferred, 1);
+            const saved = await db.notificationEmail.findUniqueOrThrow({ where: { id: queued.id } });
+            assert.equal(saved.status, 'PENDING'); assert.equal(saved.attempts, 0);
+            assert.equal(saved.nextAttemptAt.toISOString(), (period === 'daily' ? emailQuotaWindows().nextDay : emailQuotaWindows().nextMonth).toISOString());
+            await clean();
+          }
+        });
+        await tEmail.test('provider daily/monthly quotas preserve pending deliveries for the reset', async () => {
+          for (const name of ['daily_quota_exceeded', 'monthly_quota_exceeded']) {
+            const row = await make(); await make(); let sends = 0;
+            const result = await worker({ send: async () => { sends++; throw Object.assign(new Error('quota'), { name, status: 429 }); } }).deliver();
+            assert.equal(sends, 1); assert.equal(result.deferred, 1);
+            const saved = await db.notificationEmail.findUniqueOrThrow({ where: { id: row.id } });
+            // Ordering ties use UUIDs, so check both deliveries rather than assuming which was attempted.
+            const pending = await db.notificationEmail.findMany({ where: { notificationId: { in: fixtureIds } } });
+            assert.ok(pending.every(r => r.status === 'PENDING' && r.attempts === 0 && r.nextAttemptAt > new Date()));
+            assert.equal(saved.status, 'PENDING'); await clean();
+          }
+        });
+        await tEmail.test('uncertain sends are quarantined and definite rejection is not resent', async () => {
+          for (const [error, expected] of [[new Error('network lost'), 'UNKNOWN'], [Object.assign(new Error('rejected'), { status: 403 }), 'FAILED']] as const) {
+            const row = await make(); let sends = 0;
+            const instance = worker({ send: async () => { sends++; throw error; } });
+            await instance.deliver(); await instance.deliver(); assert.equal(sends, 1);
+            assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { id: row.id } })).status, expected); await clean();
+          }
+          const stale = await make({ status: 'SENDING', attempts: 1, claimedAt: new Date(Date.now() - 20 * 60000) });
+          await worker({ send: async () => { throw new Error('must not send'); } }).deliver();
+          assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { id: stale.id } })).status, 'UNKNOWN'); await clean();
+        });
+        await tEmail.test('ordinary throttling retries later and stops after five definitive failures', async () => {
+          const row = await make(); let sends = 0;
+          const instance = worker({ send: async () => { sends++; throw Object.assign(new Error('throttled'), { status: 429, name: 'rate_limit_exceeded' }); } });
+          assert.equal((await instance.deliver()).retrying, 1);
+          const saved = await db.notificationEmail.findUniqueOrThrow({ where: { id: row.id } });
+          assert.equal(saved.status, 'PENDING'); assert.equal(saved.attempts, 1); assert.ok(saved.nextAttemptAt > new Date());
+          await instance.deliver(); assert.equal(sends, 1);
+          await db.notificationEmail.update({ where: { id: row.id }, data: { attempts: 4, nextAttemptAt: new Date(0) } });
+          assert.equal((await instance.deliver()).failed, 1);
+          assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { id: row.id } })).status, 'FAILED');
+          await clean();
+        });
+        await tEmail.test('opted-out users and expired kickoff reminders are skipped', async () => {
+          const optedOut = await make(); await db.user.update({ where: { id: users[23].id }, data: { emailNotificationsEnabled: false } });
+          try { assert.equal((await worker({ send: async () => { throw new Error('must not send'); } }).deliver()).skipped, 1); }
+          finally { await db.user.update({ where: { id: users[23].id }, data: { emailNotificationsEnabled: true } }); }
+          assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { id: optedOut.id } })).status, 'SKIPPED'); await clean();
+          const e = await event(2); await join(23, e.id);
+          await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000) } });
+          const expired = await make({}, 'EVENT_REMINDER', { eventId: e.id });
+          assert.equal((await worker({ send: async () => { throw new Error('must not send'); } }).deliver()).skipped, 1);
+          assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { id: expired.id } })).status, 'SKIPPED'); await clean();
+        });
+        await tEmail.test('preview writes inspectable files without sending or consuming attempts', async () => {
+          const row = await make(); const dir = await mkdtemp(resolve(tmpdir(), 'tricity-email-'));
+          try {
+            const result = await worker({ send: async () => { throw new Error('must not send'); } }, { mode: 'preview', previewDir: dir }).deliver();
+            assert.equal(result.previewed, 1); assert.match(await readFile(resolve(dir, row.id + '.html'), 'utf8'), /Open Notifications/);
+            const saved = await db.notificationEmail.findUniqueOrThrow({ where: { id: row.id } }); assert.equal(saved.status, 'PENDING'); assert.equal(saved.attempts, 0);
+          } finally { await rm(dir, { recursive: true, force: true }); await clean(); }
+        });
+      } finally { await clean(); }
+    });
+
+    await t.test('player cancellations create one timestamped history entry for the whole party', async () => {
+      const e = await event(4), seats = await service.join(users[1].id, e.id, { guests: ['History guest'], costAcknowledged: true, expectedPriceCents: 1000, guestPaymentAcknowledged: true });
+      await service.cancel(users[1].id, e.id, seats[0].bookingId);
+      await service.cancel(users[1].id, e.id, seats[0].bookingId);
+      const logs = (await organizer.audit(users[0].id, e.id)).filter(log => log.action === 'PLAYER_CANCELLED_PARTY');
+      assert.equal(logs.length, 1); assert.equal(logs[0].actor.displayName, users[1].displayName);
+      const signup = await db.signup.findUniqueOrThrow({ where: { id: seats[0].id } });
+      assert.equal(logs[0].createdAt.toISOString(), signup.cancelledAt!.toISOString());
+      assert.equal((logs[0].details as any).cancelledAt, signup.cancelledAt!.toISOString());
+      assert.equal((logs[0].details as any).seatCount, 2);
+      assert.equal((logs[0].details as any).previousStatus, 'CONFIRMED');
+      await assert.rejects(organizer.audit(users[3].id, e.id), /Event not found/);
+    });
+    await t.test('legacy player cancellation timestamps are backfilled once without fabricating unknown dates', async () => {
+      const e = await event(4), seats = await join(2, e.id, ['Legacy guest']);
+      const cancelledAt = new Date('2025-01-02T03:04:05.000Z');
+      await db.signup.updateMany({ where: { bookingId: seats[0].bookingId }, data: { status: 'CANCELLED', cancellationSource: 'PLAYER', cancelledAt } });
+      const sql = readFileSync(resolve('prisma/migrations/20261111020000_player_cancellation_history/migration.sql'), 'utf8');
+      await db.$executeRawUnsafe(sql); await db.$executeRawUnsafe(sql);
+      const entries = await db.auditLog.findMany({ where: { eventId: e.id, action: 'PLAYER_CANCELLED_PARTY' } });
+      assert.equal(entries.length, 1); assert.equal(entries[0].createdAt.toISOString(), cancelledAt.toISOString()); assert.equal((entries[0].details as any).seatCount, 2);
+    });
+    await t.test('profile preferred positions persist, preserve omitted values and can be cleared', async () => {
+      const profiles = new ProfilesController(db), user = users[5], req = { user } as AuthRequest;
+      const saved = await profiles.update(req, { preferredPositions: ['F', 'GK'] });
+      assert.deepEqual(saved.preferredPositions, ['GK', 'F']);
+      await profiles.update(req, { nickname: 'Position player' });
+      const fresh = await db.user.findUniqueOrThrow({ where: { id: user.id } });
+      assert.deepEqual(profiles.me({ user: fresh } as AuthRequest).preferredPositions, ['GK', 'F']);
+      await assert.rejects(profiles.update(req, { preferredPositions: ['XX'] }), /preferred positions/);
+      assert.deepEqual((await profiles.update(req, { preferredPositions: [] })).preferredPositions, []);
+    });
+    await t.test('organizer reminders are immediate, escalate once after a week and stop on sign-off or lost access', async () => {
+      const owner = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Review owner', role: 'ORGANIZER' } });
+      const co = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Review helper', role: 'ORGANIZER' } });
+      const adminUser = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Review admin', role: 'ADMINISTRATOR' } });
+      const e = await db.event.create({ data: { organizerId: owner.id, coOrganizerIds: [co.id], locationId: location.id, title: 'Private review reminder', privateInviteToken: 'a'.repeat(64), startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000), status: 'PUBLISHED', isPrivate: true, capacity: 2, maxGuestsPerUser: 0, priceCents: 0 } });
+      const relevant = (inbox: Awaited<ReturnType<typeof notifications.inbox>>) => inbox.items.filter(item => item.eventId === e.id && ['ORGANIZER_REVIEW_REMINDER', 'STALE_EVENT_REVIEW_REMINDER'].includes(item.kind));
+      await Promise.all([notifications.inbox(owner.id), notifications.inbox(owner.id)]);
+      assert.equal(relevant(await notifications.inbox(owner.id)).length, 1);
+      assert.equal(relevant(await notifications.inbox(co.id))[0].kind, 'ORGANIZER_REVIEW_REMINDER');
+      assert.equal(relevant(await notifications.inbox(adminUser.id)).length, 0);
+      assert.equal(relevant(await notifications.inbox(users[3].id)).length, 0);
+      const controller = new EventsController(db, service);
+      assert.equal((await controller.ownEvents({ user: owner } as AuthRequest, 'mine', { history: 'past', eventId: e.id })).length, 1);
+      assert.equal((await controller.ownEvents({ user: co } as AuthRequest, 'mine', { history: 'past', eventId: e.id })).length, 1);
+      assert.equal((await controller.ownEvents({ user: users[3] } as AuthRequest, 'mine', { eventId: e.id })).length, 0);
+      await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 9 * 86400000), endsAt: new Date(Date.now() - 8 * 86400000) } });
+      const stale = relevant(await notifications.inbox(owner.id));
+      assert.equal(stale.filter(item => !item.readAt).length, 1); assert.equal(stale.find(item => !item.readAt)!.kind, 'STALE_EVENT_REVIEW_REMINDER');
+      const adminReminder = relevant(await notifications.inbox(adminUser.id)); assert.equal(adminReminder.length, 1); assert.equal(adminReminder[0].reviewAvailable, true);
+      await notifications.read(adminUser.id, adminReminder[0].id); assert.equal(relevant(await notifications.inbox(adminUser.id)).filter(item => !item.readAt).length, 0);
+      await db.event.update({ where: { id: e.id }, data: { coOrganizerIds: [] } });
+      const removed = relevant(await notifications.inbox(co.id)); assert.ok(removed.every(item => item.readAt && !item.reviewAvailable));
+      assert.equal((await controller.ownEvents({ user: co } as AuthRequest, 'mine', { eventId: e.id })).length, 0);
+      await management.completeReview(adminUser.id, e.id, { playersHadOpportunity: true });
+      for (const user of [owner, adminUser]) assert.ok(relevant(await notifications.inbox(user.id)).every(item => item.readAt && !item.reviewAvailable));
+      for (const status of ['CANCELLED', 'DRAFT'] as const) {
+        const hidden = await db.event.create({ data: { organizerId: owner.id, locationId: location.id, title: 'No reminder ' + status, startsAt: new Date(Date.now() - 9 * 86400000), endsAt: new Date(Date.now() - 8 * 86400000), status, capacity: 2, maxGuestsPerUser: 0, priceCents: 0 } });
+        assert.ok(!(await notifications.inbox(owner.id)).items.some(item => item.eventId === hidden.id));
+      }
+    });
     await t.test('cancellation is owner-only, idempotent, retains parties and voids charges', async () => {
       const e = await event(2);
       await join(1, e.id, ['Guest']); await join(2, e.id);
@@ -327,13 +501,67 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       await assert.rejects(payments.review(users[19].id, free[0].id, 'player', { paid: true }), /does not require/);
       await assert.rejects(payments.review(users[20].id, cancelled[0].id, 'player', { paid: true }), /Only confirmed/);
     });
+    await t.test('late cancellation retains each charged seat, requires acknowledgment and never promotes the waitlist', async () => {
+      const e = await event(2), original = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Late account' } });
+      const seats = await service.join(original.id, e.id, { guests: ['Original guest'], guestPaymentAcknowledged: true, costAcknowledged: true, expectedPriceCents: 1000 });
+      const waiting = await join(4, e.id);
+      await db.event.update({ where: { id: e.id }, data: { cancellationCutoffHours: 48 } });
+      assert.equal((await service.cancellationInfo(original.id, e.id, seats[0].bookingId)).late, true);
+      await assert.rejects(service.cancel(original.id, e.id, seats[0].bookingId), /Acknowledge/);
+      await assert.rejects(service.waitlistContacts(original.id, e.id, seats[0].bookingId), /only for your/);
+      const before = await db.paymentObligation.findUniqueOrThrow({ where: { signupId: seats[0].id } });
+      const result = await service.cancel(original.id, e.id, seats[0].bookingId, undefined, false, { lateCancellationAcknowledged: true });
+      assert.equal(result.status, 'SUB_REQUIRED');
+      assert.equal(await db.signup.count({ where: { bookingId: seats[0].bookingId, status: 'CONFIRMED', subResponsibilityAcknowledgedAt: { not: null } } }), 2);
+      assert.equal((await db.paymentObligation.findUniqueOrThrow({ where: { signupId: seats[0].id } })).id, before.id);
+      assert.equal((await db.paymentObligation.findUniqueOrThrow({ where: { signupId: seats[0].id } })).status, 'UNPAID');
+      assert.equal((await db.signup.findUniqueOrThrow({ where: { id: waiting[0].id } })).status, 'WAITLISTED');
+      await service.cancel(original.id, e.id, seats[0].bookingId, undefined, false, { lateCancellationAcknowledged: true });
+      assert.equal(await db.auditLog.count({ where: { eventId: e.id, action: 'PLAYER_CANCELLED_PARTY' } }), 1);
+      await service.updateSub(original.id, seats[0].id, { subName: 'Covering player', subWillPay: true });
+      assert.equal((await db.signup.findUniqueOrThrow({ where: { id: seats[0].id } })).userId, original.id);
+      await assert.rejects(service.updateSub(users[5].id, seats[0].id, { subName: 'Injected', subWillPay: false }), /not found/);
+      await assert.rejects(service.updateSub(users[5].id, seats[0].id, { subName: 'Other organizer', subWillPay: false }, true), /not found/);
+      assert.equal((await db.paymentObligation.findUniqueOrThrow({ where: { signupId: seats[0].id } })).organizerPaid, null);
+      const profile = new ProfilesController(db); const freshWaiter = await db.user.findUniqueOrThrow({ where: { id: users[4].id } });
+      assert.deepEqual(await service.waitlistContacts(original.id, e.id, seats[0].bookingId), []);
+      await profile.update({ user: freshWaiter } as AuthRequest, { shareWaitlistContact: true, contactEmail: 'waiting@example.invalid', phone: '+1 989 555 0123' });
+      assert.deepEqual(await service.waitlistContacts(original.id, e.id, seats[0].bookingId), [{ name: freshWaiter.nickname ?? freshWaiter.displayName, email: 'waiting@example.invalid', phone: '+1 989 555 0123' }]);
+      await assert.rejects(service.waitlistContacts(users[5].id, e.id, seats[0].bookingId), /only for your/);
+      await profile.update({ user: freshWaiter } as AuthRequest, { shareWaitlistContact: false }); assert.deepEqual(await service.waitlistContacts(original.id, e.id, seats[0].bookingId), []);
+      await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 28 * 3600000), endsAt: new Date(Date.now() - 26 * 3600000) } });
+      await assert.rejects(service.updateSub(original.id, seats[0].id, { subName: 'Too late', subWillPay: true }), /before kickoff/);
+      await assert.rejects(service.waitlistContacts(original.id, e.id, seats[0].bookingId), /before kickoff/);
+      await service.updateSub(users[0].id, seats[0].id, { subName: 'Corrected sub', subWillPay: true }, true);
+      await organizer.attendance(users[0].id, seats[0].id, { attendance: 'ABSENT' });
+      await assert.rejects(organizer.issue(users[0].id, seats[0].id, { reason: 'NO_SHOW', note: 'Sub absent' }), /Subs do not receive/);
+      await payments.review(users[0].id, seats[0].id, 'organizer', { paid: false });
+      const report = await strikes.report(original.id); assert.equal(report.count, 1); assert.equal(report.items.find(item => item.current)?.signup?.subName, 'Corrected sub');
+      await payments.review(users[0].id, seats[0].id, 'organizer', { paid: true }); assert.equal((await strikes.report(original.id)).count, 0);
+      assert.equal((await db.signup.findUniqueOrThrow({ where: { id: waiting[0].id } })).status, 'WAITLISTED');
+    });
+    await t.test('early and waitlisted cancellations release seats normally, and event cancellation releases sub liability', async () => {
+      const early = await event(1), first = await join(8, early.id), waiting = await join(9, early.id);
+      assert.equal((await service.cancellationInfo(users[8].id, early.id, first[0].bookingId)).late, false);
+      await service.cancel(users[8].id, early.id, first[0].bookingId);
+      assert.equal((await db.signup.findUniqueOrThrow({ where: { id: waiting[0].id } })).status, 'CONFIRMED');
+      assert.equal((await db.paymentObligation.findUniqueOrThrow({ where: { signupId: first[0].id } })).status, 'VOID');
+      const e = await event(1), original = await join(10, e.id), queued = await join(11, e.id);
+      await db.event.update({ where: { id: e.id }, data: { cancellationCutoffHours: 48 } });
+      assert.equal((await service.cancellationInfo(users[11].id, e.id, queued[0].bookingId)).late, false);
+      await service.cancel(users[11].id, e.id, queued[0].bookingId);
+      await service.cancel(users[10].id, e.id, original[0].bookingId, undefined, false, { lateCancellationAcknowledged: true });
+      await management.transition(users[0].id, e.id, 'cancel');
+      assert.equal((await db.paymentObligation.findUniqueOrThrow({ where: { signupId: original[0].id } })).status, 'VOID');
+      assert.equal((await db.signup.findUniqueOrThrow({ where: { id: original[0].id } })).status, 'CANCELLED');
+    });
     await t.test('late cancellations are recorded without automatic strikes', async () => {
       const e = await event(2);
       await db.event.update({ where: { id: e.id }, data: { cancellationCutoffHours: 48 } });
       const a = await join(1, e.id);
-      const result = await service.cancel(users[1].id, e.id, a[0].bookingId);
+      const result = await service.cancel(users[1].id, e.id, a[0].bookingId, undefined, false, { lateCancellationAcknowledged: true });
       assert.equal(result.lateCancellation, true);
-      assert.equal(await db.strike.count(), 0);
+      assert.equal(await db.strike.count({ where: { signup: { eventId: e.id } } }), 0);
     });
     await t.test('draft/past events and unauthorized roster reads are rejected', async () => {
       const e = await event(2);
@@ -407,7 +635,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       const e = await event(2);
       await db.event.update({ where: { id: e.id }, data: { cancellationCutoffHours: 48 } });
       const a = await join(6, e.id), b = await join(7, e.id);
-      await service.cancel(users[6].id, e.id, a[0].bookingId);
+      await service.cancel(users[6].id, e.id, a[0].bookingId, undefined, false, { lateCancellationAcknowledged: true });
       await service.cancel(users[0].id, e.id, b[0].bookingId, 'Organizer removed booking');
       await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000) } });
       const strike = await organizer.issue(users[0].id, a[0].id, { reason: 'LATE_CANCELLATION', note: 'Reviewed cutoff' });
@@ -740,6 +968,33 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.equal((await requests.users('DirectorySort', false, undefined, { rating: 'unrated' })).items[0].id, adminUser.id);
       for (const bad of [{ role: 'OWNER' }, { sort: 'password' }, { direction: 'sideways' }, { access: 'all-access' }]) await assert.rejects(requests.users('', false, undefined, bad), /valid user filters/);
     });
+    await t.test('workspace upcoming excludes inactive games by default and unfinished reviews can expand to full history', async () => {
+      const controller = new EventsController(db, service), req = { user: users[0] } as AuthRequest;
+      const first = await event(2), cancelled = await event(2), completed = await event(2), past = await event(2), signedOff = await event(2);
+      const fixtureIds = [first, cancelled, completed, past, signedOff].map(e => e.id);
+      await db.event.update({ where: { id: cancelled.id }, data: { status: 'CANCELLED' } });
+      await db.event.update({ where: { id: completed.id }, data: { status: 'COMPLETED' } });
+      for (const e of [past, signedOff]) await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000) } });
+      await db.auditLog.create({ data: { eventId: signedOff.id, actorId: users[0].id, action: 'EVENT_REVIEW_COMPLETED', details: {} } });
+      const ids = (events: { id: string }[]) => events.filter(e => fixtureIds.includes(e.id)).map(e => e.id).sort();
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'upcoming' })), [first.id]);
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'upcoming', status: 'all' })), [first.id, cancelled.id, completed.id].sort());
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'past', review: 'open' })), [past.id]);
+      const markers = await controller.workspaceCalendar(req, { scope: 'mine', history: 'past', review: 'open', search: past.title, period: 'day', date: '2020-01-01' });
+      assert.ok(markers.length > 0);
+
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'past' })), [past.id, signedOff.id].sort());
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'all' })), fixtureIds.sort());
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'recent', review: 'open' })), [past.id]);
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'recent' })), [past.id, signedOff.id].sort());
+      await db.event.update({ where: { id: cancelled.id }, data: { startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000) } });
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'recent' })), [past.id, signedOff.id].sort());
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'recent', status: 'all' })), [past.id, signedOff.id, cancelled.id].sort());
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'recent', status: 'all', review: 'open' })), [past.id]);
+      await db.event.update({ where: { id: past.id }, data: { startsAt: new Date(Date.now() - 10 * 86400000), endsAt: new Date(Date.now() - 9 * 86400000) } });
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'recent', review: 'open' })), []);
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'past', review: 'open' })), [past.id]);
+    });
     await t.test('workspace calendar and follow-up queues count only reviewable confirmed seats and respect ownership', async () => {
       const e = await event(2); await db.event.update({ where: { id: e.id }, data: { title: 'ReviewQueueFixture' } });
       const seats = await join(1, e.id, ['Guest']); await join(2, e.id);
@@ -881,13 +1136,22 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
     });
     await t.test('organizer payment links persist through creation/editing and reach game, booking and private sharing cards', async () => {
       const controller = new EventsController(db, service), sharing = new EventSharingService(db), req = { user: users[0] } as AuthRequest;
-      const links = { organizerVenmoUrl: 'https://venmo.com/u/host', organizerCashAppUrl: 'https://cash.app/$host', organizerPaypalUrl: 'https://paypal.me/host' };
+      const links = { organizerVenmoUrl: 'https://venmo.com/u/host', organizerCashAppUrl: 'https://cash.app/$host', organizerPaypalUrl: 'https://paypal.me/host', organizerZelleContact: 'host@example.com' };
       const e = await controller.create(req, { title: 'Payment links fixture', locationId: location.id, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString(), capacity: 4, maxGuestsPerUser: 0, priceCents: 1000, status: 'PUBLISHED', ...links });
       assert.equal((await controller.events()).find(game => game.id === e.id)?.organizerCashAppUrl, links.organizerCashAppUrl);
       const player = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Payment link player' } });
       const booking = await service.join(player.id, e.id, { guests: [], costAcknowledged: true, expectedPriceCents: 1000 });
       assert.equal((await service.mine(player.id)).find(seat => seat.id === booking[0].id)?.event.organizerPaypalUrl, links.organizerPaypalUrl);
       assert.equal((await sharing.publicGame(e.id)).game.organizerVenmoUrl, links.organizerVenmoUrl);
+      assert.equal((await service.mine(player.id)).find(seat => seat.id === booking[0].id)?.event.organizerZelleContact, links.organizerZelleContact);
+      assert.equal((await sharing.publicGame(e.id)).game.organizerZelleContact, links.organizerZelleContact);
+      await administration.edit(users[0].id, e.id, { organizerZelleContact: '(989) 555-0123' });
+      assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).organizerZelleContact, '+19895550123');
+      await assert.rejects(administration.edit(users[0].id, e.id, { organizerZelleContact: 'https://evil.invalid' }), /valid Zelle/);
+      await administration.edit(users[0].id, e.id, { description: 'Preserve Zelle' });
+      assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).organizerZelleContact, '+19895550123');
+      await administration.edit(users[0].id, e.id, { organizerZelleContact: '' });
+      assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).organizerZelleContact, null);
       await assert.rejects(administration.edit(users[3].id, e.id, { organizerVenmoUrl: '' }), /Event not found/);
       await administration.edit(users[0].id, e.id, { description: 'Unrelated edit' }); assert.equal((await db.event.findUniqueOrThrow({ where: { id: e.id } })).organizerVenmoUrl, links.organizerVenmoUrl);
       await administration.edit(users[0].id, e.id, { organizerVenmoUrl: '', organizerCashAppUrl: '', organizerPaypalUrl: '' });
@@ -896,6 +1160,26 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.equal((await db.paymentObligation.findUniqueOrThrow({ where: { signupId: booking[0].id } })).organizerPaid, null);
       const privateGame = await controller.create(req, { title: 'Private payment fixture', locationId: location.id, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString(), capacity: 2, maxGuestsPerUser: 0, priceCents: 0, status: 'PUBLISHED', isPrivate: true, ...links });
       const stored = await db.event.findUniqueOrThrow({ where: { id: privateGame.id } }); assert.equal((await sharing.publicGame(privateGame.id, stored.privateInviteToken!)).game.organizerPaypalUrl, links.organizerPaypalUrl);
+    });
+    await t.test('calendar metadata includes games beyond the listing cap and excludes private games', async () => {
+      const controller = new EventsController(db, service), req = { user: users[0] } as AuthRequest;
+      const venue = await db.location.create({ data: { name: 'Calendar fixture pitch', address: 'Fixture', timezone: 'UTC' } });
+      const fixtureLocations = [venue.id];
+      try {
+      const starts = Date.now() + 86400000;
+      await db.event.createMany({ data: Array.from({ length: 101 }, (_, index) => ({ organizerId: users[0].id, locationId: venue.id, title: 'Calendar fixture ' + index, startsAt: new Date(starts + index * 86400000), endsAt: new Date(starts + index * 86400000 + 3600000), capacity: 2, maxGuestsPerUser: 0, priceCents: 0, status: 'PUBLISHED' as const })) });
+      assert.equal((await controller.events({ locationId: venue.id })).length, 100);
+      assert.equal((await controller.publicCalendar({ locationId: venue.id, period: 'day', date: '2020-01-01' })).length, 101);
+      const privateVenue = await db.location.create({ data: { name: 'Private calendar fixture', address: 'Fixture', timezone: 'UTC' } });
+      fixtureLocations.push(privateVenue.id);
+      await controller.create(req, { title: 'Private marker fixture', locationId: privateVenue.id, startsAt: new Date(starts).toISOString(), endsAt: new Date(starts + 3600000).toISOString(), capacity: 2, maxGuestsPerUser: 0, priceCents: 0, status: 'PUBLISHED', isPrivate: true });
+      assert.deepEqual(await controller.publicCalendar({ locationId: privateVenue.id }), []);
+      assert.equal((await controller.workspaceCalendar(req, { scope: 'mine', locationId: privateVenue.id })).length, 1);
+      } finally {
+        await db.auditLog.deleteMany({ where: { event: { locationId: { in: fixtureLocations } } } });
+        await db.event.deleteMany({ where: { locationId: { in: fixtureLocations } } });
+        await db.location.deleteMany({ where: { id: { in: fixtureLocations } } });
+      }
     });
     await t.test('skill eligibility personalizes discovery and facets, blocks direct/private joining and preserves existing bookings', async () => {
       const make = (self: number | null, admin: number | null) => createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Eligibility player', skillLevel: self, adminSkillLevel: admin } });
@@ -906,6 +1190,9 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       const e = await controller.create(req, input), highReq = { user: high } as AuthRequest;
       for (const viewer of [undefined, { user: low }, { user: unknown }]) { assert.ok(!(await controller.events({}, viewer as AuthRequest)).some(game => game.id === e.id)); assert.ok(!(await controller.filters(viewer as AuthRequest)).locations.some(location => location.id === venue.id)); }
       for (const viewer of [high, boundary]) assert.ok((await controller.events({}, { user: viewer } as AuthRequest)).some(game => game.id === e.id));
+      for (const viewer of [undefined, { user: low }, { user: unknown }]) assert.deepEqual(await controller.publicCalendar({ locationId: venue.id }, viewer as AuthRequest), []);
+      assert.equal((await controller.publicCalendar({ locationId: venue.id, period: 'day', date: '2020-01-01' }, highReq)).length, 1);
+
       assert.ok((await controller.filters(highReq)).locations.some(location => location.id === venue.id));
       assert.equal(await sharing.event(e.id), null); assert.equal(await sharing.preview(e.id), 'invitation'); assert.equal((await sharing.publicGame(e.id, undefined, high)).game.id, e.id);
       await assert.rejects(sharing.publicGame(e.id, undefined, low)); await assert.rejects(service.join(low.id, e.id, { guests: [], expectedPriceCents: 0 }), /unavailable/);
@@ -971,7 +1258,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
     await t.test('team assignment and balancing are owner-only, use confirmed players and stay private', async () => {
       const e = await event(4); await join(1, e.id); await join(2, e.id, ['Guest']); await join(3, e.id); const waiting = await join(4, e.id);
       await db.user.update({ where: { id: users[1].id }, data: { skillLevel: 5 } });
-      await db.user.update({ where: { id: users[2].id }, data: { skillLevel: 1 } });
+      await db.user.update({ where: { id: users[2].id }, data: { skillLevel: 1, preferredPositions: ['GK', 'MF'] } });
       await assert.rejects(teams.data(users[5].id, e.id), /Event not found/);
       await assert.rejects(teams.balance(users[0].id, e.id), /Enable rating/);
       await teams.settings(users[0].id, e.id, { teamCount: 2, teamBalancingEnabled: true });
@@ -979,6 +1266,8 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       const data = await teams.data(users[0].id, e.id); assert.equal(data.players.length, 4);
       assert.equal(data.players.filter(player => player.teamNumber === 1).length, 2); assert.equal(data.players.filter(player => player.teamNumber === 2).length, 2);
       assert.equal(data.players.find(player => player.isGuest)?.rating, null);
+      assert.deepEqual(data.players.find(player => player.accountName === users[2].displayName && !player.isGuest)?.preferredPositions, ['GK', 'MF']);
+      assert.deepEqual(data.players.find(player => player.isGuest)?.preferredPositions, []);
       await assert.rejects(teams.assign(users[0].id, e.id, { signupId: waiting[0].id, teamNumber: 1 }), /Confirmed seat/);
       await assert.rejects(teams.assign(users[0].id, e.id, { signupId: data.players[0].id, teamNumber: 3 }), /Team must/);
       await assert.rejects(teams.assign(users[5].id, e.id, { signupId: data.players[0].id, teamNumber: 1 }), /Event not found/);

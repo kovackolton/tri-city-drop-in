@@ -58,8 +58,8 @@ export class TeamsService {
     uuid(id);
     const event = await this.db.event.findFirst({ where: { id, deletedAt: null, ...(administrator ? {} : managedEvents(actorId)) } });
     if (!event) throw new NotFoundException('Event not found.');
-    const seats = await this.db.signup.findMany({ where: { eventId: id, status: 'CONFIRMED' }, select: { id: true, teamNumber: true, guestName: true, guestNumber: true, user: { select: { ...appearanceSelect, adminSkillLevel: true, skillLevel: true } } }, orderBy: [{ queuedAt: 'asc' }, { guestNumber: 'asc' }, { id: 'asc' }] });
-    return { teamCount: event.teamCount, teamBalancingEnabled: event.teamBalancingEnabled, editable: ['DRAFT', 'PUBLISHED'].includes(event.status) && event.endsAt > new Date(), players: seats.map(seat => ({ id: seat.id, ...appearance(seat.user), displayName: seat.guestNumber ? seat.guestName : appearance(seat.user).displayName, avatarUrl: seat.guestNumber ? null : appearance(seat.user).avatarUrl, accountName: seat.user.displayName, isGuest: seat.guestNumber > 0, rating: seat.guestNumber ? null : seat.user.skillLevel, adminRating: seat.guestNumber ? null : seat.user.adminSkillLevel, teamNumber: seat.teamNumber })) };
+    const seats = await this.db.signup.findMany({ where: { eventId: id, status: 'CONFIRMED' }, select: { id: true, subName: true, subResponsibilityAcknowledgedAt: true, teamNumber: true, guestName: true, guestNumber: true, user: { select: { ...appearanceSelect, adminSkillLevel: true, skillLevel: true, preferredPositions: true } } }, orderBy: [{ queuedAt: 'asc' }, { guestNumber: 'asc' }, { id: 'asc' }] });
+    return { teamCount: event.teamCount, teamBalancingEnabled: event.teamBalancingEnabled, editable: ['DRAFT', 'PUBLISHED'].includes(event.status) && event.endsAt > new Date(), players: seats.map(seat => ({ id: seat.id, ...appearance(seat.user), displayName: seat.subResponsibilityAcknowledgedAt ? seat.subName || 'Sub needed' : seat.guestNumber ? seat.guestName : appearance(seat.user).displayName, avatarUrl: seat.guestNumber || seat.subResponsibilityAcknowledgedAt ? null : appearance(seat.user).avatarUrl, accountName: seat.user.displayName, isGuest: seat.guestNumber > 0, isSubstitute: !!seat.subResponsibilityAcknowledgedAt, rating: seat.guestNumber || seat.subResponsibilityAcknowledgedAt ? null : seat.user.skillLevel, adminRating: seat.guestNumber || seat.subResponsibilityAcknowledgedAt ? null : seat.user.adminSkillLevel, preferredPositions: seat.guestNumber || seat.subResponsibilityAcknowledgedAt ? [] : seat.user.preferredPositions, teamNumber: seat.teamNumber })) };
   }
   async settings(actorId: string, id: string, value: unknown, administrator = false) {
     const b = object(value, ['teamCount', 'teamBalancingEnabled']);
@@ -92,9 +92,9 @@ export class TeamsService {
     return this.db.$transaction(async tx => {
       const event = await this.locked(tx, actorId, id, administrator);
       if (!event.teamBalancingEnabled) throw new ConflictException('Enable rating-based team balancing first.');
-      const seats = await tx.signup.findMany({ where: { eventId: id, status: 'CONFIRMED' }, select: { id: true, teamNumber: true, guestNumber: true, user: { select: { skillLevel: true, adminSkillLevel: true } } } });
+      const seats = await tx.signup.findMany({ where: { eventId: id, status: 'CONFIRMED' }, select: { id: true, teamNumber: true, guestNumber: true, subResponsibilityAcknowledgedAt: true, user: { select: { skillLevel: true, adminSkillLevel: true } } } });
       if (reshuffle && seats.length < 2) throw new ConflictException('At least two confirmed players are needed to reshuffle.');
-      const players = seats.map(seat => ({ id: seat.id, teamNumber: seat.teamNumber, rating: seat.guestNumber ? null : combinedRating(seat.user.skillLevel, seat.user.adminSkillLevel) }));
+      const players = seats.map(seat => ({ id: seat.id, teamNumber: seat.teamNumber, rating: seat.guestNumber || seat.subResponsibilityAcknowledgedAt ? null : combinedRating(seat.user.skillLevel, seat.user.adminSkillLevel) }));
       const teams = reshuffle ? reshuffleTeams(players, event.teamCount) : balanceTeams(players, event.teamCount);
       for (const team of teams) if (team.ids.length) await tx.signup.updateMany({ where: { id: { in: team.ids } }, data: { teamNumber: team.number } });
       await tx.auditLog.create({ data: { actorId, eventId: id, action: reshuffle ? 'TEAMS_RESHUFFLED' : 'TEAMS_AUTO_BALANCED', details: { ratingMethod: 'ADMIN_THEN_SELF_AVAILABLE', neutralRating: 3, teams } } });

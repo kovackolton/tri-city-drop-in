@@ -1,10 +1,13 @@
+import { managedEvents, managesEvent } from './event-organizers';
 import { Controller, Get, Inject, Injectable, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthRequest, FirebaseGuard } from './auth';
 import { Database } from './database';
 import { paymentGraceMs, refreshPaymentStrikes } from './strike-policy';
 import { uuid } from './validation';
 
-const descriptions: Record<string, string> = {
+export const notificationDescriptions: Record<string, string> = {
+  ORGANIZER_REVIEW_REMINDER: 'This game has ended. Review the player roster to record attendance and payment received. Administrators complete the final sign-off after players have had an opportunity to resolve discrepancies.',
+  STALE_EVENT_REVIEW_REMINDER: 'This game ended at least one week ago and its review is still unfinished. Organizers should finish recording attendance and payments; administrators should review outstanding discrepancies before final sign-off.',
   PAYMENT_REVIEW_REMINDER: 'It has been over 24 hours since this event ended. Please mark whether you paid for your seat and any guests. Your report helps you and the organizer resolve differences; the organizer confirms payment received.',
   PAYMENT_STRIKE: 'The organizer marked a seat unpaid after the 24-hour grace period. This counts toward the 3-strike joining limit. Open My profile for details and contact the organizer to resolve it. Your own payment report does not clear the strike.',
   ADMIN_PERMANENT_STRIKE: 'An administrator issued a permanent strike. It counts toward the 3-strike joining limit and does not expire. View the reason in My profile.',
@@ -28,9 +31,30 @@ const descriptions: Record<string, string> = {
   EVENT_CANCELLED: 'The event was cancelled. Your booking has been cancelled.',
   EVENT_REMINDER: 'Your game starts within 24 hours. Check the time and location in My games.'
 };
+export function notificationMessage(kind: string) { return notificationDescriptions[kind] ?? 'There is an update about your game.'; }
 @Injectable()
 export class NotificationsService {
   constructor(@Inject(Database) private readonly db: Database) {}
+  private async reviewReminders(userId: string, role: string | undefined, now: Date) {
+    const keys: string[] = [], eventIds = new Set<string>();
+    const weekAgo = new Date(now.getTime() - 7 * 86400000);
+    if (role === 'ORGANIZER' || role === 'ADMINISTRATOR') {
+      const pending = await this.db.event.findMany({ where: { deletedAt: null, status: { in: ['PUBLISHED', 'COMPLETED'] }, endsAt: { lte: now }, auditLogs: { none: { action: 'EVENT_REVIEW_COMPLETED' } }, ...(role === 'ADMINISTRATOR' ? { OR: [managedEvents(userId), { endsAt: { lte: weekAgo } }] } : managedEvents(userId)) }, select: { id: true } });
+      for (const candidate of pending) await this.db.$transaction(async tx => {
+        await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${candidate.id}::uuid FOR UPDATE`;
+        const event = await tx.event.findUnique({ where: { id: candidate.id }, include: { auditLogs: { where: { action: 'EVENT_REVIEW_COMPLETED' }, select: { id: true }, take: 1 } } });
+        if (!event || event.deletedAt || !['PUBLISHED', 'COMPLETED'].includes(event.status) || event.endsAt > now || event.auditLogs.length) return;
+        const stale = event.endsAt <= weekAgo;
+        if (!managesEvent(event, userId) && !(role === 'ADMINISTRATOR' && stale)) return;
+        const kind = stale ? 'STALE_EVENT_REVIEW_REMINDER' : 'ORGANIZER_REVIEW_REMINDER';
+        const dedupeKey = `event-review:${kind}:${event.id}:${event.endsAt.getTime()}:${userId}`;
+        keys.push(dedupeKey); eventIds.add(event.id);
+        await tx.notification.upsert({ where: { dedupeKey }, update: {}, create: { userId, kind, dedupeKey, payload: { eventId: event.id, title: `${stale ? 'Review overdue' : 'Game ready for review'}: ${event.title}` } } });
+      });
+    }
+    await this.db.notification.updateMany({ where: { userId, kind: { in: ['ORGANIZER_REVIEW_REMINDER', 'STALE_EVENT_REVIEW_REMINDER'] }, readAt: null, dedupeKey: { notIn: keys } }, data: { readAt: now } });
+    return eventIds;
+  }
   // In-app reminders are generated on inbox refresh. No worker or external delivery provider is needed.
   async inbox(userId: string) {
     await refreshPaymentStrikes(this.db, [userId]);
@@ -48,6 +72,7 @@ export class NotificationsService {
     await this.db.notification.updateMany({ where: { userId, kind: 'PAYMENT_REVIEW_REMINDER', readAt: null, dedupeKey: { notIn: reminderKeys } }, data: { readAt: now } });
     // Also cover administrators appointed after a request was submitted.
     const viewer = await this.db.user.findUnique({ where: { id: userId }, select: { role: true } });
+    const reviewEvents = await this.reviewReminders(userId, viewer?.role, now);
     if (viewer?.role === 'ADMINISTRATOR') {
       const pending = await this.db.organizerRequest.findMany({ where: { status: 'PENDING' }, select: { id: true, userId: true } });
       for (const candidate of pending) await this.db.$transaction(async tx => {
@@ -75,7 +100,7 @@ export class NotificationsService {
     const events = await this.db.event.findMany({ where: { id: { in: ids } }, select: { id: true, title: true } });
     return { unread, items: rows.map(row => {
       const payload = row.payload as { eventId?: string; bookingId?: string; title?: string; note?: string };
-      return { id: row.id, eventId: payload.eventId ?? null, bookingId: payload.bookingId ?? null, kind: row.kind, title: payload.title ?? events.find(e => e.id === payload.eventId)?.title ?? 'Game update', message: descriptions[row.kind] ?? 'There is an update about your game.', createdAt: row.createdAt, readAt: row.readAt };
+      return { id: row.id, eventId: payload.eventId ?? null, bookingId: payload.bookingId ?? null, kind: row.kind, reviewAvailable: ['ORGANIZER_REVIEW_REMINDER', 'STALE_EVENT_REVIEW_REMINDER'].includes(row.kind) && !!payload.eventId && reviewEvents.has(payload.eventId), title: payload.title ?? events.find(e => e.id === payload.eventId)?.title ?? 'Game update', message: notificationMessage(row.kind), createdAt: row.createdAt, readAt: row.readAt };
     }) };
   }
   async read(userId: string, id?: string) {

@@ -1,17 +1,17 @@
 .eyebrow { font-size: .65rem; letter-spacing: .15em; font-weight: 700; color: var(--accent); }
 .game-card { overflow: hidden; border: 1px solid var(--border); border-radius: 1.25rem; background: var(--surface); box-shadow: 0 4px 20px var(--shadow); }
 .game-header { display: flex; align-items: center; gap: 1.25rem; background: var(--card-banner); color: var(--on-banner); padding: 1.5rem; }
-.date-tile { width: 64px; flex-shrink: 0; border: 1px solid var(--banner-border); border-radius: .85rem; text-align: center; padding: .6rem .4rem; background: var(--banner-tile); }
-.date-tile span { display: block; font-size: .65rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--banner-muted); }
+.date-tile { width: 64px; flex-shrink: 0; border: 2px solid var(--game-date-border); border-radius: .85rem; text-align: center; padding: .6rem .4rem; background: var(--game-date-bg); color: var(--game-date-text); }
+.date-tile span { display: block; font-size: .65rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--game-date-text); }
 .date-tile strong { display: block; font-size: 1.8rem; line-height: 1.2; margin-top: .2rem; }
-.booking-badge { display: inline-block; padding: .2rem .65rem; border-radius: 2rem; font-size: .7rem; font-weight: 600; text-transform: capitalize; color: var(--badge-text); background: var(--badge-bg); }
+.booking-badge { display: inline-block; padding: .2rem .65rem; border-radius: 2rem; font-size: .7rem; font-weight: 600; text-transform: capitalize; color: var(--booking-confirmed-text); background: var(--booking-confirmed-bg); border: 1px solid var(--booking-confirmed-border); }
 .booking-badge.waiting { background: var(--warning-bg); color: var(--warning-text); }
 .booking-badge.cancelled { background: var(--neutral-bg); color: var(--neutral-text); }
 .game-body { padding: 1.5rem; }
 .game-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; }
 .game-facts dt { font-size: .65rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: .35rem; }
 .game-facts dd { font-size: .875rem; font-weight: 500; overflow-wrap: anywhere; }
-.organizer-strip { margin-top: 1.25rem; padding: 1rem; border-radius: .85rem; background: var(--surface-muted); }
+.organizer-strip { margin-bottom: 1.25rem; padding: 1rem; border-radius: .85rem; background: var(--surface-muted); }
 .party-seat { padding: 1rem; border: 1px solid var(--divider); border-radius: .85rem; }
 @media (max-width: 480px) { .game-header { gap: .85rem; padding: 1.1rem; } .game-body { padding: 1.1rem; } .game-facts { grid-template-columns: 1fr; gap: .9rem; } }
 
@@ -19,3 +19,7 @@
 
 .organizer-list { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem 1.5rem; }
 .organizer-person { display: flex; align-items: center; gap: .65rem; min-width: 0; max-width: 100%; }
+
+.game-facts { margin-top: 1.25rem; }
+.card-details { margin-top: 1.25rem; border-top: 1px solid var(--divider); padding-top: .5rem; }
+.card-details summary { cursor: pointer; padding: .75rem 0; font-weight: 700; color: var(--accent); min-height: 44px; }

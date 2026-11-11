@@ -1,3 +1,5 @@
+import { CalendarGameDatesDirective } from './calendar-picker/calendar-game-dates.directive';
+import { siteContent } from './site-content';
 import { CalendarPickerComponent } from './calendar-picker/calendar-picker.component';
 import { CalendarSelection } from '../calendar';
 import { HowToComponent } from './how-to/how-to.component';
@@ -11,7 +13,7 @@ import { IconComponent } from './icon/icon.component';
 import { Component, ElementRef, ViewChild, HostListener, effect, inject, AfterViewInit, OnInit, OnDestroy, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../auth.service';
-import { OrganizerComponent } from './organizer/organizer.component';
+import { OrganizerComponent, WorkspaceShortcut } from './organizer/organizer.component';
 import { eventTime } from '../models';
 import { RegistrationsStore } from '../registrations.store';
 import { SignInComponent } from './sign-in/sign-in.component';
@@ -24,11 +26,28 @@ import { NotificationsStore } from '../notifications.store';
 import { EventsStore, defaultGameFilters, activeGameFilterCount } from '../events.store';
 
 @Component({
-  selector: 'app-root', imports: [CalendarPickerComponent, HowToComponent, IconComponent, EventCardComponent, FormsModule, ProfileComponent, AvatarComponent, OrganizerComponent, MyGamesComponent, SignInComponent, AdminUsersComponent],
+  selector: 'app-root', imports: [CalendarGameDatesDirective, CalendarPickerComponent, HowToComponent, IconComponent, EventCardComponent, FormsModule, ProfileComponent, AvatarComponent, OrganizerComponent, MyGamesComponent, SignInComponent, AdminUsersComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss'
 })
 export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
+  readonly siteContent = siteContent;
+  readonly sidebarContactOpen = signal(false);
+  readonly toggleContact = (open: boolean) => !open;
+  readonly siteContacts = siteContent.contacts.map(contact => ({
+    ...contact, name: contact.name?.trim() || '', email: contact.email?.trim(), phone: contact.phone?.trim(), phoneLink: contact.phoneLink?.trim(), address: contact.address?.trim(), hours: contact.hours?.trim(), responseTime: contact.responseTime?.trim(),
+    socialLinks: [
+      { name: 'Facebook', icon: 'facebook' as const, value: contact.facebookUrl },
+      { name: 'Instagram', icon: 'instagram' as const, value: contact.instagramUrl },
+    ].flatMap(({ name, icon, value }) => {
+      try {
+        if (!value?.trim()) return [];
+        const url = new URL(value.trim());
+        return url.protocol === 'https:' && !url.username && !url.password ? [{ name, icon, url: url.href }] : [];
+      } catch { return []; }
+    }),
+  })).filter(contact => !!(contact.name || contact.email || contact.phone || contact.address || contact.hours || contact.responseTime || contact.socialLinks.length));
+  readonly copyrightYear = new Date().getFullYear();
   private readonly hostElement = inject<ElementRef<HTMLElement>>(ElementRef);
   private navigationObserver?: ResizeObserver;
   @ViewChild('appSidebar') sidebarElement?: ElementRef<HTMLElement>;
@@ -38,6 +57,40 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   private profileRequestId = 0;
   readonly strikes = inject(StrikesStore);
   readonly paymentEventId = signal('');
+  readonly workspaceShortcut = signal<WorkspaceShortcut>('upcoming');
+  readonly workspaceRequest = signal<{ view: WorkspaceShortcut; id: number; eventId?: string } | null>(null);
+  private workspaceRequestId = 0;
+  openWorkspace(view: WorkspaceShortcut = 'upcoming') {
+    this.navigate('organizer'); this.workspaceShortcut.set(view);
+    this.workspaceRequest.set({ view, id: ++this.workspaceRequestId });
+  }
+  openWorkspaceReview(eventId: string | null | undefined) {
+    if (!eventId || !['ORGANIZER', 'ADMINISTRATOR'].includes(this.auth.profile()?.role ?? '')) return;
+    this.navigate('organizer'); this.workspaceShortcut.set('review');
+    this.workspaceRequest.set({ view: 'review', id: ++this.workspaceRequestId, eventId });
+  }
+  readonly myGamesView = signal<'all' | 'upcoming' | 'payments' | 'completed'>('all');
+  readonly myGamesRequest = signal<{ view: 'all' | 'upcoming' | 'payments' | 'completed'; id: number } | null>(null);
+  readonly myGamesMenuOpen = signal(false);
+  private myGamesRequestId = 0;
+  openMyGames(view: 'all' | 'upcoming' | 'payments' | 'completed' = 'all') {
+    this.navigate('mygames'); this.myGamesView.set(view);
+    this.myGamesRequest.set({ view, id: ++this.myGamesRequestId });
+  }
+  toggleMyGamesMenu() {
+    const show = !this.myGamesMenuOpen();
+    this.openMyGames(); this.myGamesMenuOpen.set(show);
+  }
+  @HostListener('document:click', ['$event']) closeMyGamesOnOutsideClick(event: MouseEvent) {
+    if (this.myGamesMenuOpen() && !(event.target instanceof Element && event.target.closest('.my-games-menu, .my-games-trigger'))) this.myGamesMenuOpen.set(false);
+  }
+  @HostListener('window:keydown.escape') closeMyGamesMenu() {
+    if (!this.myGamesMenuOpen()) return;
+    this.myGamesMenuOpen.set(false);
+    const trigger = Array.from(document.querySelectorAll<HTMLElement>('.my-games-trigger')).find(element => element.getClientRects().length > 0);
+    trigger?.focus();
+  }
+
   readonly theme = inject(ThemeService);
   readonly notifications = inject(NotificationsStore);
   private poll?: ReturnType<typeof setInterval>;
@@ -46,9 +99,22 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly registrations = inject(RegistrationsStore);
   readonly page = signal<'games' | 'mygames' | 'profile' | 'organizer' | 'notifications' | 'signin' | 'users' | 'privategame' | 'howto'>('games');
   readonly howToGuideId = signal('start');
-  @HostListener('window:hashchange') restoreHowToLocation() { const id = howToGuideFromHash(window.location.hash); if (id) { this.howToGuideId.set(id); this.page.set('howto'); this.closeMobileNavigation(); } }
+  @HostListener('window:hashchange') restoreHowToLocation() { if (window.location.hash === '#notifications') { this.page.set('notifications'); this.closeMobileNavigation(); if (this.auth.profile()) void this.notifications.load(); return; } const id = howToGuideFromHash(window.location.hash); if (id) { this.howToGuideId.set(id); this.page.set('howto'); this.closeMobileNavigation(); } }
   updateHowToLocation(id: string) { this.howToGuideId.set(id); const url = new URL(window.location.href); url.hash = 'how-to/' + id; window.history.replaceState(null, '', url.pathname + url.search + url.hash); }
   readonly mobileNavigationOpen = signal(false);
+  readonly bottomNavigationHidden = signal(false);
+  private lastScrollPosition = 0;
+  private scrollTravel = 0;
+  @HostListener('window:scroll') updateBottomNavigation() {
+    const position = Math.max(0, window.scrollY);
+    const delta = position - this.lastScrollPosition;
+    this.lastScrollPosition = position;
+    if (position < 32) { this.scrollTravel = 0; this.bottomNavigationHidden.set(false); return; }
+    if (Math.sign(delta) !== Math.sign(this.scrollTravel)) this.scrollTravel = 0;
+    this.scrollTravel += delta;
+    if (Math.abs(this.scrollTravel) >= 12) { this.bottomNavigationHidden.set(this.scrollTravel > 0); this.scrollTravel = 0; }
+  }
+
   @ViewChild('accountMenu') accountMenu?: ElementRef<HTMLDetailsElement>;
   pageLabel() {
     if (this.page() === 'organizer') return this.auth.profile()?.role === 'ADMINISTRATOR' ? 'Administrator workspace' : 'Organizer workspace';
@@ -67,6 +133,7 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly filtersOpen = signal(false);
   activeFilterCount() { return activeGameFilterCount(this.store.filters()); }
   cities() { return [...new Set(this.store.locations().map(location => location.city).filter((city): city is string => !!city))].sort((a, b) => a.localeCompare(b)); }
+  calendarMarkerQuery() { return JSON.stringify(this.store.filters()); }
   calendarChanged(selection: CalendarSelection) { this.filters = { ...this.filters, ...selection }; this.applyFilters(); }
   applyFilters() { this.filtersOpen.set(false); void this.store.load(this.filters); }
   resetFilters() { this.filters = defaultGameFilters(); this.applyFilters(); }
@@ -87,7 +154,8 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     const id = this.store.selectedId() || privateTarget?.id || sharedEventId(window.location.search);
     if (id) { if (invite) this.page.set('privategame'); void this.store.loadSelected(id, invite); }
   }
-  returnToSharedOrGames() { this.navigate(this.store.selectedInviteToken() ? 'privategame' : 'games'); }
+  private pendingNotifications = false;
+  returnToSharedOrGames() { if (this.pendingNotifications || window.location.hash === '#notifications') { this.pendingNotifications = false; this.navigate('notifications'); return; } this.navigate(this.store.selectedInviteToken() ? 'privategame' : 'games'); }
   quickDate(period: 'day' | 'week') { this.filters = { ...this.filters, period, date: defaultGameFilters().date }; this.applyFilters(); }
   constructor() {
     effect(() => {
@@ -99,7 +167,8 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
         this.notifications.reset(); this.strikes.reset(); this.waiver.reset();
         if (id) {
           void this.notifications.load(); void this.strikes.load(); void this.waiver.load(); void this.registrations.load();
-          if (this.auth.profile()?.profileCompletedAt === null) this.navigate('profile');
+          if (this.auth.profile()?.profileCompletedAt === null) { this.pendingNotifications ||= window.location.hash === '#notifications'; this.navigate('profile'); }
+          else if (window.location.hash === '#notifications') this.navigate('notifications');
           else if ((this.page() === 'users' && this.auth.profile()?.role !== 'ADMINISTRATOR') || (this.page() === 'organizer' && this.auth.profile()?.role === 'PLAYER')) this.navigate('games');
           else if (this.page() === 'signin') this.returnToSharedOrGames();
         }
@@ -121,14 +190,14 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
   ngOnDestroy() { this.navigationObserver?.disconnect(); if (this.poll) clearInterval(this.poll); }
-  navigate(page: 'games' | 'mygames' | 'profile' | 'organizer' | 'notifications' | 'signin' | 'users' | 'privategame' | 'howto') { const fromMobileMenu = this.mobileNavigationOpen(); this.closeMobileNavigation(); this.profileSectionRequest.set(null); this.page.set(page); if (typeof window !== 'undefined') { if (page === 'howto') this.updateHowToLocation(this.howToGuideId()); else if (window.location.hash.startsWith('#how-to')) { const url = new URL(window.location.href); url.hash = ''; window.history.replaceState(null, '', url.pathname + url.search); } } if (fromMobileMenu) requestAnimationFrame(() => document.getElementById('main-content')?.focus({ preventScroll: true })); if (page === 'games' && this.store.selectedInviteToken()) this.dismissSharedGame(); if (page === 'privategame' && this.store.selectedId()) void this.store.loadSelected(this.store.selectedId(), this.store.selectedInviteToken()); if (page === 'notifications') void this.notifications.load(); if (page === 'games') { this.restoreSharedGame(); requestAnimationFrame(() => document.getElementById('shared-game')?.scrollIntoView({ block: 'start' })); void this.store.load(); void this.store.loadFilters(); if (this.auth.profile()) void this.registrations.load(); } if (page === 'mygames') void this.registrations.load(); }
+  navigate(page: 'games' | 'mygames' | 'profile' | 'organizer' | 'notifications' | 'signin' | 'users' | 'privategame' | 'howto') { this.myGamesMenuOpen.set(false); if (page === 'mygames') { this.paymentEventId.set(''); this.myGamesView.set('all'); this.myGamesRequest.set({ view: 'all', id: ++this.myGamesRequestId }); } this.bottomNavigationHidden.set(false); const fromMobileMenu = this.mobileNavigationOpen(); this.closeMobileNavigation(); this.profileSectionRequest.set(null); this.page.set(page); if (typeof window !== 'undefined') { if (page === 'howto') this.updateHowToLocation(this.howToGuideId()); else if (page === 'notifications') window.history.replaceState(null, '', window.location.pathname + window.location.search + '#notifications'); else if (page !== 'signin' && (window.location.hash.startsWith('#how-to') || window.location.hash === '#notifications')) { const url = new URL(window.location.href); url.hash = ''; window.history.replaceState(null, '', url.pathname + url.search); } } if (fromMobileMenu) requestAnimationFrame(() => document.getElementById('main-content')?.focus({ preventScroll: true })); if (page === 'games' && this.store.selectedInviteToken()) this.dismissSharedGame(); if (page === 'privategame' && this.store.selectedId()) void this.store.loadSelected(this.store.selectedId(), this.store.selectedInviteToken()); if (page === 'notifications') void this.notifications.load(); if (page === 'games') { this.restoreSharedGame(); requestAnimationFrame(() => document.getElementById('shared-game')?.scrollIntoView({ block: 'start' })); void this.store.load(); void this.store.loadFilters(); if (this.auth.profile()) void this.registrations.load(); } if (page === 'mygames') void this.registrations.load(); }
   openProfileSection(section: 'strikes' | 'waiver') {
     this.closeMobileNavigation();
     this.profileSectionRequest.set({ section, id: ++this.profileRequestId }); this.page.set('profile');
     requestAnimationFrame(() => { const target = document.getElementById(section + '-section'); target?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); target?.focus({ preventScroll: true }); });
   }
   async reviewPayment(eventId: string | null | undefined) {
-    this.closeMobileNavigation(); this.paymentEventId.set(eventId ?? ''); this.page.set('mygames'); await this.registrations.load(eventId ?? undefined);
+    this.closeMobileNavigation(); this.myGamesMenuOpen.set(false); this.myGamesView.set('payments'); this.myGamesRequest.set({ view: 'payments', id: ++this.myGamesRequestId }); this.paymentEventId.set(eventId ?? ''); this.page.set('mygames'); await this.registrations.load(eventId ?? undefined);
     requestAnimationFrame(() => { const card = document.getElementById('my-game-' + eventId); card?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); card?.focus({ preventScroll: true }); });
   }
   reviewOrganizerRequests() { this.userRequestsOnly.set(true); this.navigate('users'); }

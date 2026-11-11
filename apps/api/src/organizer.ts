@@ -45,7 +45,8 @@ export class OrganizerService {
     return this.db.$transaction(async tx => {
       const seat = await this.seat(tx, actorId, signupId, administrator);
       if (seat.event.endsAt > new Date()) throw new ConflictException('Strike review opens after the event ends.');
-      if (reason === 'LATE_CANCELLATION' && !(seat.status === 'CANCELLED' && seat.lateCancellation)) throw new ConflictException('This booking was not a late player cancellation.');
+      if (reason === 'LATE_CANCELLATION' && !((seat.status === 'CANCELLED' || !!seat.subResponsibilityAcknowledgedAt) && seat.lateCancellation)) throw new ConflictException('This booking was not a late player cancellation.');
+      if (reason === 'NO_SHOW' && seat.subResponsibilityAcknowledgedAt) throw new ConflictException('Subs do not receive attendance strikes. Review only the original booking account payment responsibility.');
       if (reason === 'NO_SHOW' && !(seat.status === 'CONFIRMED' && seat.attendance === 'ABSENT')) throw new ConflictException('Mark the confirmed player absent before issuing a no-show strike.');
       if (reason === 'MISSED_PAYMENT' && !(seat.status === 'CONFIRMED' && seat.payment && seat.payment.amountCents > 0 && seat.payment.status === 'UNPAID' && seat.payment.organizerPaid === false && seat.event.endsAt.getTime() + paymentGraceMs <= Date.now())) throw new ConflictException('An organizer must mark payment not received and the 24-hour grace period must end before a payment strike.');
       await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${seat.userId}::uuid FOR UPDATE`;
