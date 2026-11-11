@@ -1,4 +1,8 @@
 import '@angular/compiler';
+import { CancelBookingComponent } from '../src/app/cancel-booking/cancel-booking.component';
+import { SubstituteSeatComponent } from '../src/app/substitute-seat/substitute-seat.component';
+import { WaitlistContactsComponent } from '../src/app/substitute-seat/waitlist-contacts.component';
+import { CalendarGameDatesDirective } from '../src/app/calendar-picker/calendar-game-dates.directive';
 import { PlayerPickerComponent } from '../src/app/player-picker/player-picker.component';
 import { PaymentLinksComponent } from '../src/app/payment-links/payment-links.component';
 import { matchesCalendar, venueDate } from '../src/calendar';
@@ -28,6 +32,7 @@ import { Observable, Subject, of, throwError } from 'rxjs';
 import { EventInvitationsComponent } from '../src/app/event-invitations/event-invitations.component';
 import { SignupComponent } from '../src/app/signup/signup.component';
 import { Game } from '../src/models';
+import { ProfileComponent } from '../src/app/profile/profile.component';
 import { MyGamesComponent } from '../src/app/my-games/my-games.component';
 import { AuthService } from '../src/auth.service';
 import { EventShareComponent } from '../src/app/event-share/event-share.component';
@@ -160,7 +165,7 @@ test('mobile navigation closes on selection and Escape, restores focus and label
   Object.defineProperty(globalThis, 'requestAnimationFrame', { configurable: true, value: (callback: () => void) => { callback(); return 1; } });
   try {
     const component: AppComponent = Object.assign(Object.create(AppComponent.prototype), {
-      mobileNavigationOpen: signal(false), page: signal('games'), profileSectionRequest: signal(null), auth: { profile: () => ({ role: 'ADMINISTRATOR' }) }
+      myGamesMenuOpen: signal(false), mobileNavigationOpen: signal(false), bottomNavigationHidden: signal(false), page: signal('games'), profileSectionRequest: signal(null), auth: { profile: () => ({ role: 'ADMINISTRATOR' }) }
     });
     assert.equal(component.pageLabel(), 'Upcoming games');
     component.toggleMobileNavigation(); assert.equal(component.mobileNavigationOpen(), true);
@@ -330,11 +335,11 @@ test('My Games date tiles use the pitch timezone rather than the device calendar
 
 test('My Games keeps ongoing games visible and sorts collapsed history separately from upcoming games', () => {
   const now = Date.now();
-  const booking = (id: string, start: number, end: number, guestNumber = 0) => ({ id, eventId: id, bookingId: id, guestNumber, event: { startsAt: new Date(now + start).toISOString(), endsAt: new Date(now + end).toISOString() } }) as Seat;
+  const booking = (id: string, start: number, end: number, guestNumber = 0) => ({ id, eventId: id, bookingId: id, guestNumber, status: 'CONFIRMED', event: { startsAt: new Date(now + start).toISOString(), endsAt: new Date(now + end).toISOString() } }) as Seat;
   const seats = [booking('future-later', 7200000, 10800000), booking('oldest', -14400000, -10800000), booking('ongoing', -3600000, 3600000), booking('recent', -7200000, -3600000), booking('guest', -7200000, -3600000, 1)];
   const injector = Injector.create({ providers: [{ provide: AuthService, useValue: {} }, { provide: RegistrationsStore, useValue: { seats: () => seats } }] });
   const component = runInInjectionContext(injector, () => new MyGamesComponent());
-  assert.equal(component.showPast(), false);
+  assert.equal(component.view(), 'all');
   const [upcoming, past] = component.gameGroups();
   assert.deepEqual(upcoming.games.map(seat => seat.id), ['ongoing', 'future-later']);
   assert.deepEqual(past.games.map(seat => seat.id), ['recent', 'oldest']);
@@ -410,7 +415,7 @@ test('My Games renders one card per event, prefers the active booking and keeps 
   const component = runInInjectionContext(injector, () => new MyGamesComponent());
   assert.equal(component.gameGroups()[0].games.length, 1); assert.equal(component.gameGroups()[0].games[0].id, 'active');
   assert.deepEqual(component.previousBookings(seats[2]).map(seat => seat.id), ['latest-cancel', 'first']);
-  seats[2].status = 'CANCELLED'; assert.equal(component.gameGroups()[0].games[0].id, 'latest-cancel');
+  seats[2].status = 'CANCELLED'; assert.equal(component.gameGroups()[0].games.length, 0); component.bookingStatus = ''; assert.equal(component.gameGroups()[0].games[0].id, 'latest-cancel');
 });
 
 
@@ -748,4 +753,320 @@ test('audience reset drops restricted results and ignores stale list, facet and 
   const requests: Subject<any>[] = []; const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: { get: () => { const response = new Subject<any>(); requests.push(response); return response; } } }, EventsStore] }); const store = injector.get(EventsStore);
   const list = store.load(), facets = store.loadFilters(), selected = store.loadSelected('game'); store.resetAudience();
   requests[0].next([{ id: 'old' }]); requests[0].complete(); requests[1].next({ locations: [{ id: 'old' }], organizers: [] }); requests[1].complete(); requests[2].next({ game: { id: 'old' } }); requests[2].complete(); await Promise.all([list, facets, selected]); assert.deepEqual(store.events(), []); assert.deepEqual(store.locations(), []); assert.equal(store.selectedGame(), null); injector.destroy();
+});
+
+test('mobile quick navigation ignores scroll jitter, hides downward, and returns upward or at the top', () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const viewport = { scrollY: 0 };
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: viewport });
+  try {
+    const component: AppComponent = Object.assign(Object.create(AppComponent.prototype), {
+      bottomNavigationHidden: signal(false), lastScrollPosition: 0, scrollTravel: 0
+    });
+    viewport.scrollY = 100; component.updateBottomNavigation(); assert.equal(component.bottomNavigationHidden(), true);
+    viewport.scrollY = 97; component.updateBottomNavigation(); assert.equal(component.bottomNavigationHidden(), true);
+    viewport.scrollY = 84; component.updateBottomNavigation(); assert.equal(component.bottomNavigationHidden(), false);
+    viewport.scrollY = 110; component.updateBottomNavigation(); assert.equal(component.bottomNavigationHidden(), true);
+    viewport.scrollY = 0; component.updateBottomNavigation(); assert.equal(component.bottomNavigationHidden(), false);
+    viewport.scrollY = -10; component.updateBottomNavigation(); assert.equal(component.bottomNavigationHidden(), false);
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'window', original); else Reflect.deleteProperty(globalThis, 'window');
+  }
+});
+
+import { zelleRecipient } from '../src/payment-links';
+
+test('Zelle details normalize recipients and copy only the recipient, with a clipboard fallback', async () => {
+  assert.equal(zelleRecipient(' HOST@example.com '), 'host@example.com');
+  assert.equal(zelleRecipient('(989) 555-0123'), '+19895550123');
+  assert.equal(zelleRecipient('https://evil.invalid'), null);
+  const component = new PaymentLinksComponent();
+  assert.equal(component.recipient(), null);
+  component.zelleContact = 'host@example.com'; assert.equal(component.recipient(), 'host@example.com');
+  assert.deepEqual(component.methods(), []);
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const copied: string[] = [];
+  try {
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { clipboard: { writeText: async (text: string) => { copied.push(text); } } } });
+    await component.copyRecipient(); assert.deepEqual(copied, ['host@example.com']); assert.match(component.copyNotice(), /copied/);
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {} });
+    await component.copyRecipient(); assert.match(component.copyNotice(), /Select and copy/);
+    component.zelleContact = ''; await component.copyRecipient(); assert.equal(component.recipient(), null);
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'navigator', original); else Reflect.deleteProperty(globalThis, 'navigator');
+  }
+});
+
+test('workspace starts upcoming and tab changes reset conflicting filters while clear preserves the tab', () => {
+  const injector = Injector.create({ providers: [
+    { provide: AuthService, useValue: { profile: () => ({ id: 'owner', role: 'ORGANIZER' }) } },
+    { provide: HttpClient, useValue: { get: () => of([]) } }
+  ] });
+  try {
+    const component = runInInjectionContext(injector, () => new OrganizerComponent());
+    component.load = async () => {};
+    assert.equal(component.eventHistory, 'upcoming'); assert.equal(component.eventScope(), 'mine');
+    component.eventStatus = 'CANCELLED'; component.calendar = { period: 'day', date: '2026-01-01' };
+    component.selectEventHistory('past'); assert.equal(component.eventReview, 'open'); assert.equal(component.eventStatus, ''); assert.equal(component.calendar.period, 'all');
+    component.eventReview = 'completed'; component.clearEventFilters(); assert.equal(component.eventHistory, 'past'); assert.equal(component.eventReview, 'open');
+    component.selectEventHistory('all'); assert.equal(component.eventReview, ''); component.clearEventFilters(); assert.equal(component.eventHistory, 'all');
+    component.selectEventHistory('upcoming'); assert.equal(component.eventReview, '');
+  } finally { injector.destroy(); }
+});
+
+test('cancelled booking labels distinguish player, organizer and event cancellation', () => {
+  const component = Object.create(MyGamesComponent.prototype) as MyGamesComponent;
+  assert.equal(component.bookingLabel({ status: 'CANCELLED', cancellationSource: 'PLAYER' } as any), 'You Cancelled');
+  assert.equal(component.bookingLabel({ status: 'CANCELLED', cancellationSource: 'ORGANIZER' } as any), 'Removed by organizer');
+  assert.equal(component.bookingLabel({ status: 'CANCELLED', cancellationSource: 'EVENT' } as any), 'Booking cancelled with event');
+  assert.equal(component.bookingLabel({ status: 'CANCELLED' } as any), 'Booking cancelled');
+  assert.equal(component.bookingLabel({ status: 'CONFIRMED' } as any), 'confirmed');
+});
+
+test('My games views separate future bookings, outstanding party reports and past paid participation', () => {
+  const now = Date.now();
+  const make = (id: string, start: number, end: number, status = 'CONFIRMED', paid: boolean | null = null, amount = 1000) => ({ id, eventId: id, bookingId: id, guestNumber: 0, status, payment: { amountCents: amount, status: 'UNPAID', playerPaid: paid }, event: { status: 'PUBLISHED', title: id, startsAt: new Date(now + start).toISOString(), endsAt: new Date(now + end).toISOString(), location: { name: 'Pitch', timezone: 'UTC' }, organizer: { displayName: 'Organizer' } } }) as Seat;
+  const future = make('future', 3600000, 7200000), waiting = make('waiting', 3600000, 7200000, 'WAITLISTED');
+  const ongoing = make('ongoing', -3600000, 3600000), needs = make('needs', -7200000, -3600000);
+  const paid = make('paid', -7200000, -3600000, 'CONFIRMED', true), unpaid = make('unpaid', -7200000, -3600000, 'CONFIRMED', false);
+  const cancelled = make('cancelled', -7200000, -3600000, 'CANCELLED', true), free = make('free', -7200000, -3600000, 'CONFIRMED', null, 0);
+  const guest = { ...needs, id: 'guest', eventId: paid.eventId, bookingId: paid.bookingId, guestNumber: 1 };
+  const seats = [future, waiting, ongoing, needs, paid, unpaid, cancelled, free, guest];
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: {} }, { provide: RegistrationsStore, useValue: { seats: () => seats } }] });
+  try {
+    const component = runInInjectionContext(injector, () => new MyGamesComponent());
+    const ids = () => component.gameGroups().filter(group => component.groupVisible(group.id)).flatMap(group => group.games.map(game => game.id)).sort();
+    assert.equal(component.bookingStatus, 'active'); assert.ok(!ids().includes('cancelled')); assert.ok(ids().includes('waiting'));
+    component.bookingStatus = ''; assert.ok(ids().includes('cancelled'));
+    component.bookingStatus = 'CANCELLED'; assert.deepEqual(ids(), ['cancelled']);
+    component.clearFilters(); assert.equal(component.bookingStatus, 'active');
+    component.selectView('upcoming'); assert.deepEqual(ids(), ['future', 'waiting']);
+    component.selectView('payments'); assert.deepEqual(ids(), ['needs', 'paid']);
+    guest.payment = { ...guest.payment!, playerPaid: false }; assert.deepEqual(ids(), ['needs']);
+    component.selectView('completed'); assert.deepEqual(ids(), ['paid']);
+    paid.event.status = 'CANCELLED'; assert.deepEqual(ids(), []); paid.event.status = 'PUBLISHED';
+    component.revealHistory = true; component.ngOnChanges(); assert.equal(component.view(), 'payments');
+    component.clearFilters(); assert.equal(component.view(), 'payments'); assert.equal(component.bookingStatus, 'active');
+  } finally { injector.destroy(); }
+});
+
+test('My games navigation opens the complete resource and shortcuts target views on an already mounted page', () => {
+  const visits: string[] = [];
+  const component = Object.assign(Object.create(AppComponent.prototype), {
+    myGamesView: signal('completed'), myGamesRequest: signal(null), myGamesMenuOpen: signal(false), myGamesRequestId: 0,
+    navigate: (page: string) => { visits.push(page); component.myGamesMenuOpen.set(false); }
+  }) as AppComponent;
+  component.openMyGames(); assert.equal(component.myGamesView(), 'all'); assert.equal(component.myGamesRequest()!.view, 'all');
+  component.openMyGames('payments'); assert.equal(component.myGamesRequest()!.view, 'payments');
+  const first = component.myGamesRequest()!.id; component.openMyGames('payments'); assert.ok(component.myGamesRequest()!.id > first);
+  component.toggleMyGamesMenu(); assert.equal(component.myGamesMenuOpen(), true); assert.equal(component.myGamesView(), 'all');
+  component.openMyGames('upcoming'); assert.equal(component.myGamesMenuOpen(), false); assert.equal(component.myGamesView(), 'upcoming');
+  assert.ok(visits.every(page => page === 'mygames'));
+});
+
+test('My games accepts navigation requests and synchronizes selected tabs with the nav', () => {
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: {} }, { provide: RegistrationsStore, useValue: {} }] });
+  try {
+    const component = runInInjectionContext(injector, () => new MyGamesComponent());
+    const changes: string[] = []; const subscription = component.viewChanged.subscribe(view => changes.push(view));
+    component.viewRequest = { view: 'upcoming', id: 1 }; component.ngOnChanges(); assert.equal(component.view(), 'upcoming');
+    component.selectView('completed'); assert.equal(changes.at(-1), 'completed');
+    component.viewRequest = { view: 'all', id: 2 }; component.ngOnChanges(); assert.equal(component.view(), 'all');
+    subscription.unsubscribe();
+  } finally { injector.destroy(); }
+});
+
+test('workspace shortcuts reset stale filters, restore owned event views and allow expanded history', () => {
+  const injector = Injector.create({ providers: [
+    { provide: AuthService, useValue: { profile: () => ({ id: 'owner', role: 'ORGANIZER' }) } },
+    { provide: HttpClient, useValue: { get: () => of([]) } }
+  ] });
+  try {
+    const component = runInInjectionContext(injector, () => new OrganizerComponent());
+    let loads = 0; component.load = async () => { loads++; };
+    const changes: string[] = []; component.shortcutChanged.subscribe(value => changes.push(value));
+    component.eventScope.set('all'); component.eventSearch = 'old'; component.eventStatus = 'CANCELLED';
+    component.selectShortcut('recent');
+    assert.equal(component.eventScope(), 'mine'); assert.equal(component.eventHistory, 'recent'); assert.equal(component.eventReview, 'open'); assert.equal(component.eventSearch, ''); assert.equal(component.eventStatus, '');
+    component.eventReview = ''; component.eventStatus = 'all'; component.clearEventFilters();
+    assert.equal(component.eventHistory, 'recent'); assert.equal(component.eventReview, 'open'); assert.equal(component.eventStatus, '');
+    component.selectShortcut('review'); assert.equal(component.eventHistory, 'past'); assert.equal(component.eventReview, 'open');
+    component.selectShortcut('locations'); assert.equal(component.view(), 'locations'); assert.equal(changes.at(-1), 'locations');
+    component.selectShortcut('all'); assert.equal(component.view(), 'events'); assert.equal(component.eventReview, ''); assert.equal(component.eventHistory, 'all');
+    component.selectEventHistory('recent'); assert.equal(changes.at(-1), 'recent');
+    component.selectShortcut('upcoming', false); assert.equal(component.eventHistory, 'upcoming'); assert.equal(component.eventReview, '');
+    assert.equal(loads, 6);
+  } finally { injector.destroy(); }
+});
+
+test('calendar dots survive date selection and do not select every date in All dates mode', () => {
+  const calendar = new CalendarPickerComponent(); calendar.gameDates = ['2027-01-01', '2027-01-03'];
+  assert.equal(calendar.hasGame('2027-01-01'), true); assert.equal(calendar.hasGame('2027-01-02'), false);
+  calendar.selection = { period: 'all', date: '2027-01-01' }; assert.equal(calendar.selected('2027-01-01'), false);
+  calendar.selection = { period: 'day', date: '2027-01-01' }; assert.equal(calendar.selected('2027-01-01'), true); assert.equal(calendar.hasGame('2027-01-03'), true);
+});
+
+test('review rows keep assigned teams together and do not invent shirt colors for other teams', async () => {
+  const calls: any[] = [];
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: { post: (url: string, body: unknown) => { calls.push({ url, body }); return of({}); } } }] });
+  try {
+    const roster = runInInjectionContext(injector, () => new RosterComponent());
+    roster.shirtColors = ['dark', 'light']; roster.load = async () => {};
+    const seat = (id: string, team: number | null, status = 'CONFIRMED') => ({ id, teamNumber: team, status, guestNumber: 0, user: { displayName: id, accountName: id }, event: { status: 'PUBLISHED', startsAt: new Date(Date.now() - 7200000).toISOString(), endsAt: new Date(Date.now() - 3600000).toISOString() } }) as OrganizerSeat;
+    const team2 = seat('second', 2), team1 = seat('first', 1), guest = { ...seat('guest', 1), guestNumber: 1, guestName: 'Guest' };
+    roster.seats.set([team2, team1, guest, seat('waiting', 1, 'WAITLISTED'), seat('unassigned', null)]);
+    assert.deepEqual(roster.seatGroups().map(group => group.key), ['team-1', 'team-2', 'unassigned', 'waitlist']);
+    assert.deepEqual(roster.seatGroups()[0].seats.map(s => s.id), ['first', 'guest']);
+    assert.equal(roster.shirt(1), 'dark'); assert.equal(roster.shirt(3), ''); assert.equal(roster.shirtSwatch(2), '#f1f3f5');
+    await roster.markAttendance(team1, 'PRESENT'); assert.deepEqual(calls[0], { url: '/api/organizer/signups/first/attendance', body: { attendance: 'PRESENT' } });
+    roster.archived = true; await roster.markAttendance(team2, 'PRESENT'); assert.equal(calls.length, 1);
+    roster.archived = false; roster.search = 'first'; roster.expandedSeat.set('first');
+    roster.ngOnChanges({ shirtColors: { firstChange: false } } as any); assert.equal(roster.search, 'first'); assert.equal(roster.expandedSeat(), 'first');
+  } finally { injector.destroy(); }
+});
+
+test('calendar metadata rejects stale responses and clears old dots on failure or audience changes', async () => {
+  const requests: Subject<string[]>[] = [], calendar = new CalendarPickerComponent();
+  const injector = Injector.create({ providers: [
+    { provide: CalendarPickerComponent, useValue: calendar },
+    { provide: HttpClient, useValue: { get: () => { const request = new Subject<string[]>(); requests.push(request); return request; } } }
+  ] });
+  try {
+    const directive = runInInjectionContext(injector, () => new CalendarGameDatesDirective());
+    directive.gameDatesUrl = '/api/events/calendar'; directive.ngOnChanges(); directive.gameDatesQuery = '{"city":"New"}'; directive.ngOnChanges();
+    requests[1].next(['2027-01-02']); requests[1].complete(); await new Promise(resolve => setTimeout(resolve, 0));
+    requests[0].next(['2027-01-01']); requests[0].complete(); await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(calendar.hasGame('2027-01-02'), true); assert.equal(calendar.hasGame('2027-01-01'), false);
+    directive.ngOnChanges(); assert.equal(calendar.hasGame('2027-01-02'), false);
+    requests[2].error(new Error('Unavailable')); await new Promise(resolve => setTimeout(resolve, 0)); assert.equal(calendar.markerError(), true);
+    directive.ngOnChanges(); directive.ngOnDestroy(); requests[3].next(['2027-01-03']); requests[3].complete(); await new Promise(resolve => setTimeout(resolve, 0)); assert.equal(calendar.hasGame('2027-01-03'), false);
+  } finally { injector.destroy(); }
+});
+
+test('profile preferred-position checkboxes save multiple choices and allow clearing', async () => {
+  let saved: any;
+  const component = Object.assign(Object.create(ProfileComponent.prototype), {
+    preferredPositions: [], saving: signal(false), error: signal(''), notice: signal(''), nickname: '', skillLevel: null, contactEmail: '', phone: '', avatarColor: 'teal', useGooglePhoto: false,
+    auth: { profile: () => ({ accountNameSetAt: 'set', profileCompletedAt: 'done' }), saveProfile: async (body: any) => { saved = body; } }
+  }) as ProfileComponent;
+  component.togglePosition('GK', true); component.togglePosition('DF', true); component.togglePosition('GK', true);
+  await component.save({ invalid: false } as any); assert.deepEqual(saved.preferredPositions, ['GK', 'DF']);
+  component.togglePosition('GK', false); component.togglePosition('DF', false); await component.save({ invalid: false } as any); assert.deepEqual(saved.preferredPositions, []);
+});
+
+test('organizer notification links target a specific event and open its review without unrelated filters', async () => {
+  const requests: any[] = [], id = '11111111-1111-4111-8111-111111111111';
+  const injector = Injector.create({ providers: [
+    { provide: AuthService, useValue: { profile: () => ({ id: 'admin', role: 'ADMINISTRATOR' }) } },
+    { provide: HttpClient, useValue: { get: (url: string, options: any) => { requests.push({ url, ...options }); return of(url === '/api/locations' ? [] : [{ id }]); } } }
+  ] });
+  try {
+    const component = runInInjectionContext(injector, () => new OrganizerComponent());
+    component.shortcutRequest = { view: 'review', id: 1, eventId: id };
+    component.ngOnChanges({ shortcutRequest: { firstChange: true } } as any);
+    assert.equal(component.reviewTargetId, id); assert.equal(component.eventReview, ''); assert.equal(component.eventScope(), 'all');
+    const animation = Object.getOwnPropertyDescriptor(globalThis, 'requestAnimationFrame');
+    Object.defineProperty(globalThis, 'requestAnimationFrame', { configurable: true, value: () => 1 });
+    try { await component.load(); } finally { if (animation) Object.defineProperty(globalThis, 'requestAnimationFrame', animation); else Reflect.deleteProperty(globalThis, 'requestAnimationFrame'); }
+    assert.equal(requests.find(request => request.url === '/api/organizer/events').params.eventId, id);
+    assert.equal(component.expandedEvent(), id); assert.equal(component.rosterEvent(), id);
+    component.selectEventHistory('all'); assert.equal(component.reviewTargetId, '');
+  } finally { injector.destroy(); }
+});
+
+test('filter chips count active constraints, ignore whitespace and sorting, and respect minimal workspace views', async () => {
+  let role = 'ADMINISTRATOR';
+  const injector = Injector.create({ providers: [
+    { provide: AuthService, useValue: { profile: () => ({ id: 'owner', role }) } },
+    { provide: RegistrationsStore, useValue: { seats: () => [] } },
+    { provide: HttpClient, useValue: { get: () => of({ items: [], nextCursor: null, totalCount: 0, pendingCount: 0 }) } }
+  ] });
+  try {
+    const games = runInInjectionContext(injector, () => new MyGamesComponent());
+    assert.equal(games.activeFilterCount(), 1); games.search = '  '; assert.equal(games.activeFilterCount(), 1);
+    games.bookingStatus = ''; assert.equal(games.activeFilterCount(), 0); games.location = 'Pitch'; assert.equal(games.activeFilterCount(), 1);
+    const locations = runInInjectionContext(injector, () => new LocationsComponent());
+    locations.sort = 'city'; locations.search = ' '; assert.equal(locations.activeFilterCount(), 0);
+    locations.city = 'Midland'; locations.media = 'map'; assert.equal(locations.activeFilterCount(), 2);
+    const users = runInInjectionContext(injector, () => new AdminUsersComponent());
+    users.roleFilter = 'PLAYER'; assert.equal(users.activeFilterCount(), 0); await users.load(); assert.equal(users.activeFilterCount(), 1);
+    users.sort = 'createdAt'; users.direction = 'desc'; assert.equal(users.activeFilterCount(), 1);
+    const workspace = runInInjectionContext(injector, () => new OrganizerComponent());
+    assert.equal(workspace.activeEventFilterCount(), 2); workspace.eventHistory = 'all'; assert.equal(workspace.activeEventFilterCount(), 0);
+    workspace.eventReview = 'open'; workspace.eventStatus = 'CANCELLED'; workspace.eventLocation = 'Pitch'; assert.equal(workspace.activeEventFilterCount(), 3);
+    role = 'ORGANIZER'; workspace.eventScope.set('all'); assert.equal(workspace.activeEventFilterCount(), 0);
+    const roster = runInInjectionContext(injector, () => new RosterComponent());
+    assert.equal(roster.activeFilterCount(), 1); roster.statusFilter.set('all'); assert.equal(roster.activeFilterCount(), 0);
+    const picker = runInInjectionContext(injector, () => new PlayerPickerComponent());
+    picker.minimumSkill = '3'; assert.equal(picker.activeFilterCount(), 0); picker.eventId = 'event'; assert.equal(picker.activeFilterCount(), 1);
+  } finally { injector.destroy(); }
+});
+
+test('late cancellation modal requires explicit acknowledgment and early cancellations do not create it', async () => {
+  let late = true, calls: any[] = [];
+  const injector = Injector.create({ providers: [
+    { provide: RegistrationsStore, useValue: { busy: () => false, loading: () => false, error: () => '', cancel: async (...args: any[]) => { calls.push(args); return true; } } },
+    { provide: HttpClient, useValue: { get: () => of({ late, alreadyCancelledForSub: false, seatCount: 1, amountCents: 1000, cutoffHours: 12 }) } }
+  ] });
+  try {
+    const component = runInInjectionContext(injector, () => new CancelBookingComponent());
+    component.seat = { eventId: 'event', bookingId: 'booking' } as Seat;
+    await component.open(); await component.confirm(); assert.equal(calls.length, 0);
+    component.acknowledged = true; await component.confirm(); assert.deepEqual(calls[0], ['event', 'booking', true]);
+    late = false; await component.open(); assert.equal(component.acknowledged, false); await component.confirm(); assert.deepEqual(calls[1], ['event', 'booking', false]);
+  } finally { injector.destroy(); }
+});
+
+test('sub editing closes for players at kickoff but remains available for staff without transferring liability', async () => {
+  const calls: any[] = [];
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: { post: (path: string, body: any) => { calls.push({ path, body }); return of({}); } } }] });
+  try {
+    const component = runInInjectionContext(injector, () => new SubstituteSeatComponent());
+    component.seat = { id: 'seat', status: 'CONFIRMED', subResponsibilityAcknowledgedAt: 'signed', subName: null, subWillPay: false, event: { startsAt: new Date(Date.now() + 3600000).toISOString(), status: 'PUBLISHED' } };
+    component.ngOnChanges(); component.name = 'Cover'; component.willPay = true; await component.save();
+    assert.deepEqual(calls[0], { path: '/api/signups/seat/substitute', body: { subName: 'Cover', subWillPay: true } });
+    component.seat.event.startsAt = new Date(Date.now() - 3600000).toISOString(); assert.equal(component.canEdit(), false); await component.save(); assert.equal(calls.length, 1);
+    component.organizer = true; await component.save(); assert.equal(calls[1].path, '/api/organizer/signups/seat/substitute');
+    component.seat.status = 'CANCELLED'; assert.equal(component.canEdit(), false);
+  } finally { injector.destroy(); }
+});
+
+test('waitlist contacts clear on collapse and stale responses cannot redisplay private details', async () => {
+  const response = new Subject<any>();
+  const injector = Injector.create({ providers: [{ provide: HttpClient, useValue: { get: () => response } }] });
+  try {
+    const component = runInInjectionContext(injector, () => new WaitlistContactsComponent());
+    component.eventId = 'event'; component.bookingId = 'booking'; const pending = component.toggled(true);
+    await component.toggled(false); response.next([{ name: 'Waiter', email: 'private@example.invalid', phone: null }]); response.complete(); await pending;
+    assert.deepEqual(component.contacts(), []);
+  } finally { injector.destroy(); }
+});
+
+
+test('notification email destination survives sign-in and profile completion', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const location = { hash: '#notifications' };
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { location } });
+  try {
+    const destinations: string[] = [];
+    const component = Object.assign(Object.create(AppComponent.prototype), { store: { selectedInviteToken: () => '' }, navigate: (page: string) => destinations.push(page), pendingNotifications: false }) as AppComponent;
+    component.returnToSharedOrGames(); assert.equal(destinations.pop(), 'notifications');
+    location.hash = ''; (component as any).pendingNotifications = true;
+    component.returnToSharedOrGames(); assert.equal(destinations.pop(), 'notifications');
+    assert.equal((component as any).pendingNotifications, false);
+    component.returnToSharedOrGames(); assert.equal(destinations.pop(), 'games');
+    (component as any).store.selectedInviteToken = () => 'private-token';
+    component.returnToSharedOrGames(); assert.equal(destinations.pop(), 'privategame');
+  } finally { if (descriptor) Object.defineProperty(globalThis, 'window', descriptor); else Reflect.deleteProperty(globalThis, 'window'); }
+});
+test('notification deep link opens the inbox and asks signed-out users to sign in', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { location: { hash: '#notifications' } } });
+  try {
+    let signedIn = false, loaded = 0;
+    const component = Object.assign(Object.create(AppComponent.prototype), { page: signal('games'), closeMobileNavigation: () => {}, auth: { profile: () => signedIn ? {} : null }, notifications: { load: async () => { loaded++; } } }) as AppComponent;
+    component.restoreHowToLocation(); assert.equal(component.page(), 'notifications'); assert.equal(loaded, 0);
+    signedIn = true; component.restoreHowToLocation(); assert.equal(loaded, 1);
+    const template = readFileSync(resolve('src/app/app.component.html'), 'utf8'); assert.match(template, /Sign in to view notifications/);
+  } finally { if (descriptor) Object.defineProperty(globalThis, 'window', descriptor); else Reflect.deleteProperty(globalThis, 'window'); }
 });

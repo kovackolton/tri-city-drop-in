@@ -12,7 +12,7 @@ export class StrikesService {
       this.db.strike.findMany({ where: { ...currentStrikes(), userId }, select: { id: true } }),
       this.db.strike.findMany({ where: { userId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: {
         id: true, reason: true, note: true, permanent: true, automatic: true, createdAt: true, revokedAt: true, expiresAt: true,
-        signup: { select: { id: true, bookingId: true, guestNumber: true, guestName: true, event: { select: { id: true, title: true, startsAt: true, endsAt: true, location: { select: { name: true, address: true, timezone: true } }, organizerContactEmail: true, organizerContactPhone: true, contactCallAllowed: true, contactTextAllowed: true } }, payment: { select: { amountCents: true, playerPaid: true, organizerPaid: true, playerReviewedAt: true, organizerReviewedAt: true } } } }
+        signup: { select: { id: true, bookingId: true, status: true, guestNumber: true, guestName: true, subName: true, subResponsibilityAcknowledgedAt: true, event: { select: { id: true, title: true, startsAt: true, endsAt: true, location: { select: { name: true, address: true, timezone: true } }, organizerContactEmail: true, organizerContactPhone: true, contactCallAllowed: true, contactTextAllowed: true } }, payment: { select: { amountCents: true, playerPaid: true, organizerPaid: true, playerReviewedAt: true, organizerReviewedAt: true } } } }
       } })
     ]);
     const ids = new Set(current.map(strike => strike.id));

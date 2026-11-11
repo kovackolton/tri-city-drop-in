@@ -4,6 +4,21 @@
    tertiary green #348062. Text/hover variants are adjusted for contrast.
    Avatar colors remain the user's chosen identity color in both modes. */
 :root {
+  --booking-confirmed-bg: #eef4ff;
+  --booking-confirmed-text: #173d73;
+  --booking-confirmed-border: #b6d2ff;
+  --game-date-bg: #ffffff;
+  --game-date-text: #173b2d;
+  --game-date-border: #ffffff;
+  --event-blue-bg: #e5edf8;
+  --event-blue-header: #244d7b;
+  --event-blue-text: #ffffff;
+  --event-info-bg: #e1edff;
+  --event-info-text: #173d73;
+  --event-info-border: #5378aa;
+  --event-danger-bg: #fce8e6;
+  --event-danger-text: #8d2521;
+  --event-danger-border: #bd514b;
   --payment-logo-bg: #ffffff;
   --nav-hover: color-mix(in srgb, var(--nav-active) 65%, var(--sidebar));
   color-scheme: light;
@@ -17,9 +32,9 @@
   --secondary-border: var(--secondary);
   --secondary-hover: #dfeaff;
   --focus-on-brand: #ffffff;
-  --page: #f8f6f5;
-  --surface: #ffffff;
-  --surface-muted: #f1f3f6;
+  --page: #e8ebef;
+  --surface: #f1f3f5;
+  --surface-muted: #e2e6eb;
   --text: #252a31;
   --muted: #5c6470;
   --subtle: #66707d;
@@ -36,6 +51,7 @@
   --nav-active: #8e211e;
   --brand-highlight: #ffffff;
   --card-banner: var(--tertiary);
+  --card-date-banner: #245640;
   --on-banner: #ffffff;
   --banner-muted: #ffffff;
   --banner-tile: #0000000d;
@@ -72,6 +88,21 @@
   --avatar-slate-bg: #e2e8f0; --avatar-slate-text: #334155;
 }
 :root[data-theme="dark"] {
+  --event-blue-bg: #192b43;
+  --event-blue-header: #203e66;
+  --event-blue-text: #edf4ff;
+  --event-info-bg: #243e61;
+  --event-info-text: #d4e5ff;
+  --event-info-border: #82a8dc;
+  --event-danger-bg: #492321;
+  --event-danger-text: #ffd1cc;
+  --event-danger-border: #e0928c;
+  --booking-confirmed-bg: #dbeafe;
+  --booking-confirmed-text: #173d73;
+  --booking-confirmed-border: #b6d2ff;
+  --game-date-bg: #13171e;
+  --game-date-text: #edf9f2;
+  --game-date-border: #bce7cc;
   color-scheme: dark;
   --secondary-bg: #1b2e4b;
   --secondary-text: #b6d2ff;
@@ -97,6 +128,7 @@
   --nav-active: #8e302b;
   --brand-highlight: #ffd2cf;
   --card-banner: #214b3b;
+  --card-date-banner: #173b2d;
   --on-banner: #edf9f2;
   --banner-muted: #d0e9db;
   --banner-tile: #ffffff0d;

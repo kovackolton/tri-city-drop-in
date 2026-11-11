@@ -1,3 +1,4 @@
+import { CalendarGameDatesDirective } from '../calendar-picker/calendar-game-dates.directive';
 import { paymentProfileUrl, PaymentMethod } from '../../payment-links';
 import { PlayerPickerComponent, PlayerChoice } from '../player-picker/player-picker.component';
 import { IconComponent } from '../icon/icon.component';
@@ -5,7 +6,7 @@ import { CalendarPickerComponent } from '../calendar-picker/calendar-picker.comp
 import { CalendarSelection, calendarDate, matchesCalendar } from '../../calendar';
 import { EventShareComponent } from '../event-share/event-share.component';
 import { EventGuidanceComponent } from '../event-guidance/event-guidance.component';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, OnChanges, SimpleChanges, Input, Output, EventEmitter, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CurrencyPipe } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
@@ -18,12 +19,47 @@ import { DialogComponent } from '../dialog/dialog.component';
 import { AvatarComponent } from '../avatar/avatar.component';
 import { OrganizerContactComponent } from '../organizer-contact/organizer-contact.component';
 
+export type WorkspaceShortcut = 'upcoming' | 'recent' | 'review' | 'all' | 'locations';
+
 @Component({
-  selector: 'app-organizer', imports: [PlayerPickerComponent, IconComponent, CalendarPickerComponent, DialogComponent, AvatarComponent, OrganizerContactComponent, EventShareComponent, FormsModule, CurrencyPipe, RosterComponent, LocationsComponent, EventGuidanceComponent],
+  selector: 'app-organizer', imports: [CalendarGameDatesDirective, PlayerPickerComponent, IconComponent, CalendarPickerComponent, DialogComponent, AvatarComponent, OrganizerContactComponent, EventShareComponent, FormsModule, CurrencyPipe, RosterComponent, LocationsComponent, EventGuidanceComponent],
   templateUrl: './organizer.component.html',
   styleUrl: './organizer.component.scss'
 })
-export class OrganizerComponent implements OnInit {
+export class OrganizerComponent implements OnInit, OnChanges {
+  @Input() shortcutRequest: { view: WorkspaceShortcut; id: number; eventId?: string } | null = null;
+  @Output() shortcutChanged = new EventEmitter<WorkspaceShortcut>();
+  reviewTargetId = '';
+  private reviewScrollPending = false;
+  ngOnChanges(changes: SimpleChanges) {
+    if (!changes['shortcutRequest'] || !this.shortcutRequest) return;
+    const request = this.shortcutRequest;
+    this.selectShortcut(request.view, false);
+    if (request.eventId) {
+      this.reviewTargetId = request.eventId; this.reviewScrollPending = true;
+      this.eventReview = ''; this.eventHistory = 'past';
+      if (this.auth.profile()?.role === 'ADMINISTRATOR') this.eventScope.set('all');
+    }
+    if (!changes['shortcutRequest'].firstChange) void this.load();
+  }
+  selectShortcut(shortcut: WorkspaceShortcut, reload = true) {
+    if (this.busy()) return;
+    this.reviewTargetId = ''; this.reviewScrollPending = false;
+    this.view.set(shortcut === 'locations' ? 'locations' : 'events');
+    this.eventScope.set('mine'); this.events.set([]); this.overview.set([]);
+    if (shortcut !== 'locations') {
+      this.eventHistory = shortcut === 'review' ? 'past' : shortcut;
+      this.calendar = { period: 'all', date: calendarDate(new Date()) };
+      this.eventSearch = ''; this.eventStatus = ''; this.eventLocation = '';
+      this.eventReview = ['review', 'recent'].includes(shortcut) ? 'open' : '';
+      this.expandedEvent.set(''); this.rosterEvent.set('');
+    }
+    this.shortcutChanged.emit(shortcut);
+    if (reload) void this.load();
+  }
+  selectSection(section: 'events' | 'locations') { this.view.set(section); this.emitShortcut(); if (section === 'events') void this.load(); }
+  private emitShortcut() { this.shortcutChanged.emit(this.view() === 'locations' ? 'locations' : this.eventHistory === 'past' ? 'review' : this.eventHistory as WorkspaceShortcut); }
+
   readonly auth = inject(AuthService);
   readonly view = signal<'events' | 'locations'>('events');
   readonly showEventForm = signal(false);
@@ -38,16 +74,17 @@ export class OrganizerComponent implements OnInit {
   readonly eventScope = signal<'mine' | 'all'>('mine');
   readonly overview = signal<EventOverview[]>([]);
   calendar: CalendarSelection = { period: 'all', date: calendarDate(new Date()) };
-  eventSearch = ''; eventHistory = 'all'; eventReview = ''; eventStatus = ''; eventLocation = '';
-  selectEventHistory(value: string) { this.eventHistory = value; void this.load(); }
+  eventSearch = ''; eventHistory = 'upcoming'; eventReview = ''; eventStatus = ''; eventLocation = '';
+  selectEventHistory(value: string) { this.reviewTargetId = ''; this.reviewScrollPending = false; this.eventHistory = value; this.eventReview = ['past', 'recent'].includes(value) ? 'open' : ''; this.eventStatus = ''; this.calendar = { period: 'all', date: calendarDate(new Date()) }; this.expandedEvent.set(''); this.rosterEvent.set(''); this.emitShortcut(); void this.load(); }
   calendarChanged(selection: CalendarSelection) { this.calendar = selection; void this.load(); }
-  clearEventFilters() { this.calendar = { period: 'all', date: calendarDate(new Date()) }; this.eventSearch = ''; this.eventHistory = 'all'; this.eventReview = ''; this.eventStatus = ''; this.eventLocation = ''; void this.load(); }
+  clearEventFilters() { this.calendar = { period: 'all', date: calendarDate(new Date()) }; this.eventSearch = ''; this.eventReview = ['past', 'recent'].includes(this.eventHistory) ? 'open' : ''; this.eventStatus = ''; this.eventLocation = ''; void this.load(); }
   visibleOverview() { return this.overview().filter(game => matchesCalendar(game.startsAt, game.location.timezone, this.calendar) && (!this.eventSearch.trim() || `${game.title} ${game.organizer.displayName} ${game.location.name}`.toLowerCase().includes(this.eventSearch.trim().toLowerCase()))); }
   private loadRevision = 0;
   organizerNames(game: ManagedEvent | EventOverview) { return [game.organizer?.displayName ?? 'Unknown', ...(game.coOrganizers ?? []).map(user => user.displayName)].join(', '); }
   minimalView() { return this.eventScope() === 'all' && this.auth.profile()?.role !== 'ADMINISTRATOR'; }
   async selectEventScope(scope: 'mine' | 'all') {
     if (this.busy() || scope === this.eventScope()) return;
+    this.reviewTargetId = ''; this.reviewScrollPending = false;
     this.eventScope.set(scope); this.events.set([]); this.overview.set([]);
     this.rosterEvent.set(''); this.cancelling.set(''); this.deleting.set('');
     await this.load();
@@ -56,6 +93,9 @@ export class OrganizerComponent implements OnInit {
   readonly reviewCompletion = signal<ManagedEvent | null>(null);
   playersHadOpportunity = false;
   toggleEvent(id: string) { this.expandedEvent.set(this.expandedEvent() === id ? '' : id); this.rosterEvent.set(''); }
+  eventPhase(game: ManagedEvent) { return game.status === 'CANCELLED' ? 'cancelled' : game.status === 'COMPLETED' || Date.parse(game.endsAt) <= Date.now() ? 'past' : Date.parse(game.startsAt) <= Date.now() ? 'ongoing' : 'upcoming'; }
+  activeEventFilterCount() { const full = !this.minimalView(); return [this.calendar.period !== 'all', !!this.eventSearch.trim(), full && this.eventHistory !== 'all', full && !!this.eventReview, full && (!!this.eventStatus && this.eventStatus !== 'all' || !this.eventStatus && ['upcoming', 'recent'].includes(this.eventHistory)), full && !!this.eventLocation, full && !!this.reviewTargetId].filter(Boolean).length; }
+  calendarMarkerQuery() { return JSON.stringify({ scope: this.eventScope(), history: this.eventHistory, review: this.eventReview, status: this.eventStatus, locationId: this.eventLocation, search: this.eventSearch }); }
   reviewLabel(game: ManagedEvent) { return game.reviewStatus === 'COMPLETED' ? 'Completed' : game.reviewStatus === 'IN_PROGRESS' ? 'In progress' : 'Needs review'; }
   startReviewCompletion(game: ManagedEvent) { this.playersHadOpportunity = false; this.reviewCompletion.set(game); this.error.set(''); }
   async completeReview() {
@@ -65,6 +105,7 @@ export class OrganizerComponent implements OnInit {
   readonly rosterEvent = signal('');
   readonly busy = signal(false);
   readonly loading = signal(true);
+  readonly calendarRevision = signal(0);
   readonly error = signal('');
   readonly fieldErrors = signal<Record<string, string>>({});
   clearFieldError(name: string) { this.fieldErrors.update(errors => { const next = { ...errors }; delete next[name]; return next; }); }
@@ -94,7 +135,7 @@ export class OrganizerComponent implements OnInit {
   selectOrganizer(user: { id: string; displayName: string; accountName: string }) { if (user.id !== this.primaryOrganizerId() && !this.event.coOrganizerIds.includes(user.id) && this.event.coOrganizerIds.length < 20) { this.selectedOrganizers.update(users => [...users, user]); this.event.coOrganizerIds = [...this.event.coOrganizerIds, user.id]; } }
   removeOrganizer(id: string) { this.selectedOrganizers.update(users => users.filter(user => user.id !== id)); this.event.coOrganizerIds = this.event.coOrganizerIds.filter(value => value !== id); }
   resetOrganizerSearch() { this.organizerSearchRevision++; this.organizerSearch = ''; this.organizerResults.set([]); this.selectedOrganizers.set([]); this.searchingOrganizers.set(false); }
-  event = { coOrganizerIds: [] as string[], isPrivate: false, title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, bibCount: null as number | null, shirtColors: ['dark', 'light'], shirtColorCount: 2 as number | null, minPlayers: null as number | null, teamCount: 2, teamBalancingEnabled: false, organizerContactEmail: '', organizerContactPhone: '', organizerVenmoUrl: '', organizerCashAppUrl: '', organizerPaypalUrl: '', contactCallAllowed: false, contactTextAllowed: false };
+  event = { coOrganizerIds: [] as string[], isPrivate: false, title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, bibCount: null as number | null, shirtColors: ['dark', 'light'], shirtColorCount: 2 as number | null, minPlayers: null as number | null, teamCount: 2, teamBalancingEnabled: false, organizerContactEmail: '', organizerContactPhone: '', organizerVenmoUrl: '', organizerCashAppUrl: '', organizerPaypalUrl: '', organizerZelleContact: '', contactCallAllowed: false, contactTextAllowed: false };
   readonly paymentProfiles = {
     venmo: { field: 'organizerVenmoUrl', prefix: 'https://venmo.com/u/' },
     cashapp: { field: 'organizerCashAppUrl', prefix: 'https://cash.app/$' },
@@ -122,11 +163,23 @@ export class OrganizerComponent implements OnInit {
     const minimal = this.minimalView();
     this.loading.set(true); this.error.set('');
     try {
-      const [locations, events] = await Promise.all([firstValueFrom(this.http.get<Location[]>('/api/locations')), firstValueFrom(this.http.get<ManagedEvent[] | EventOverview[]>(minimal ? '/api/organizer/events/overview' : '/api/organizer/events', { params: minimal ? { period: this.calendar.period, date: this.calendar.date, search: this.eventSearch } : { scope: this.eventScope(), period: this.calendar.period, date: this.calendar.date, search: this.eventSearch, history: this.eventHistory, review: this.eventReview, status: this.eventStatus, locationId: this.eventLocation } }))]);
+      const [locations, events] = await Promise.all([firstValueFrom(this.http.get<Location[]>('/api/locations')), firstValueFrom(this.http.get<ManagedEvent[] | EventOverview[]>(minimal ? '/api/organizer/events/overview' : '/api/organizer/events', { params: minimal ? { period: this.calendar.period, date: this.calendar.date, search: this.eventSearch } : { scope: this.eventScope(), period: this.calendar.period, date: this.calendar.date, search: this.eventSearch, history: this.eventHistory, review: this.eventReview, status: this.eventStatus, locationId: this.eventLocation, ...(this.reviewTargetId ? { eventId: this.reviewTargetId } : {}) } }))]);
       if (revision !== this.loadRevision) return;
+      this.calendarRevision.update(value => value + 1);
       this.locations.set(locations);
       if (minimal) { this.overview.set(events as EventOverview[]); this.events.set([]); }
       else { this.events.set(events as ManagedEvent[]); this.overview.set([]); }
+      if (this.reviewTargetId) {
+        const game = (events as ManagedEvent[]).find(game => game.id === this.reviewTargetId);
+        if (!game) this.error.set('This game is unavailable for review. It may have been deleted or your organizer access changed.');
+        else {
+          this.expandedEvent.set(game.id); this.rosterEvent.set(game.id);
+          if (this.reviewScrollPending) {
+            this.reviewScrollPending = false;
+            requestAnimationFrame(() => { const panel = document.getElementById('event-management-' + game.id); panel?.scrollIntoView({ block: 'start' }); panel?.focus({ preventScroll: true }); });
+          }
+        }
+      }
     } catch (error) { if (revision === this.loadRevision) this.error.set(message(error)); }
     finally { if (revision === this.loadRevision) this.loading.set(false); }
   }
@@ -161,7 +214,7 @@ export class OrganizerComponent implements OnInit {
       this.cancelEdit();
     }, 'Event saved.');
   }
-  cancelEdit() { this.skillRestricted = false; this.skillDirection = 'above'; this.skillThreshold = 3; this.resetOrganizerSearch(); this.fieldErrors.set({}); this.choosingStatus.set(false); this.showEventForm.set(false); this.selectedPlayers.set([]); this.editingId.set(''); this.original = null; this.event = { coOrganizerIds: [] as string[], isPrivate: false, title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, bibCount: null as number | null, shirtColors: ['dark', 'light'], shirtColorCount: 2 as number | null, minPlayers: null as number | null, teamCount: 2, teamBalancingEnabled: false, organizerContactEmail: '', organizerContactPhone: '', organizerVenmoUrl: '', organizerCashAppUrl: '', organizerPaypalUrl: '', contactCallAllowed: false, contactTextAllowed: false }; }
+  cancelEdit() { this.skillRestricted = false; this.skillDirection = 'above'; this.skillThreshold = 3; this.resetOrganizerSearch(); this.fieldErrors.set({}); this.choosingStatus.set(false); this.showEventForm.set(false); this.selectedPlayers.set([]); this.editingId.set(''); this.original = null; this.event = { coOrganizerIds: [] as string[], isPrivate: false, title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, bibCount: null as number | null, shirtColors: ['dark', 'light'], shirtColorCount: 2 as number | null, minPlayers: null as number | null, teamCount: 2, teamBalancingEnabled: false, organizerContactEmail: '', organizerContactPhone: '', organizerVenmoUrl: '', organizerCashAppUrl: '', organizerPaypalUrl: '', organizerZelleContact: '', contactCallAllowed: false, contactTextAllowed: false }; }
   localTime(value: string) { const d = new Date(value); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
   canEdit(game: ManagedEvent) { const profile = this.auth.profile(); return !game.deletedAt && !!profile && (profile.role === 'ADMINISTRATOR' || profile.role === 'ORGANIZER' && (game.organizerId === profile.id || !!game.coOrganizerIds?.includes(profile.id))) && ['DRAFT', 'PUBLISHED'].includes(game.status); }
   canReturnToDraft(game: ManagedEvent) { return this.canEdit(game) && game.status === 'PUBLISHED' && Date.parse(game.startsAt) > Date.now(); }
@@ -174,7 +227,7 @@ export class OrganizerComponent implements OnInit {
     this.fieldErrors.set({});
     this.showEventForm.set(true); this.view.set('events');
     this.selectedPlayers.set([]); this.original = game; this.editingId.set(game.id);
-    this.event = { coOrganizerIds: [...(game.coOrganizerIds ?? [])], isPrivate: game.isPrivate ?? false, title: game.title, description: game.description ?? '', locationId: game.location.id, startsAt: this.localTime(game.startsAt), endsAt: this.localTime(game.endsAt), capacity: game.capacity, price: (game.priceCents / 100).toFixed(2), maxGuestsPerUser: game.maxGuestsPerUser, cancellationCutoffHours: game.cancellationCutoffHours, status: game.status, bibsProvided: game.bibsProvided ?? false, bibCount: game.bibCount ?? null, shirtColors: Array.from({ length: game.shirtColorCount ?? 2 }, (_, i) => game.shirtColors?.[i] ?? ['dark', 'light'][i] ?? ''), shirtColorCount: game.shirtColorCount ?? 2, minPlayers: game.minPlayers ?? null, teamCount: game.teamCount ?? 2, teamBalancingEnabled: game.teamBalancingEnabled ?? false, organizerContactEmail: game.organizerContactEmail ?? '', organizerContactPhone: game.organizerContactPhone ?? '', organizerVenmoUrl: game.organizerVenmoUrl ?? '', organizerCashAppUrl: game.organizerCashAppUrl ?? '', organizerPaypalUrl: game.organizerPaypalUrl ?? '', contactCallAllowed: game.contactCallAllowed ?? false, contactTextAllowed: game.contactTextAllowed ?? false };
+    this.event = { coOrganizerIds: [...(game.coOrganizerIds ?? [])], isPrivate: game.isPrivate ?? false, title: game.title, description: game.description ?? '', locationId: game.location.id, startsAt: this.localTime(game.startsAt), endsAt: this.localTime(game.endsAt), capacity: game.capacity, price: (game.priceCents / 100).toFixed(2), maxGuestsPerUser: game.maxGuestsPerUser, cancellationCutoffHours: game.cancellationCutoffHours, status: game.status, bibsProvided: game.bibsProvided ?? false, bibCount: game.bibCount ?? null, shirtColors: Array.from({ length: game.shirtColorCount ?? 2 }, (_, i) => game.shirtColors?.[i] ?? ['dark', 'light'][i] ?? ''), shirtColorCount: game.shirtColorCount ?? 2, minPlayers: game.minPlayers ?? null, teamCount: game.teamCount ?? 2, teamBalancingEnabled: game.teamBalancingEnabled ?? false, organizerContactEmail: game.organizerContactEmail ?? '', organizerContactPhone: game.organizerContactPhone ?? '', organizerVenmoUrl: game.organizerVenmoUrl ?? '', organizerCashAppUrl: game.organizerCashAppUrl ?? '', organizerPaypalUrl: game.organizerPaypalUrl ?? '', organizerZelleContact: game.organizerZelleContact ?? '', contactCallAllowed: game.contactCallAllowed ?? false, contactTextAllowed: game.contactTextAllowed ?? false };
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   canShare(game: ManagedEvent) { return !game.deletedAt && game.status === 'PUBLISHED' && Date.parse(game.startsAt) > Date.now(); }

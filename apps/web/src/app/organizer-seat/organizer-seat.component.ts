@@ -7,9 +7,10 @@ import { DialogComponent } from '../dialog/dialog.component';
 import { PaymentReview } from '../payment-review/payment-review.component';
 export interface OrganizerSeat {
   id: string; bookingId: string; guestNumber: number; guestName: string | null; status: string; attendance: string; lateCancellation: boolean;
+  subResponsibilityAcknowledgedAt?: string | null; subName?: string | null; subWillPay?: boolean;
   teamNumber?: number | null; queuedAt?: string;
   guestPaymentAcknowledgedAt?: string | null; guestPaymentTermsVersion?: string | null;
-  user: { strikeCount?: number; eventCancellationCount?: number; accountName: string; nickname: string | null; skillLevel: number | null; adminSkillLevel?: number | null; displayName: string; contactEmail: string; phone: string | null; avatarUrl?: string | null; avatarColor?: string }; event: { startsAt: string; endsAt: string; status: string }; payment: PaymentReview | null;
+  user: { strikeCount?: number; eventCancellationCount?: number; accountName: string; nickname: string | null; skillLevel: number | null; adminSkillLevel?: number | null; preferredPositions?: string[]; displayName: string; contactEmail: string; phone: string | null; avatarUrl?: string | null; avatarColor?: string }; event: { startsAt: string; endsAt: string; status: string }; payment: PaymentReview | null;
   strikes: { id: string; reason: string; revokedAt: string | null; expiresAt: string | null }[];
 }
 @Component({
@@ -33,8 +34,9 @@ export class OrganizerSeatComponent {
   label(reason: string) { return reason.replaceAll('_', ' ').toLowerCase(); }
   eligibility() {
     if (this.seat.strikes.some(s => s.reason === this.reason)) return 'This incident has already been reviewed.';
-    if (this.reason === 'NO_SHOW') return this.seat.status === 'CONFIRMED' && this.seat.attendance === 'ABSENT' ? '' : 'Mark the confirmed player absent first.';
-    if (this.reason === 'LATE_CANCELLATION') return this.seat.status === 'CANCELLED' && this.seat.lateCancellation ? '' : 'Only late player cancellations qualify.';
+    if (this.reason === 'NO_SHOW' && this.seat.subResponsibilityAcknowledgedAt) return 'Subs do not receive attendance strikes. Review payment against the original booking account.';
+    if (this.reason === 'NO_SHOW') return !this.seat.subResponsibilityAcknowledgedAt && this.seat.status === 'CONFIRMED' && this.seat.attendance === 'ABSENT' ? '' : 'Mark the confirmed player absent first.';
+    if (this.reason === 'LATE_CANCELLATION') return (this.seat.status === 'CANCELLED' || !!this.seat.subResponsibilityAcknowledgedAt) && this.seat.lateCancellation ? '' : 'Only late player cancellations qualify.';
     const p = this.seat.payment;
     return this.seat.status === 'CONFIRMED' && p && p.amountCents > 0 && p.status === 'UNPAID' && p.organizerPaid === false && Date.parse(this.seat.event.endsAt) + 86400000 <= Date.now() ? '' : 'Payment strikes apply only to organizer-marked unpaid seats after the 24-hour grace period. The player report does not determine the strike.';
   }

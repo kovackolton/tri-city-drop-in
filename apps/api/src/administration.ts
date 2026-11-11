@@ -13,7 +13,7 @@ export class AdministrationService {
   constructor(@Inject(Database) private readonly db: Database, @Inject(SignupsService) private readonly signups: SignupsService) {}
   async edit(actorId: string, id: string, value: unknown, administrator = false) {
     uuid(id);
-    const b = object(value, ['title', 'description', 'locationId', 'startsAt', 'endsAt', 'capacity', 'priceCents', 'maxGuestsPerUser', 'cancellationCutoffHours', 'bibsProvided', 'bibCount', 'shirtColors', 'shirtColorCount', 'minPlayers', 'teamCount', 'teamBalancingEnabled', 'organizerContactEmail', 'organizerContactPhone', 'organizerVenmoUrl', 'organizerCashAppUrl', 'organizerPaypalUrl', 'contactCallAllowed', 'contactTextAllowed', 'status', 'coOrganizerIds', 'minimumSkillLevel', 'maximumSkillLevel']);
+    const b = object(value, ['title', 'description', 'locationId', 'startsAt', 'endsAt', 'capacity', 'priceCents', 'maxGuestsPerUser', 'cancellationCutoffHours', 'bibsProvided', 'bibCount', 'shirtColors', 'shirtColorCount', 'minPlayers', 'teamCount', 'teamBalancingEnabled', 'organizerContactEmail', 'organizerContactPhone', 'organizerVenmoUrl', 'organizerCashAppUrl', 'organizerPaypalUrl', 'organizerZelleContact', 'contactCallAllowed', 'contactTextAllowed', 'status', 'coOrganizerIds', 'minimumSkillLevel', 'maximumSkillLevel']);
     if (b.status !== undefined && b.status !== 'DRAFT') throw new BadRequestException('Only DRAFT can be selected while editing. Use Publish event to publish a draft.');
     return this.db.$transaction(async tx => {
       await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${id}::uuid FOR UPDATE`;
@@ -71,7 +71,7 @@ export class AdministrationService {
       if (event.deletedAt) return { deleted: true };
       if (event.startsAt > new Date()) {
         const hosts = await tx.signup.findMany({ where: { eventId: id, guestNumber: 0, status: { in: ['CONFIRMED', 'WAITLISTED'] } } });
-        await tx.signup.updateMany({ where: { eventId: id, status: { in: ['CONFIRMED', 'WAITLISTED'] } }, data: { status: 'CANCELLED', cancellationSource: 'EVENT', teamNumber: null, cancelledAt: new Date(), lateCancellation: false } });
+        await tx.signup.updateMany({ where: { eventId: id, status: { in: ['CONFIRMED', 'WAITLISTED'] } }, data: { status: 'CANCELLED', cancellationSource: 'EVENT', teamNumber: null, cancelledAt: new Date() } });
         await tx.paymentObligation.updateMany({ where: { signup: { eventId: id }, status: { in: ['UNPAID', 'NOT_REQUIRED'] } }, data: { status: 'VOID' } });
         for (const host of hosts) await tx.notification.create({ data: { userId: host.userId, kind: 'EVENT_CANCELLED', dedupeKey: `deleted:${id}:${host.userId}`, payload: { eventId: id, title: event.title } } });
       }

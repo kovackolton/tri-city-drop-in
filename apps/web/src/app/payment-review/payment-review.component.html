@@ -1,3 +1,15 @@
+@if (compact) {
+  @if (payment.status === 'VOID' || payment.status === 'NOT_REQUIRED' || payment.amountCents === 0) { <span class="text-xs text-muted">{{ payment.status === 'VOID' ? 'Voided' : 'Free' }}</span> }
+  @else { <button type="button" class="secondary compact-payment" [disabled]="busy() || !ended() || (eventStatus !== 'PUBLISHED' && eventStatus !== 'COMPLETED')" [attr.aria-label]="'Review payment for ' + playerName" (click)="openReview()">{{ payment.organizerPaid === true ? 'Received' : payment.organizerPaid === false ? 'Not received' : 'Review payment' }}</button><p class="text-xs text-muted mt-1">Player: {{ payment.playerPaid === null ? 'No report' : payment.playerPaid ? 'I paid' : 'Not paid' }}</p>@if (disagrees()) { <p class="text-xs text-warning-text">Reports differ</p> }
+<app-dialog [open]="showReview()" title="Payment review" [busy]="busy()" (closed)="showReview.set(false)">
+          <p class="font-semibold">{{ playerName || 'Selected seat' }}</p><p class="text-sm mt-2">{{ payment.amountCents / 100 | currency:'USD':'USD ' }} per seat</p>
+          <p class="text-sm text-muted mt-3">{{ side === 'player' ? 'Record whether you paid for this seat.' : 'Record whether you received payment for this seat.' }} Your own report is visible to the organizer. Only organizer-confirmed payment clears payment strikes. After 24 hours, an organizer-marked unpaid seat receives a strike even if the player reports paid.</p>
+          @if (disagrees()) { <p class="notice mt-3 text-sm">Player and organizer reports currently differ.</p> }
+          <div class="flex flex-wrap gap-3 mt-5"><button class="primary" [disabled]="busy()" (click)="review(true)">{{ side === 'player' ? 'I paid' : 'Payment received' }}</button><button class="secondary" [disabled]="busy()" (click)="review(false)">{{ side === 'player' ? 'I have not paid' : 'Not received' }}</button></div>
+          @if (error()) { <p role="alert" class="notice error mt-3">{{ error() }}</p> }
+        </app-dialog>
+  }
+} @else {
 @if (payment.status === 'NOT_REQUIRED') { <p class="text-xs text-muted">Free — no payment review required.</p> }
     @else if (payment.status === 'VOID') { <p class="text-xs text-muted">Payment not required — booking cancelled.</p> }
     @else {
@@ -20,3 +32,5 @@
 
       @if (notice()) { <p role="status" class="text-xs text-accent mt-2">{{ notice() }}</p> }
     }
+
+}

@@ -1,7 +1,7 @@
 import { skillEligibilityInput, visibleEvents, eligibleUsers } from './event-eligibility';
 import { coOrganizerInput, managedEvents, validateOrganizers, organizerDirectory, notifyOrganizerChanges } from './event-organizers';
 import { Body, Controller, Get, Inject, Param, Post, Query, Req, UseGuards, Header, BadRequestException } from '@nestjs/common';
-import { eventFilters, matchesEventDate } from './event-filters';
+import { eventFilters, matchesEventDate, calendarGameDates } from './event-filters';
 import { eventOptionsInput, initialPlayerSelections } from './event-options';
 import { notifyInvitations } from './event-invitation-notices';
 import { SignupsService } from './signups';
@@ -13,7 +13,7 @@ import { AuthRequest, FirebaseGuard, OptionalFirebaseGuard, OrganizerGuard } fro
 import { instant, integer, object, text, uuid } from './validation';
 import { randomBytes } from 'node:crypto';
 export function eventInput(value: unknown) {
-  const b = object(value, ['title', 'description', 'locationId', 'startsAt', 'endsAt', 'capacity', 'priceCents', 'maxGuestsPerUser', 'cancellationCutoffHours', 'status', 'bibsProvided', 'bibCount', 'shirtColors', 'shirtColorCount', 'minPlayers', 'teamCount', 'teamBalancingEnabled', 'organizerContactEmail', 'organizerContactPhone', 'organizerVenmoUrl', 'organizerCashAppUrl', 'organizerPaypalUrl', 'contactCallAllowed', 'contactTextAllowed', 'initialPlayerIds', 'initialPlayerMode', 'initialPlayers', 'isPrivate', 'coOrganizerIds', 'minimumSkillLevel', 'maximumSkillLevel']);
+  const b = object(value, ['title', 'description', 'locationId', 'startsAt', 'endsAt', 'capacity', 'priceCents', 'maxGuestsPerUser', 'cancellationCutoffHours', 'status', 'bibsProvided', 'bibCount', 'shirtColors', 'shirtColorCount', 'minPlayers', 'teamCount', 'teamBalancingEnabled', 'organizerContactEmail', 'organizerContactPhone', 'organizerVenmoUrl', 'organizerCashAppUrl', 'organizerPaypalUrl', 'organizerZelleContact', 'contactCallAllowed', 'contactTextAllowed', 'initialPlayerIds', 'initialPlayerMode', 'initialPlayers', 'isPrivate', 'coOrganizerIds', 'minimumSkillLevel', 'maximumSkillLevel']);
   if (b.isPrivate !== undefined && typeof b.isPrivate !== 'boolean') throw new BadRequestException('Private game must be a boolean.');
   const startsAt = instant(b.startsAt, 'Start time'), endsAt = instant(b.endsAt, 'End time');
   if (startsAt.getTime() <= Date.now() || endsAt <= startsAt) throw new BadRequestException('Choose a future start and an end after the start.');
@@ -35,7 +35,7 @@ export function eventInput(value: unknown) {
 export class EventsController {
   constructor(@Inject(Database) private readonly db: Database, @Inject(SignupsService) private readonly signups: SignupsService = new SignupsService(db)) {}
   @Get('health') health() { return { status: 'ok' }; }
-  @Get('events') @UseGuards(OptionalFirebaseGuard) @Header('Cache-Control', 'private, no-store') async events(@Query() query: Record<string, unknown> = {}, @Req() req?: AuthRequest) {
+  @Get('events') @UseGuards(OptionalFirebaseGuard) @Header('Cache-Control', 'private, no-store') async events(@Query() query: Record<string, unknown> = {}, @Req() req?: AuthRequest, limit = 100) {
     const filters = eventFilters(query);
     const events = await this.db.event.findMany({
       where: { AND: [visibleEvents(req?.user)], deletedAt: null, isPrivate: false, status: 'PUBLISHED', startsAt: { gte: new Date() }, ...(filters.locationId ? { locationId: filters.locationId } : {}), ...(filters.organizerId ? { AND: [visibleEvents(req?.user), managedEvents(filters.organizerId)] } : {}), ...(filters.city ? { location: { city: { equals: filters.city, mode: 'insensitive' } } } : {}), ...(filters.freeOnly ? { priceCents: 0 } : {}), ...(filters.search ? { OR: [{ title: { contains: filters.search, mode: 'insensitive' } }, { location: { name: { contains: filters.search, mode: 'insensitive' } } }, { location: { address: { contains: filters.search, mode: 'insensitive' } } }] } : {}) }, orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
@@ -43,11 +43,23 @@ export class EventsController {
     });
     const coOrganizers = await organizerDirectory(this.db, events.flatMap(event => event.coOrganizerIds));
     return events.filter(event => matchesEventDate(event.startsAt, event.location.timezone, filters)).map(({ signups, ...e }) => ({
-      coOrganizers: coOrganizers.filter(user => e.coOrganizerIds.includes(user.id)).map(user => ({ id: user.id, displayName: user.displayName })), locationId: e.locationId, city: e.location.city, organizerId: e.organizerId, organizer: appearance(e.organizer), teamCount: e.teamCount, teamBalancingEnabled: e.teamBalancingEnabled, organizerContactEmail: e.organizerContactEmail, organizerContactPhone: e.organizerContactPhone, organizerVenmoUrl: e.organizerVenmoUrl, organizerCashAppUrl: e.organizerCashAppUrl, organizerPaypalUrl: e.organizerPaypalUrl, contactCallAllowed: e.contactCallAllowed, contactTextAllowed: e.contactTextAllowed, id: e.id, title: e.title, description: e.description, startsAt: e.startsAt, endsAt: e.endsAt,
+      coOrganizers: coOrganizers.filter(user => e.coOrganizerIds.includes(user.id)).map(user => ({ id: user.id, displayName: user.displayName })), locationId: e.locationId, city: e.location.city, organizerId: e.organizerId, organizer: appearance(e.organizer), teamCount: e.teamCount, teamBalancingEnabled: e.teamBalancingEnabled, organizerContactEmail: e.organizerContactEmail, organizerContactPhone: e.organizerContactPhone, organizerVenmoUrl: e.organizerVenmoUrl, organizerCashAppUrl: e.organizerCashAppUrl, organizerPaypalUrl: e.organizerPaypalUrl, organizerZelleContact: e.organizerZelleContact, contactCallAllowed: e.contactCallAllowed, contactTextAllowed: e.contactTextAllowed, id: e.id, title: e.title, description: e.description, startsAt: e.startsAt, endsAt: e.endsAt,
       priceCents: e.priceCents, currency: e.currency, timezone: e.location.timezone, maxGuestsPerUser: e.maxGuestsPerUser, cancellationCutoffHours: e.cancellationCutoffHours,
       bibsProvided: e.bibsProvided, bibCount: e.bibCount, shirtColors: e.shirtColors, shirtColorCount: e.shirtColorCount, minPlayers: e.minPlayers, capacity: e.capacity, location: e.location.name, address: e.location.address, photoUrl: e.location.photoUrl, photoCredit: e.location.photoCredit, mapEmbedUrl: e.location.mapEmbedUrl,
       confirmed: signups.filter(s => s.status === 'CONFIRMED').length, waitlisted: signups.filter(s => s.status === 'WAITLISTED').length
-    })).filter(event => !filters.spacesOnly || event.confirmed < event.capacity && event.waitlisted === 0).slice(0, 100);
+    })).filter(event => !filters.spacesOnly || event.confirmed < event.capacity && event.waitlisted === 0).slice(0, limit);
+  }
+  @Get('events/calendar') @UseGuards(OptionalFirebaseGuard) @Header('Cache-Control', 'private, no-store')
+  async publicCalendar(@Query() query: Record<string, unknown> = {}, @Req() req?: AuthRequest) {
+    return calendarGameDates(await this.events({ ...query, period: 'all' }, req, Infinity));
+  }
+  @Get('organizer/events/calendar') @UseGuards(FirebaseGuard, OrganizerGuard) @Header('Cache-Control', 'private, no-store')
+  async workspaceCalendar(@Req() req: AuthRequest, @Query() query: Record<string, unknown> = {}) {
+    const scope = query['scope'] ?? 'mine';
+    if (!['mine', 'all'].includes(scope as string)) throw new BadRequestException('Choose My events or All events.');
+    const filters = { ...query, period: 'all' };
+    return calendarGameDates(req.user.role !== 'ADMINISTRATOR' && scope === 'all'
+      ? await this.eventOverview(filters, req, Infinity) : await this.ownEvents(req, scope as string, filters, Infinity));
   }
   @Get('events/filters') @UseGuards(OptionalFirebaseGuard) @Header('Cache-Control', 'private, no-store') async filters(@Req() req?: AuthRequest) {
     const active = { AND: [visibleEvents(req?.user)], deletedAt: null, isPrivate: false, status: 'PUBLISHED' as const, startsAt: { gte: new Date() } };
@@ -59,13 +71,14 @@ export class EventsController {
     return { locations, organizers: users.map(user => ({ id: user.id, name: user.nickname ?? user.displayName })) };
   }
   @Get('organizer/events') @UseGuards(FirebaseGuard, OrganizerGuard)
-  async ownEvents(@Req() req: AuthRequest, @Query('scope') scope = 'mine', @Query() query: Record<string, unknown> = {}) {
+  async ownEvents(@Req() req: AuthRequest, @Query('scope') scope = 'mine', @Query() query: Record<string, unknown> = {}, limit = 100) {
     if (!['mine', 'all'].includes(scope)) throw new BadRequestException('Choose My events or All events.');
     const filters = eventFilters(query);
+    const eventId = query['eventId']; if (eventId !== undefined && eventId !== '') { if (typeof eventId !== 'string') throw new BadRequestException('Choose a valid event.'); uuid(eventId); }
     const period = query['history'] ?? 'all', review = query['review'] ?? '', status = query['status'] ?? '';
-    if (!['all', 'upcoming', 'past'].includes(period as string) || !['', 'attendance', 'payment', 'either', 'needs_review', 'in_progress', 'completed'].includes(review as string) || !['', 'DRAFT', 'PUBLISHED', 'COMPLETED', 'CANCELLED'].includes(status as string)) throw new BadRequestException('Choose valid event filters.');
+    if (!['all', 'upcoming', 'past', 'recent'].includes(period as string) || !['', 'attendance', 'payment', 'either', 'needs_review', 'in_progress', 'completed', 'open'].includes(review as string) || !['', 'all', 'DRAFT', 'PUBLISHED', 'COMPLETED', 'CANCELLED'].includes(status as string)) throw new BadRequestException('Choose valid event filters.');
     const now = new Date();
-    const events = await this.db.event.findMany({ where: { ...(req.user.role === 'ADMINISTRATOR' && scope === 'all' ? { AND: [{ OR: [{ deletedAt: null }, { endsAt: { lte: now } }] }] } : { deletedAt: null, AND: [managedEvents(req.user.id)] }), ...(period === 'past' ? { endsAt: { lte: now } } : period === 'upcoming' ? { endsAt: { gt: now } } : {}), ...(status ? { status: status as 'DRAFT' | 'PUBLISHED' | 'COMPLETED' | 'CANCELLED' } : {}), ...(filters.locationId ? { locationId: filters.locationId } : {}), ...(filters.search ? { OR: [{ title: { contains: filters.search, mode: 'insensitive' } }, { location: { name: { contains: filters.search, mode: 'insensitive' } } }, { organizer: { displayName: { contains: filters.search, mode: 'insensitive' } } }] } : {}) }, include: { location: true, organizer: { select: appearanceSelect }, auditLogs: { where: { action: { in: ['ATTENDANCE_UPDATED', 'EVENT_REVIEW_COMPLETED'] } }, select: { action: true, createdAt: true, actor: { select: { displayName: true } } }, orderBy: { createdAt: 'desc' } }, signups: { where: { status: 'CONFIRMED' }, select: { attendance: true, payment: { select: { amountCents: true, status: true, organizerPaid: true } } } } }, orderBy: [{ startsAt: 'desc' }, { id: 'desc' }] });
+    const events = await this.db.event.findMany({ where: { ...(eventId ? { id: eventId as string } : {}), ...(req.user.role === 'ADMINISTRATOR' && scope === 'all' ? { AND: [{ OR: [{ deletedAt: null }, { endsAt: { lte: now } }] }] } : { deletedAt: null, AND: [managedEvents(req.user.id)] }), ...(period === 'recent' ? { endsAt: { lte: now, gte: new Date(now.getTime() - 7 * 86400000) } } : period === 'past' ? { endsAt: { lte: now } } : period === 'upcoming' ? { endsAt: { gt: now } } : {}), ...(status && status !== 'all' ? { status: status as 'DRAFT' | 'PUBLISHED' | 'COMPLETED' | 'CANCELLED' } : period === 'upcoming' && status !== 'all' ? { status: { in: ['DRAFT', 'PUBLISHED'] } } : period === 'recent' && !status ? { status: { in: ['PUBLISHED', 'COMPLETED'] } } : {}), ...(filters.locationId ? { locationId: filters.locationId } : {}), ...(filters.search ? { OR: [{ title: { contains: filters.search, mode: 'insensitive' } }, { location: { name: { contains: filters.search, mode: 'insensitive' } } }, { organizer: { displayName: { contains: filters.search, mode: 'insensitive' } } }] } : {}) }, include: { location: true, organizer: { select: appearanceSelect }, auditLogs: { where: { action: { in: ['ATTENDANCE_UPDATED', 'EVENT_REVIEW_COMPLETED'] } }, select: { action: true, createdAt: true, actor: { select: { displayName: true } } }, orderBy: { createdAt: 'desc' } }, signups: { where: { status: 'CONFIRMED' }, select: { attendance: true, payment: { select: { amountCents: true, status: true, organizerPaid: true } } } } }, orderBy: [{ startsAt: period === 'upcoming' ? 'asc' : 'desc' }, { id: 'desc' }] });
     const additionalOrganizers = await organizerDirectory(this.db, events.flatMap(event => event.coOrganizerIds));
     return events.filter(event => matchesEventDate(event.startsAt, event.location.timezone, filters)).map(({ signups, organizer, auditLogs, privateInviteToken: _invite, ...event }) => {
       const reviewable = !event.deletedAt && ['PUBLISHED', 'COMPLETED'].includes(event.status) && event.endsAt <= now;
@@ -74,10 +87,10 @@ export class EventsController {
       const completion = auditLogs.find(log => log.action === 'EVENT_REVIEW_COMPLETED');
       const reviewStatus = completion ? 'COMPLETED' : auditLogs.some(log => log.action === 'ATTENDANCE_UPDATED') ? 'IN_PROGRESS' : 'NEEDS_REVIEW';
       return { ...event, coOrganizers: additionalOrganizers.filter(user => event.coOrganizerIds.includes(user.id)), organizer: { ...appearance(organizer), accountName: organizer.displayName }, confirmed: signups.length, attendancePending, paymentPending, reviewStatus, reviewCompletedAt: completion?.createdAt ?? null, reviewCompletedBy: completion?.actor.displayName ?? null };
-    }).filter(event => !review || (['needs_review', 'in_progress', 'completed'].includes(review as string) ? event.reviewStatus === String(review).toUpperCase() : review === 'attendance' ? event.attendancePending > 0 : review === 'payment' ? event.paymentPending > 0 : event.attendancePending > 0 || event.paymentPending > 0)).slice(0, 100);
+    }).filter(event => !review || (review === 'open' ? !event.deletedAt && event.endsAt <= now && ['PUBLISHED', 'COMPLETED'].includes(event.status) && event.reviewStatus !== 'COMPLETED' : ['needs_review', 'in_progress', 'completed'].includes(review as string) ? event.reviewStatus === String(review).toUpperCase() : review === 'attendance' ? event.attendancePending > 0 : review === 'payment' ? event.paymentPending > 0 : event.attendancePending > 0 || event.paymentPending > 0)).slice(0, limit);
   }
   @Get('organizer/events/overview') @UseGuards(FirebaseGuard, OrganizerGuard)
-  async eventOverview(@Query() query: Record<string, unknown> = {}, @Req() req?: AuthRequest) {
+  async eventOverview(@Query() query: Record<string, unknown> = {}, @Req() req?: AuthRequest, limit = 100) {
     const filters = eventFilters(query);
     const events = await this.db.event.findMany({
       where: { AND: [visibleEvents(req?.user)], deletedAt: null, isPrivate: false, status: 'PUBLISHED', endsAt: { gt: new Date() } },
@@ -85,7 +98,7 @@ export class EventsController {
       orderBy: [{ startsAt: 'asc' }, { id: 'asc' }]
     });
     const coOrganizers = await organizerDirectory(this.db, events.flatMap(event => event.coOrganizerIds));
-    return events.filter(event => matchesEventDate(event.startsAt, event.location.timezone, filters) && (!filters.search || `${event.title} ${event.location.name} ${event.organizer.nickname ?? event.organizer.displayName}`.toLowerCase().includes(filters.search.toLowerCase()))).slice(0, 100).map(({ organizer, coOrganizerIds, ...event }) => ({ ...event, coOrganizers: coOrganizers.filter(user => coOrganizerIds.includes(user.id)).map(user => ({ id: user.id, displayName: user.displayName })), organizer: { displayName: organizer.nickname ?? organizer.displayName } }));
+    return events.filter(event => matchesEventDate(event.startsAt, event.location.timezone, filters) && (!filters.search || `${event.title} ${event.location.name} ${event.organizer.nickname ?? event.organizer.displayName}`.toLowerCase().includes(filters.search.toLowerCase()))).slice(0, limit).map(({ organizer, coOrganizerIds, ...event }) => ({ ...event, coOrganizers: coOrganizers.filter(user => coOrganizerIds.includes(user.id)).map(user => ({ id: user.id, displayName: user.displayName })), organizer: { displayName: organizer.nickname ?? organizer.displayName } }));
   }
   @Get('organizer/organizers') @UseGuards(FirebaseGuard, OrganizerGuard)
   async organizers(@Query('search') search = '') {

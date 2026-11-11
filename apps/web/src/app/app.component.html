@@ -2,32 +2,62 @@
     <aside #appSidebar class="app-sidebar bg-sidebar text-on-sidebar p-7 md:min-h-screen" (keydown.escape)="closeMobileNavigation(true)">
       <div class="sidebar-top">
       <a href="/" class="text-xl font-black tracking-tight">TRI-CITY <span class="text-brand-highlight">&#8599;</span><span class="block text-xs tracking-[.25em] font-normal mt-1">DROP-IN SOCCER</span></a>
+
+      <div class="mobile-header-actions">
+        @if (auth.profile()) {             <button type="button" class="icon-button" [class.selected]="page() === 'profile'" [attr.aria-current]="page() === 'profile' ? 'page' : null" aria-label="Settings: My profile" title="Settings: My profile" (click)="navigate('profile')"><app-icon name="settings" /></button> }
+                  <button type="button" class="icon-button" [attr.aria-pressed]="theme.dark()" [attr.aria-label]="theme.dark() ? 'Switch to light mode' : 'Switch to dark mode'" [title]="theme.dark() ? 'Switch to light mode' : 'Switch to dark mode'" (click)="theme.toggle()"><app-icon [name]="theme.dark() ? 'sun' : 'moon'" /></button>
+        @if (auth.firebaseUser()) { <details #accountMenu class="mobile-account" (keydown.escape)="accountMenu.open = false; accountToggle.focus(); $event.stopPropagation()"><summary #accountToggle aria-label="Account menu"><app-avatar [name]="auth.profile()?.displayName" [color]="auth.profile()?.avatarColor" [photoUrl]="auth.profile()?.useGooglePhoto !== false ? auth.profile()?.avatarUrl : null" [size]="28" /></summary><div class="mobile-account-panel"><p class="font-semibold break-words">{{ auth.profile()?.displayName || 'Signed in' }}</p>@if (auth.needsVerification()) { <button class="primary" (click)="navigate('signin')">Verify email</button> }<button class="secondary" [disabled]="auth.busy()" (click)="logout()">Sign out</button></div></details> }
+        @else if (auth.ready()) { <button type="button" class="primary" [disabled]="!auth.configured" (click)="navigate('signin')">Sign in</button> }
         <button id="mobile-navigation-toggle" type="button" class="mobile-navigation-toggle" [attr.aria-expanded]="mobileNavigationOpen()" aria-controls="main-navigation" [attr.aria-label]="mobileNavigationOpen() ? 'Close navigation' : 'Open navigation'" (click)="toggleMobileNavigation()"><app-icon [name]="mobileNavigationOpen() ? 'close' : 'menu'" /><span>Menu</span></button>
+      </div>
       </div>
       <p class="mobile-current-page"><span>Current page</span><strong>{{ pageLabel() }}</strong></p>
       <nav id="main-navigation" aria-label="Main navigation" class="main-navigation mt-8 space-y-2" [class.mobile-open]="mobileNavigationOpen()">
         <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'games'" [attr.aria-current]="page() === 'games' ? 'page' : null" (click)="navigate('games')">Upcoming games</button>
-        @if (auth.profile()) { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'mygames'" [attr.aria-current]="page() === 'mygames' ? 'page' : null" (click)="navigate('mygames')">My games</button><button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'notifications'" [attr.aria-current]="page() === 'notifications' ? 'page' : null" (click)="navigate('notifications')">Notifications ({{ notifications.unread() }})</button><button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'profile'" [attr.aria-current]="page() === 'profile' ? 'page' : null" (click)="navigate('profile')">My profile</button> }
-        @if ((auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'organizer'" [attr.aria-current]="page() === 'organizer' ? 'page' : null" (click)="navigate('organizer')">{{ auth.profile()?.role === 'ADMINISTRATOR' ? 'Administrator workspace' : 'Organizer workspace' }}</button> }
+        @if (auth.profile()) { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'mygames'" [attr.aria-current]="page() === 'mygames' ? 'page' : null" [attr.aria-expanded]="page() === 'mygames'" aria-controls="my-games-subnavigation" (click)="openMyGames()">My games</button>@if (page() === 'mygames') { <div id="my-games-subnavigation" class="my-games-subnavigation" role="group" aria-label="My games shortcuts"><button type="button" [class.selected]="myGamesView() === 'upcoming'" [attr.aria-current]="myGamesView() === 'upcoming' ? 'page' : null" (click)="openMyGames('upcoming')">Upcoming</button><button type="button" [class.selected]="myGamesView() === 'payments'" [attr.aria-current]="myGamesView() === 'payments' ? 'page' : null" (click)="openMyGames('payments')">Report Payments</button><button type="button" [class.selected]="myGamesView() === 'completed'" [attr.aria-current]="myGamesView() === 'completed' ? 'page' : null" (click)="openMyGames('completed')">Completed</button></div> }<button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'notifications'" [attr.aria-current]="page() === 'notifications' ? 'page' : null" (click)="navigate('notifications')">Notifications ({{ notifications.unread() }})</button><button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'profile'" [attr.aria-current]="page() === 'profile' ? 'page' : null" (click)="navigate('profile')">My profile</button> }
+        @if ((auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'organizer'" [attr.aria-current]="page() === 'organizer' ? 'page' : null" [attr.aria-expanded]="page() === 'organizer'" aria-controls="workspace-subnavigation" (click)="openWorkspace()">{{ auth.profile()?.role === 'ADMINISTRATOR' ? 'Administrator workspace' : 'Organizer workspace' }}</button>@if (page() === 'organizer') { <div id="workspace-subnavigation" class="my-games-subnavigation" role="group" aria-label="Workspace shortcuts"><button type="button" [class.selected]="workspaceShortcut() === 'upcoming'" [attr.aria-current]="workspaceShortcut() === 'upcoming' ? 'page' : null" (click)="openWorkspace('upcoming')">Upcoming</button><button type="button" [class.selected]="workspaceShortcut() === 'recent'" [attr.aria-current]="workspaceShortcut() === 'recent' ? 'page' : null" (click)="openWorkspace('recent')">Recent games</button><button type="button" [class.selected]="workspaceShortcut() === 'review'" [attr.aria-current]="workspaceShortcut() === 'review' ? 'page' : null" (click)="openWorkspace('review')">Payment/Attendance Review</button><button type="button" [class.selected]="workspaceShortcut() === 'locations'" [attr.aria-current]="workspaceShortcut() === 'locations' ? 'page' : null" (click)="openWorkspace('locations')">Locations</button></div> } }
         @if (auth.profile()?.role === 'ADMINISTRATOR') { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'users'" [attr.aria-current]="page() === 'users' ? 'page' : null" (click)="openUsers()">Users</button> }
         <button type="button" class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'howto'" [attr.aria-current]="page() === 'howto' ? 'page' : null" (click)="navigate('howto')">How to</button>
       </nav>
-      <!-- <p class="mt-10 text-sm text-banner-muted">Good games. New faces.<br>Everyone belongs on the pitch.</p> -->
+      <!-- Named contacts: edit src/app/site-content.ts. -->
+      @if (siteContacts.length) {
+        <section class="sidebar-contact" aria-labelledby="sidebar-contact-heading">
+          <h2 id="sidebar-contact-heading"><button type="button" class="sidebar-contact-toggle" [attr.aria-expanded]="sidebarContactOpen()" aria-controls="sidebar-contact-details" (click)="sidebarContactOpen.update(toggleContact)"><span>Contact Us</span><span aria-hidden="true">{{ sidebarContactOpen() ? '-' : '+' }}</span></button></h2>
+          <div id="sidebar-contact-details" [hidden]="!sidebarContactOpen()">
+          @for (siteContact of siteContacts; track $index) {
+  <section class="named-contact" [attr.aria-label]="siteContact.name || 'Contact details'">
+    @if (siteContact.name) { <h3>{{ siteContact.name }}</h3> }
+    @if (siteContact.email || siteContact.phone || siteContact.address) {
+  <address>
+    @if (siteContact.email) { <a [href]="'mailto:' + siteContact.email">{{ siteContact.email }}</a> }
+    @if (siteContact.phone) { @if (siteContact.phoneLink) { <a [href]="'tel:' + siteContact.phoneLink">{{ siteContact.phone }}</a> } @else { <p>{{ siteContact.phone }}</p> } }
+    @if (siteContact.address) { <p>{{ siteContact.address }}</p> }
+  </address>
+}
+@if (siteContact.hours) { <p class="contact-hours">{{ siteContact.hours }}</p> }
+@if (siteContact.responseTime) { <p class="contact-hours">{{ siteContact.responseTime }}</p> }
+@if (siteContact.socialLinks.length) { <div class="contact-social-links" [attr.aria-label]="siteContact.name + ' social profiles'">@for (social of siteContact.socialLinks; track social.icon) { <a class="social-link" [href]="social.url" target="_blank" rel="noopener noreferrer" [attr.aria-label]="siteContact.name + ': ' + social.name + ' (opens in a new tab)'" [title]="siteContact.name + ': ' + social.name + ' (opens in a new tab)'"><app-icon [name]="social.icon" /></a> }</div> }
+
+  </section>
+}
+          </div>
+        </section>
+      }
     </aside>
-    <div class="min-w-0">
+    <div class="app-content min-w-0">
       <header #appHeader class="app-header flex flex-wrap gap-4 justify-between items-center border-b border-default bg-surface px-6 py-5 md:px-10">
         <span class="header-tagline text-sm text-muted">The Beautiful Game</span>
         <div class="header-actions flex flex-wrap gap-3 items-center justify-end">
           <button type="button" class="icon-button" [class.selected]="page() === 'games'" [attr.aria-current]="page() === 'games' ? 'page' : null" aria-label="Upcoming games" title="Upcoming games" (click)="navigate('games')"><app-icon name="calendar" /></button>
           @if (auth.profile()) {
-            <button type="button" class="icon-button" [class.selected]="page() === 'mygames'" [attr.aria-current]="page() === 'mygames' ? 'page' : null" aria-label="My games" title="My games" (click)="navigate('mygames')"><app-icon name="ticket" /></button>
+<div class="my-games-dropdown">            <button type="button" class="icon-button my-games-trigger" [class.selected]="page() === 'mygames'" [attr.aria-current]="page() === 'mygames' ? 'page' : null" aria-label="My games" title="My games" [attr.aria-expanded]="myGamesMenuOpen() && page() === 'mygames'" aria-controls="desktop-my-games-menu" (click)="toggleMyGamesMenu()"><app-icon name="ticket" /></button>@if (myGamesMenuOpen() && page() === 'mygames') { <div id="desktop-my-games-menu" class="my-games-menu" role="group" aria-label="My games shortcuts"><button type="button" [class.selected]="myGamesView() === 'upcoming'" [attr.aria-current]="myGamesView() === 'upcoming' ? 'page' : null" (click)="openMyGames('upcoming')">Upcoming</button><button type="button" [class.selected]="myGamesView() === 'payments'" [attr.aria-current]="myGamesView() === 'payments' ? 'page' : null" (click)="openMyGames('payments')">Report Payments</button><button type="button" [class.selected]="myGamesView() === 'completed'" [attr.aria-current]="myGamesView() === 'completed' ? 'page' : null" (click)="openMyGames('completed')">Completed</button></div> }</div>
             <button type="button" class="icon-button" [class.selected]="page() === 'notifications'" [attr.aria-label]="'Notifications, ' + notifications.unread() + ' unread'" [attr.aria-current]="page() === 'notifications' ? 'page' : null" title="Notifications" (click)="navigate('notifications')"><app-icon name="bell" />@if (notifications.unread()) { <span class="unread-badge" aria-hidden="true">{{ notifications.unread() > 99 ? '99+' : notifications.unread() }}</span> }</button>
             <button type="button" class="icon-button" [class.selected]="page() === 'profile'" [attr.aria-current]="page() === 'profile' ? 'page' : null" aria-label="Settings: My profile" title="Settings: My profile" (click)="navigate('profile')"><app-icon name="settings" /></button>
           }
           <button type="button" class="icon-button" [class.selected]="page() === 'howto'" [attr.aria-current]="page() === 'howto' ? 'page' : null" aria-label="How to" title="How to" (click)="navigate('howto')"><app-icon name="help" /></button>
           <button type="button" class="icon-button" [attr.aria-pressed]="theme.dark()" [attr.aria-label]="theme.dark() ? 'Switch to light mode' : 'Switch to dark mode'" [title]="theme.dark() ? 'Switch to light mode' : 'Switch to dark mode'" (click)="theme.toggle()"><app-icon [name]="theme.dark() ? 'sun' : 'moon'" /></button>
           @if (!auth.ready()) { <span role="status">Checking your session...</span> }
-          @else if (auth.firebaseUser()) { <div class="desktop-account"><app-avatar [name]="auth.profile()?.displayName" [color]="auth.profile()?.avatarColor" [photoUrl]="auth.profile()?.useGooglePhoto !== false ? auth.profile()?.avatarUrl : null" [size]="32" /><span class="text-sm">{{ auth.profile()?.displayName || 'Signed in' }}</span>@if (auth.needsVerification()) { <button class="primary" (click)="navigate('signin')">Verify email</button> }<button class="secondary" [disabled]="auth.busy()" (click)="logout()">Sign out</button></div><details #accountMenu class="mobile-account" (keydown.escape)="accountMenu.open = false; accountToggle.focus(); $event.stopPropagation()"><summary #accountToggle><app-avatar [name]="auth.profile()?.displayName" [color]="auth.profile()?.avatarColor" [photoUrl]="auth.profile()?.useGooglePhoto !== false ? auth.profile()?.avatarUrl : null" [size]="28" /><span>Account</span></summary><div class="mobile-account-panel"><p class="font-semibold break-words">{{ auth.profile()?.displayName || 'Signed in' }}</p>@if (auth.needsVerification()) { <button class="primary" (click)="navigate('signin')">Verify email</button> }<button class="secondary" [disabled]="auth.busy()" (click)="logout()">Sign out</button></div></details> }
+          @else if (auth.firebaseUser()) { <div class="desktop-account"><app-avatar [name]="auth.profile()?.displayName" [color]="auth.profile()?.avatarColor" [photoUrl]="auth.profile()?.useGooglePhoto !== false ? auth.profile()?.avatarUrl : null" [size]="32" /><span class="text-sm">{{ auth.profile()?.displayName || 'Signed in' }}</span>@if (auth.needsVerification()) { <button class="primary" (click)="navigate('signin')">Verify email</button> }<button class="secondary" [disabled]="auth.busy()" (click)="logout()">Sign out</button></div> }
           @else { <button class="primary" [disabled]="!auth.configured" (click)="navigate('signin')" [attr.aria-current]="page() === 'signin' ? 'page' : null">Sign in</button> }
         </div>
       </header>
@@ -57,6 +87,7 @@
         }
         @else if (page() === 'howto') { <app-how-to [guideId]="howToGuideId()" (guideChanged)="updateHowToLocation($event)" /> }
         @else if (page() === 'users' && auth.profile()?.role === 'ADMINISTRATOR') { <app-admin-users [requestsOnly]="userRequestsOnly()" /> }
+        @else if (page() === 'notifications' && !auth.profile()) { <section class="panel"><h1 class="text-3xl font-bold">Notifications</h1><p class="mt-3">Sign in to view your notifications.</p><button type="button" class="primary mt-4" (click)="navigate('signin')">Sign in to view notifications</button></section> }
         @else if (page() === 'notifications' && auth.profile()) {
           <section aria-labelledby="notifications-heading">
             <h1 id="notifications-heading" class="text-3xl font-bold">Notifications</h1>@if (auth.profile()?.role === 'ADMINISTRATOR') { <button class="secondary mt-4" (click)="reviewOrganizerRequests()">Review organizer requests</button> }
@@ -64,13 +95,13 @@
             @if (notifications.error()) { <p role="alert" class="notice error mt-5">{{ notifications.error() }}</p> }
             @if (notifications.loading()) { <p role="status" class="mt-4">Updating notifications...</p> }
             @for (item of notifications.items(); track item.id) {
-              <article class="panel mt-4" [class.border-accent]="!item.readAt"><h2 class="font-bold">{{ item.title }} @if (!item.readAt) { <span class="text-sm text-accent"> ? Unread</span> }</h2><p class="mt-2">{{ item.message }}</p>@if (item.kind === 'ORGANIZER_REQUEST' && auth.profile()?.role === 'ADMINISTRATOR') { <button class="primary mt-3" (click)="reviewOrganizerRequests()">Review request</button> }@if (item.kind === 'PAYMENT_REVIEW_REMINDER') { <button class="primary mt-3" (click)="reviewPayment(item.eventId)">Review payment status</button> }@if (item.kind === 'PAYMENT_STRIKE' || item.kind === 'ADMIN_PERMANENT_STRIKE' || item.kind === 'STRIKE_CLEARED' || item.kind === 'STRIKE_ISSUED') { <button class="primary mt-3" (click)="openProfileSection('strikes')">Review strikes &amp; reasons</button> }@if (item.kind === 'EVENT_ORGANIZER_ADDED' && (auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <button class="primary mt-3" (click)="navigate('organizer')">Open organizer workspace</button> }@if (item.kind === 'EVENT_INVITATION' || item.kind === 'ORGANIZER_BOOKED_PLAYER') { <button class="primary mt-3" (click)="navigate('mygames')">Open My games</button> }@if (item.kind === 'ORGANIZER_REQUEST_GRANTED' || item.kind === 'ORGANIZER_ACCESS_GRANTED' || item.kind === 'USER_ROLE_CHANGED') { <button class="primary mt-3 refresh-icon-button" (click)="auth.refreshProfile()" aria-label="Refresh access" title="Refresh access"><app-icon name="refresh" /></button> }<p class="text-xs text-muted mt-2">{{ time(item.createdAt, 'America/New_York') }}</p>@if (!item.readAt) { <button class="secondary mt-3" [disabled]="notifications.loading()" (click)="notifications.read(item.id)">Mark as read</button> }</article>
+              <article class="panel mt-4" [class.border-accent]="!item.readAt"><h2 class="font-bold">{{ item.title }} @if (!item.readAt) { <span class="text-sm text-accent"> ? Unread</span> }</h2><p class="mt-2">{{ item.message }}</p>@if (item.kind === 'ORGANIZER_REQUEST' && auth.profile()?.role === 'ADMINISTRATOR') { <button class="primary mt-3" (click)="reviewOrganizerRequests()">Review request</button> }@if ((item.kind === 'ORGANIZER_REVIEW_REMINDER' || item.kind === 'STALE_EVENT_REVIEW_REMINDER') && item.reviewAvailable && (auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <button class="primary mt-3" (click)="openWorkspaceReview(item.eventId)">Review this game</button> }@if (item.kind === 'PAYMENT_REVIEW_REMINDER') { <button class="primary mt-3" (click)="reviewPayment(item.eventId)">Review payment status</button> }@if (item.kind === 'PAYMENT_STRIKE' || item.kind === 'ADMIN_PERMANENT_STRIKE' || item.kind === 'STRIKE_CLEARED' || item.kind === 'STRIKE_ISSUED') { <button class="primary mt-3" (click)="openProfileSection('strikes')">Review strikes &amp; reasons</button> }@if (item.kind === 'EVENT_ORGANIZER_ADDED' && (auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <button class="primary mt-3" (click)="navigate('organizer')">Open organizer workspace</button> }@if (item.kind === 'EVENT_INVITATION' || item.kind === 'ORGANIZER_BOOKED_PLAYER') { <button class="primary mt-3" (click)="navigate('mygames')">Open My games</button> }@if (item.kind === 'ORGANIZER_REQUEST_GRANTED' || item.kind === 'ORGANIZER_ACCESS_GRANTED' || item.kind === 'USER_ROLE_CHANGED') { <button class="primary mt-3 refresh-icon-button" (click)="auth.refreshProfile()" aria-label="Refresh access" title="Refresh access"><app-icon name="refresh" /></button> }<p class="text-xs text-muted mt-2">{{ time(item.createdAt, 'America/New_York') }}</p>@if (!item.readAt) { <button class="secondary mt-3" [disabled]="notifications.loading()" (click)="notifications.read(item.id)">Mark as read</button> }</article>
             } @empty { @if (!notifications.loading() && !notifications.error()) { <p class="mt-5">No notifications yet.</p> } }
             <p class="text-sm text-muted mt-5">Showing the latest 100 notifications. Updates refresh every 30 seconds while the app is open.</p>
           </section>
         }
-        @else if (page() === 'mygames'  && auth.profile()) { <app-my-games [revealHistory]="!!paymentEventId()" /> }
-        @else if (page() === 'organizer' && (auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <app-organizer /> }
+        @else if (page() === 'mygames'  && auth.profile()) { <app-my-games [viewRequest]="myGamesRequest()" (viewChanged)="myGamesView.set($event)" /> }
+        @else if (page() === 'organizer' && (auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <app-organizer [shortcutRequest]="workspaceRequest()" (shortcutChanged)="workspaceShortcut.set($event)" /> }
         @else if (page() === 'profile' && auth.profile()) {
           @if (store.selectedId()) { <button type="button" class="secondary mb-5" (click)="returnToSharedOrGames()">Return to shared game</button> }
           <app-profile [sectionRequest]="profileSectionRequest()" (completed)="returnToSharedOrGames()" />
@@ -85,9 +116,9 @@
           @if (store.selectedId()) { <section id="shared-game" tabindex="-1" aria-labelledby="shared-game-heading" class="mt-6 mb-8"><div class="flex flex-wrap justify-between items-center gap-3 mb-4"><div><h1 id="shared-game-heading" class="text-2xl font-bold">Shared game</h1><p class="text-sm text-muted mt-1">This game is shown separately from the filters below. Availability is checked again when you join.</p></div><button type="button" class="secondary" (click)="dismissSharedGame()">Browse all games</button></div>
             @if (store.selectedLoading()) { <p role="status">Loading the shared game...</p> }@else if (store.selectedError()) { <p role="alert" class="notice error">{{ store.selectedError() }}</p> }@else if (store.selectedGame(); as game) { <app-event-card [game]="game" (changed)="refreshAfterJoin()" (signIn)="navigate('signin')" /> }
           </section> }
-          <section aria-labelledby="games-heading" class="mt-10">
+          <section aria-labelledby="games-heading">
             <div class="flex justify-between items-center mb-5"><h2 id="games-heading" class="text-xl font-bold">Upcoming games</h2><button class="secondary refresh-icon-button" [disabled]="store.loading()" (click)="refreshGames()" aria-label="Refresh" title="Refresh"><app-icon name="refresh" /></button></div>
-            <div class="calendar-layout"><aside class="calendar-aside"><app-calendar-picker [selection]="store.filters()" (selectionChange)="calendarChanged($event)" /></aside><div class="calendar-content">
+            <div class="calendar-layout"><aside class="calendar-aside"><app-calendar-picker gameDatesUrl="/api/events/calendar" [gameDatesQuery]="calendarMarkerQuery()" [gameDatesRefresh]="store.events()" [selection]="store.filters()" (selectionChange)="calendarChanged($event)" /></aside><div class="calendar-content">
             <details class="game-filters panel mb-5" [open]="filtersOpen()" (toggle)="filtersOpen.set($any($event.target).open)"><summary>Filters <span class="filter-count">{{ activeFilterCount() }} active</span></summary>
             <form class="mt-4" (ngSubmit)="applyFilters()" aria-label="Filter upcoming games">
               <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4"><label>When<select name="period" [(ngModel)]="filters.period"><option value="all">All upcoming dates</option><option value="day">Specific day</option><option value="week">Week of selected date</option></select></label>@if (filters.period !== 'all') { <label>{{ filters.period === 'day' ? 'Day' : 'A date in the week' }}<input name="filterDate" type="date" [(ngModel)]="filters.date" required></label> }
@@ -114,5 +145,44 @@
           </section>
         }
       </main>
+      <!-- Footer content: edit src/app/site-content.ts. -->
+      <footer class="app-footer" aria-label="Site footer">
+        <div class="footer-columns">
+          <section aria-labelledby="footer-about-heading"><h2 id="footer-about-heading">{{ siteContent.name }}</h2><p>{{ siteContent.description }}</p><nav class="footer-useful-links" aria-label="Footer navigation"><h3>Useful links</h3><button type="button" (click)="navigate('games')">Upcoming games</button><button type="button" (click)="navigate('howto')">How to</button></nav></section>
+          @if (siteContacts.length) {
+            <section aria-labelledby="footer-contact-heading"><h2 id="footer-contact-heading">Contact Us</h2>
+              @for (siteContact of siteContacts; track $index) {
+  <section class="named-contact" [attr.aria-label]="siteContact.name || 'Contact details'">
+    @if (siteContact.name) { <h3>{{ siteContact.name }}</h3> }
+    @if (siteContact.email || siteContact.phone || siteContact.address) {
+  <address>
+    @if (siteContact.email) { <a [href]="'mailto:' + siteContact.email">{{ siteContact.email }}</a> }
+    @if (siteContact.phone) { @if (siteContact.phoneLink) { <a [href]="'tel:' + siteContact.phoneLink">{{ siteContact.phone }}</a> } @else { <p>{{ siteContact.phone }}</p> } }
+    @if (siteContact.address) { <p>{{ siteContact.address }}</p> }
+  </address>
+}
+@if (siteContact.hours) { <p class="contact-hours">{{ siteContact.hours }}</p> }
+@if (siteContact.responseTime) { <p class="contact-hours">{{ siteContact.responseTime }}</p> }
+@if (siteContact.socialLinks.length) { <div class="contact-social-links" [attr.aria-label]="siteContact.name + ' social profiles'">@for (social of siteContact.socialLinks; track social.icon) { <a class="social-link" [href]="social.url" target="_blank" rel="noopener noreferrer" [attr.aria-label]="siteContact.name + ': ' + social.name + ' (opens in a new tab)'" [title]="siteContact.name + ': ' + social.name + ' (opens in a new tab)'"><app-icon [name]="social.icon" /></a> }</div> }
+
+  </section>
+}
+            </section>
+          }
+
+        </div>
+        @if (siteContent.copyrightOwner?.trim() || siteContent.privacy?.trim() || siteContent.terms?.trim()) {
+          <div class="footer-bottom">@if (siteContent.copyrightOwner?.trim()) { <p>&copy; {{ copyrightYear }} {{ siteContent.copyrightOwner }}. All rights reserved.</p> }@if (siteContent.privacy?.trim()) { <p>{{ siteContent.privacy }}</p> }@if (siteContent.terms?.trim()) { <p>{{ siteContent.terms }}</p> }</div>
+        }
+      </footer>
     </div>
   </div>
+
+<nav class="mobile-bottom-navigation" aria-label="Quick navigation" [class.scroll-hidden]="bottomNavigationHidden()" (focusin)="bottomNavigationHidden.set(false)">
+  <button type="button" [class.selected]="page() === 'games'" [attr.aria-current]="page() === 'games' ? 'page' : null" aria-label="Upcoming games" title="Upcoming games" (click)="navigate('games')"><app-icon name="calendar" /><span>Upcoming</span></button>
+  <button type="button" class="my-games-trigger" [class.selected]="page() === 'mygames'" [attr.aria-current]="page() === 'mygames' ? 'page' : null" aria-label="My games" title="My games" [attr.aria-expanded]="myGamesMenuOpen() && page() === 'mygames'" aria-controls="mobile-my-games-menu" (click)="auth.profile() ? toggleMyGamesMenu() : navigate('signin')"><app-icon name="ticket" /><span>My games</span></button>
+  <button type="button" [class.selected]="page() === 'notifications'" [attr.aria-current]="page() === 'notifications' ? 'page' : null" [attr.aria-label]="'Notifications, ' + notifications.unread() + ' unread'" title="Notifications" (click)="navigate(auth.profile() ? 'notifications' : 'signin')"><app-icon name="bell" /><span>Notifications</span>@if (notifications.unread()) { <span class="unread-badge" aria-hidden="true">{{ notifications.unread() > 99 ? '99+' : notifications.unread() }}</span> }</button>
+  <button type="button" [class.selected]="page() === 'howto'" [attr.aria-current]="page() === 'howto' ? 'page' : null" aria-label="How to" title="How to" (click)="navigate('howto')"><app-icon name="help" /><span>How to</span></button>
+</nav>
+
+@if (myGamesMenuOpen() && page() === 'mygames' && auth.profile()) { <div id="mobile-my-games-menu" class="my-games-menu mobile-my-games-menu" role="group" aria-label="My games shortcuts"><button type="button" [class.selected]="myGamesView() === 'upcoming'" [attr.aria-current]="myGamesView() === 'upcoming' ? 'page' : null" (click)="openMyGames('upcoming')">Upcoming</button><button type="button" [class.selected]="myGamesView() === 'payments'" [attr.aria-current]="myGamesView() === 'payments' ? 'page' : null" (click)="openMyGames('payments')">Report Payments</button><button type="button" [class.selected]="myGamesView() === 'completed'" [attr.aria-current]="myGamesView() === 'completed' ? 'page' : null" (click)="openMyGames('completed')">Completed</button></div> }

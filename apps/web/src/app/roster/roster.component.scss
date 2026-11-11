@@ -41,3 +41,37 @@ h5 { font-size: .8rem; font-weight: 700; }
 
 .add-player-panel { margin-top: 1rem; padding: 1rem; border: 1px solid var(--border); border-radius: .8rem; background: var(--surface-muted); }
 @media (max-width: 767.98px) { .add-player-panel > form > button, .add-player-panel .primary { width: 100%; } }
+
+.review-sheet { margin-top: 1rem; border: 1px solid var(--border); border-radius: .8rem; overflow: hidden; }
+.review-sheet table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: .8rem; }
+.review-sheet thead th { padding: .6rem; text-align: left; background: var(--surface-muted); }
+.review-sheet thead th:first-child { width: 40%; }
+.review-sheet thead th:last-child { width: 5rem; }
+.review-sheet td, .review-sheet th { padding: .6rem; vertical-align: middle; text-align: left; }
+.review-sheet .team-heading th { background: var(--secondary-bg); color: var(--secondary-text); font-weight: 700; border-top: 1px solid var(--border); }
+.review-row { border-top: 1px solid var(--divider); }
+.review-player { font-weight: 400; border-left: 5px solid var(--shirt-color); }
+.review-identity { display: flex; align-items: center; gap: .5rem; }
+.review-attendance select { padding: .5rem; min-height: 44px; font-size: .75rem; margin: 0; }
+.review-more button { min-height: 44px; padding: .4rem .5rem; font-size: .75rem; }
+.shirt-label { display: inline-flex; align-items: center; gap: .4rem; margin-left: .75rem; font-size: .75rem; }
+.shirt-swatch { width: 14px; height: 14px; border: 1px solid var(--muted); border-radius: 50%; }
+.review-sheet .review-detail-row > td { padding: 0; }
+@media (max-width: 640px) {
+  .review-sheet table, .review-sheet tbody { display: block; }
+  .review-sheet thead { display: none; }
+  .review-sheet tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; }
+  .review-sheet .team-heading { display: block; }
+  .review-sheet .team-heading th { display: block; }
+  .review-sheet .review-player { grid-column: 1 / -1; padding: .5rem .6rem; }
+  .review-sheet td { padding: .35rem .5rem .6rem; min-width: 0; }
+  .review-sheet .review-attendance::before { content: 'Attendance'; display: block; font-size: .65rem; color: var(--muted); margin-bottom: .2rem; }
+  .review-sheet .review-payment::before { content: 'Payment'; display: block; font-size: .65rem; color: var(--muted); margin-bottom: .2rem; }
+  .review-sheet .review-detail-row { display: block; }
+  .review-sheet .review-detail-row > td { display: block; }
+  .review-more { align-self: end; }
+}
+
+.roster-filter-toggle { margin-top: .75rem; border-bottom: 1px solid var(--divider); padding-bottom: .5rem; }
+.roster-filter-toggle summary { min-height: 44px; display: list-item; padding: .65rem 0; color: var(--accent); font-size: .8rem; font-weight: 700; cursor: pointer; }
+.roster-filter-toggle .roster-filters { margin-top: .5rem; margin-bottom: .5rem; }

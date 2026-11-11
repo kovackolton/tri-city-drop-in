@@ -76,3 +76,5 @@ aside :focus-visible, .game-header :focus-visible { outline-color: var(--focus-o
 .game-filters > summary { cursor: pointer; font-weight: 700; color: var(--accent); }
 
 button.refresh-icon-button.refresh-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 44px; min-width: 44px; height: 44px; padding: 0; vertical-align: middle; flex-shrink: 0; }
+
+.filter-count { display: inline-block; margin-left: .5rem; padding: .2rem .6rem; border-radius: 999px; font-size: .75rem; color: var(--badge-text); background: var(--badge-bg); }

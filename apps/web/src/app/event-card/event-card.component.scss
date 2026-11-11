@@ -1,6 +1,11 @@
 :host { display: block; min-width: 0; }
 .event-card { padding: 0; overflow: hidden; }
-.event-card-header { padding: 1.5rem; background: var(--card-banner); color: var(--on-banner); }
-.event-card-header .event-start { color: var(--banner-muted); }
+.event-card-header { background: var(--card-banner); color: var(--on-banner); }
+.event-card-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; padding: 1rem 1.5rem; background: var(--card-date-banner); border-bottom: 1px solid var(--banner-border); }
+.event-start { font-size: 1.05rem; font-weight: 800; }
+.event-price { flex-shrink: 0; border-radius: 2rem; padding: .3rem .75rem; background: var(--badge-bg); color: var(--badge-text); font-size: .8rem; font-weight: 700; }
+.event-card-title { padding: 1.5rem; }
 .event-card-body { padding: 1.5rem; background: var(--surface); }
-@media (max-width: 480px) { .event-card-header, .event-card-body { padding: 1.1rem; } }
+.card-details { margin-top: 1.25rem; border-top: 1px solid var(--divider); padding-top: .5rem; }
+.card-details summary { cursor: pointer; padding: .75rem 0; font-weight: 700; color: var(--accent); min-height: 44px; }
+@media (max-width: 480px) { .event-card-meta { padding: 1rem 1.1rem; } .event-card-title, .event-card-body { padding: 1.1rem; } }
