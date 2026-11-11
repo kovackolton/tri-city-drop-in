@@ -1,3 +1,4 @@
+import { calendarGameDates } from '../src/event-filters';
 import { eligibleForEvent, skillEligibilityInput } from '../src/event-eligibility';
 import { paymentProfileUrl, zelleRecipient } from '../src/payment-links';
 import { coOrganizerInput, managesEvent } from '../src/event-organizers';
@@ -377,4 +378,12 @@ test('Zelle accepts enrolled email or US mobile recipient details, preserves omi
   for (const value of ['', '  ', null]) assert.equal(eventOptionsInput({ organizerZelleContact: value }, previous).organizerZelleContact, null);
   assert.equal(eventOptionsInput({ organizerZelleContact: '(989) 555-0123' }).organizerZelleContact, '+19895550123');
   for (const value of ['bad email', false, 123, {}]) assert.throws(() => eventOptionsInput({ organizerZelleContact: value }), /valid Zelle/);
+});
+
+test('calendar game dates are unique, sorted and follow each venue timezone', () => {
+  assert.deepEqual(calendarGameDates([
+    { startsAt: '2027-01-01T01:00:00Z', timezone: 'America/New_York', location: 'Pitch' },
+    { startsAt: new Date('2027-01-01T02:00:00Z'), location: { timezone: 'America/New_York' } },
+    { startsAt: '2027-01-02T12:00:00Z', timezone: 'UTC' }
+  ]), ['2026-12-31', '2027-01-02']);
 });

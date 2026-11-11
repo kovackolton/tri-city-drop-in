@@ -15,14 +15,15 @@
       <nav id="main-navigation" aria-label="Main navigation" class="main-navigation mt-8 space-y-2" [class.mobile-open]="mobileNavigationOpen()">
         <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'games'" [attr.aria-current]="page() === 'games' ? 'page' : null" (click)="navigate('games')">Upcoming games</button>
         @if (auth.profile()) { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'mygames'" [attr.aria-current]="page() === 'mygames' ? 'page' : null" [attr.aria-expanded]="page() === 'mygames'" aria-controls="my-games-subnavigation" (click)="openMyGames()">My games</button>@if (page() === 'mygames') { <div id="my-games-subnavigation" class="my-games-subnavigation" role="group" aria-label="My games shortcuts"><button type="button" [class.selected]="myGamesView() === 'upcoming'" [attr.aria-current]="myGamesView() === 'upcoming' ? 'page' : null" (click)="openMyGames('upcoming')">Upcoming</button><button type="button" [class.selected]="myGamesView() === 'payments'" [attr.aria-current]="myGamesView() === 'payments' ? 'page' : null" (click)="openMyGames('payments')">Report Payments</button><button type="button" [class.selected]="myGamesView() === 'completed'" [attr.aria-current]="myGamesView() === 'completed' ? 'page' : null" (click)="openMyGames('completed')">Completed</button></div> }<button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'notifications'" [attr.aria-current]="page() === 'notifications' ? 'page' : null" (click)="navigate('notifications')">Notifications ({{ notifications.unread() }})</button><button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'profile'" [attr.aria-current]="page() === 'profile' ? 'page' : null" (click)="navigate('profile')">My profile</button> }
-        @if ((auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'organizer'" [attr.aria-current]="page() === 'organizer' ? 'page' : null" (click)="navigate('organizer')">{{ auth.profile()?.role === 'ADMINISTRATOR' ? 'Administrator workspace' : 'Organizer workspace' }}</button> }
+        @if ((auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'organizer'" [attr.aria-current]="page() === 'organizer' ? 'page' : null" [attr.aria-expanded]="page() === 'organizer'" aria-controls="workspace-subnavigation" (click)="openWorkspace()">{{ auth.profile()?.role === 'ADMINISTRATOR' ? 'Administrator workspace' : 'Organizer workspace' }}</button>@if (page() === 'organizer') { <div id="workspace-subnavigation" class="my-games-subnavigation" role="group" aria-label="Workspace shortcuts"><button type="button" [class.selected]="workspaceShortcut() === 'upcoming'" [attr.aria-current]="workspaceShortcut() === 'upcoming' ? 'page' : null" (click)="openWorkspace('upcoming')">Upcoming</button><button type="button" [class.selected]="workspaceShortcut() === 'recent'" [attr.aria-current]="workspaceShortcut() === 'recent' ? 'page' : null" (click)="openWorkspace('recent')">Recent games</button><button type="button" [class.selected]="workspaceShortcut() === 'review'" [attr.aria-current]="workspaceShortcut() === 'review' ? 'page' : null" (click)="openWorkspace('review')">Needs attention</button><button type="button" [class.selected]="workspaceShortcut() === 'locations'" [attr.aria-current]="workspaceShortcut() === 'locations' ? 'page' : null" (click)="openWorkspace('locations')">Locations</button></div> } }
         @if (auth.profile()?.role === 'ADMINISTRATOR') { <button class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'users'" [attr.aria-current]="page() === 'users' ? 'page' : null" (click)="openUsers()">Users</button> }
         <button type="button" class="block w-full text-left rounded-xl p-3" [class.bg-nav-active]="page() === 'howto'" [attr.aria-current]="page() === 'howto' ? 'page' : null" (click)="navigate('howto')">How to</button>
       </nav>
       <!-- Named contacts: edit src/app/site-content.ts. -->
       @if (siteContacts.length) {
         <section class="sidebar-contact" aria-labelledby="sidebar-contact-heading">
-          <h2 id="sidebar-contact-heading">Contact Us</h2>
+          <h2 id="sidebar-contact-heading"><button type="button" class="sidebar-contact-toggle" [attr.aria-expanded]="sidebarContactOpen()" aria-controls="sidebar-contact-details" (click)="sidebarContactOpen.update(toggleContact)"><span>Contact Us</span><span aria-hidden="true">{{ sidebarContactOpen() ? '-' : '+' }}</span></button></h2>
+          <div id="sidebar-contact-details" [hidden]="!sidebarContactOpen()">
           @for (siteContact of siteContacts; track $index) {
   <section class="named-contact" [attr.aria-label]="siteContact.name || 'Contact details'">
     @if (siteContact.name) { <h3>{{ siteContact.name }}</h3> }
@@ -39,6 +40,7 @@
 
   </section>
 }
+          </div>
         </section>
       }
     </aside>
@@ -98,7 +100,7 @@
           </section>
         }
         @else if (page() === 'mygames'  && auth.profile()) { <app-my-games [viewRequest]="myGamesRequest()" (viewChanged)="myGamesView.set($event)" /> }
-        @else if (page() === 'organizer' && (auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <app-organizer /> }
+        @else if (page() === 'organizer' && (auth.profile()?.role === 'ORGANIZER' || auth.profile()?.role === 'ADMINISTRATOR')) { <app-organizer [shortcutRequest]="workspaceRequest()" (shortcutChanged)="workspaceShortcut.set($event)" /> }
         @else if (page() === 'profile' && auth.profile()) {
           @if (store.selectedId()) { <button type="button" class="secondary mb-5" (click)="returnToSharedOrGames()">Return to shared game</button> }
           <app-profile [sectionRequest]="profileSectionRequest()" (completed)="returnToSharedOrGames()" />
@@ -115,7 +117,7 @@
           </section> }
           <section aria-labelledby="games-heading">
             <div class="flex justify-between items-center mb-5"><h2 id="games-heading" class="text-xl font-bold">Upcoming games</h2><button class="secondary refresh-icon-button" [disabled]="store.loading()" (click)="refreshGames()" aria-label="Refresh" title="Refresh"><app-icon name="refresh" /></button></div>
-            <div class="calendar-layout"><aside class="calendar-aside"><app-calendar-picker [selection]="store.filters()" (selectionChange)="calendarChanged($event)" /></aside><div class="calendar-content">
+            <div class="calendar-layout"><aside class="calendar-aside"><app-calendar-picker gameDatesUrl="/api/events/calendar" [gameDatesQuery]="calendarMarkerQuery()" [gameDatesRefresh]="store.events()" [selection]="store.filters()" (selectionChange)="calendarChanged($event)" /></aside><div class="calendar-content">
             <details class="game-filters panel mb-5" [open]="filtersOpen()" (toggle)="filtersOpen.set($any($event.target).open)"><summary>Filters <span class="filter-count">{{ activeFilterCount() }} active</span></summary>
             <form class="mt-4" (ngSubmit)="applyFilters()" aria-label="Filter upcoming games">
               <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4"><label>When<select name="period" [(ngModel)]="filters.period"><option value="all">All upcoming dates</option><option value="day">Specific day</option><option value="week">Week of selected date</option></select></label>@if (filters.period !== 'all') { <label>{{ filters.period === 'day' ? 'Day' : 'A date in the week' }}<input name="filterDate" type="date" [(ngModel)]="filters.date" required></label> }

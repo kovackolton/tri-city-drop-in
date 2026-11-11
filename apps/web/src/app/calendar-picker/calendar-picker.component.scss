@@ -15,3 +15,6 @@
 
 .calendar-toggle { display: none; }
 @media (max-width: 1199.98px) { .calendar-toggle { display: block; width: 100%; text-align: left; } .calendar { margin-top: .75rem; } .calendar.mobile-closed { display: none; } }
+
+.calendar-grid button { position: relative; padding-bottom: .45rem; }
+.game-dot { position: absolute; bottom: .2rem; left: 50%; transform: translateX(-50%); width: 5px; height: 5px; border-radius: 50%; background: currentColor; }

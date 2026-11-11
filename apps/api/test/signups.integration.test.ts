@@ -752,8 +752,20 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'upcoming' })), [first.id]);
       assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'upcoming', status: 'all' })), [first.id, cancelled.id, completed.id].sort());
       assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'past', review: 'open' })), [past.id]);
+      const markers = await controller.workspaceCalendar(req, { scope: 'mine', history: 'past', review: 'open', search: past.title, period: 'day', date: '2020-01-01' });
+      assert.ok(markers.length > 0);
+
       assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'past' })), [past.id, signedOff.id].sort());
       assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'all' })), fixtureIds.sort());
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'recent', review: 'open' })), [past.id]);
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'recent' })), [past.id, signedOff.id].sort());
+      await db.event.update({ where: { id: cancelled.id }, data: { startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000) } });
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'recent' })), [past.id, signedOff.id].sort());
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'recent', status: 'all' })), [past.id, signedOff.id, cancelled.id].sort());
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'recent', status: 'all', review: 'open' })), [past.id]);
+      await db.event.update({ where: { id: past.id }, data: { startsAt: new Date(Date.now() - 10 * 86400000), endsAt: new Date(Date.now() - 9 * 86400000) } });
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'recent', review: 'open' })), []);
+      assert.deepEqual(ids(await controller.ownEvents(req, 'mine', { history: 'past', review: 'open' })), [past.id]);
     });
     await t.test('workspace calendar and follow-up queues count only reviewable confirmed seats and respect ownership', async () => {
       const e = await event(2); await db.event.update({ where: { id: e.id }, data: { title: 'ReviewQueueFixture' } });
@@ -921,6 +933,26 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       const privateGame = await controller.create(req, { title: 'Private payment fixture', locationId: location.id, startsAt: new Date(Date.now() + 86400000).toISOString(), endsAt: new Date(Date.now() + 90000000).toISOString(), capacity: 2, maxGuestsPerUser: 0, priceCents: 0, status: 'PUBLISHED', isPrivate: true, ...links });
       const stored = await db.event.findUniqueOrThrow({ where: { id: privateGame.id } }); assert.equal((await sharing.publicGame(privateGame.id, stored.privateInviteToken!)).game.organizerPaypalUrl, links.organizerPaypalUrl);
     });
+    await t.test('calendar metadata includes games beyond the listing cap and excludes private games', async () => {
+      const controller = new EventsController(db, service), req = { user: users[0] } as AuthRequest;
+      const venue = await db.location.create({ data: { name: 'Calendar fixture pitch', address: 'Fixture', timezone: 'UTC' } });
+      const fixtureLocations = [venue.id];
+      try {
+      const starts = Date.now() + 86400000;
+      await db.event.createMany({ data: Array.from({ length: 101 }, (_, index) => ({ organizerId: users[0].id, locationId: venue.id, title: 'Calendar fixture ' + index, startsAt: new Date(starts + index * 86400000), endsAt: new Date(starts + index * 86400000 + 3600000), capacity: 2, maxGuestsPerUser: 0, priceCents: 0, status: 'PUBLISHED' as const })) });
+      assert.equal((await controller.events({ locationId: venue.id })).length, 100);
+      assert.equal((await controller.publicCalendar({ locationId: venue.id, period: 'day', date: '2020-01-01' })).length, 101);
+      const privateVenue = await db.location.create({ data: { name: 'Private calendar fixture', address: 'Fixture', timezone: 'UTC' } });
+      fixtureLocations.push(privateVenue.id);
+      await controller.create(req, { title: 'Private marker fixture', locationId: privateVenue.id, startsAt: new Date(starts).toISOString(), endsAt: new Date(starts + 3600000).toISOString(), capacity: 2, maxGuestsPerUser: 0, priceCents: 0, status: 'PUBLISHED', isPrivate: true });
+      assert.deepEqual(await controller.publicCalendar({ locationId: privateVenue.id }), []);
+      assert.equal((await controller.workspaceCalendar(req, { scope: 'mine', locationId: privateVenue.id })).length, 1);
+      } finally {
+        await db.auditLog.deleteMany({ where: { event: { locationId: { in: fixtureLocations } } } });
+        await db.event.deleteMany({ where: { locationId: { in: fixtureLocations } } });
+        await db.location.deleteMany({ where: { id: { in: fixtureLocations } } });
+      }
+    });
     await t.test('skill eligibility personalizes discovery and facets, blocks direct/private joining and preserves existing bookings', async () => {
       const make = (self: number | null, admin: number | null) => createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Eligibility player', skillLevel: self, adminSkillLevel: admin } });
       const low = await make(5, 2), high = await make(1, 4), boundary = await make(3, null), unknown = await make(null, null);
@@ -930,6 +962,9 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       const e = await controller.create(req, input), highReq = { user: high } as AuthRequest;
       for (const viewer of [undefined, { user: low }, { user: unknown }]) { assert.ok(!(await controller.events({}, viewer as AuthRequest)).some(game => game.id === e.id)); assert.ok(!(await controller.filters(viewer as AuthRequest)).locations.some(location => location.id === venue.id)); }
       for (const viewer of [high, boundary]) assert.ok((await controller.events({}, { user: viewer } as AuthRequest)).some(game => game.id === e.id));
+      for (const viewer of [undefined, { user: low }, { user: unknown }]) assert.deepEqual(await controller.publicCalendar({ locationId: venue.id }, viewer as AuthRequest), []);
+      assert.equal((await controller.publicCalendar({ locationId: venue.id, period: 'day', date: '2020-01-01' }, highReq)).length, 1);
+
       assert.ok((await controller.filters(highReq)).locations.some(location => location.id === venue.id));
       assert.equal(await sharing.event(e.id), null); assert.equal(await sharing.preview(e.id), 'invitation'); assert.equal((await sharing.publicGame(e.id, undefined, high)).game.id, e.id);
       await assert.rejects(sharing.publicGame(e.id, undefined, low)); await assert.rejects(service.join(low.id, e.id, { guests: [], expectedPriceCents: 0 }), /unavailable/);
