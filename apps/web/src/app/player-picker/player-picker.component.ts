@@ -1,3 +1,4 @@
+import { ActionErrorDirective } from '../form-feedback/form-feedback.directive';
 import { Component, EventEmitter, Input, OnChanges, OnDestroy, Output, SimpleChanges, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -6,7 +7,7 @@ import { message } from '../../auth.service';
 import { AvatarComponent } from '../avatar/avatar.component';
 export interface PlayerChoice { id: string; displayName: string; accountName: string; skillLevel?: number | null; adminSkillLevel?: number | null; avatarUrl?: string | null; avatarColor?: string; mode: 'INVITE' | 'BOOK'; }
 interface BulkPreview { previewId: string; minimumSkill: number; count: number; draft: boolean; }
-@Component({ selector: 'app-player-picker', imports: [FormsModule, AvatarComponent], templateUrl: './player-picker.component.html', styleUrl: './player-picker.component.scss' })
+@Component({ selector: 'app-player-picker', imports: [ActionErrorDirective, FormsModule, AvatarComponent], templateUrl: './player-picker.component.html', styleUrl: './player-picker.component.scss' })
 export class PlayerPickerComponent implements OnChanges, OnDestroy {
   @Input() players: PlayerChoice[] = [];
   @Input() eventId = '';

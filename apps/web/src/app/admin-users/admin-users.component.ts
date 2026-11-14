@@ -1,3 +1,4 @@
+import { ActionErrorDirective, FormFeedbackDirective } from '../form-feedback/form-feedback.directive';
 import { IconComponent } from '../icon/icon.component';
 import { Component, Input, OnChanges, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -10,8 +11,8 @@ import { DialogComponent } from '../dialog/dialog.component';
 import { AvatarComponent } from '../avatar/avatar.component';
 type UserRole = 'PLAYER' | 'ORGANIZER' | 'ADMINISTRATOR';
 interface AdminUser { id: string; createdAt: string; displayName: string; accountName: string; nickname: string | null; email: string; contactEmail: string; phone: string | null; role: UserRole; strikeCount: number; skillLevel: number | null; adminSkillLevel: number | null; avatarUrl: string | null; avatarColor: string; organizerRequest: { id: string; requestedAt: string } | null; }
-interface UserPage { items: AdminUser[]; nextCursor: string | null; pendingCount: number; totalCount: number; }
-@Component({ selector: 'app-admin-users', imports: [IconComponent, FormsModule, AvatarComponent, DatePipe, DialogComponent], templateUrl: './admin-users.component.html', styleUrl: './admin-users.component.scss' })
+interface UserPage { items: AdminUser[]; nextCursor: string | null; pendingCount: number; totalCount: number; page?: number; pageSize?: number; totalPages?: number; }
+@Component({ selector: 'app-admin-users', imports: [ActionErrorDirective, FormFeedbackDirective, IconComponent, FormsModule, AvatarComponent, DatePipe, DialogComponent], templateUrl: './admin-users.component.html', styleUrl: './admin-users.component.scss' })
 export class AdminUsersComponent implements OnChanges {
   @Input() requestsOnly = false;
   readonly strikeUser = signal<AdminUser | null>(null);
@@ -64,7 +65,7 @@ export class AdminUsersComponent implements OnChanges {
       await firstValueFrom(this.http.patch(`/api/admin/users/${confirmation.id}/role`, { role: confirmation.role }));
       this.roleConfirmation.set(null);
       if (confirmation.id === this.auth.profile()?.id) await this.auth.refreshProfile();
-      if (this.auth.profile()?.role === 'ADMINISTRATOR') await this.load();
+      if (this.auth.profile()?.role === 'ADMINISTRATOR') await this.load(false, this.page());
       this.notice.set(`Role changed to ${this.roleLabel(confirmation.role)} for ${confirmation.name}. They have been notified.`);
     } catch (error) { this.error.set(message(error)); }
     finally { this.busy.set(false); }
@@ -76,6 +77,12 @@ export class AdminUsersComponent implements OnChanges {
   readonly error = signal('');
   readonly notice = signal('');
   readonly pendingCount = signal(0);
+  readonly page = signal(1); readonly totalPages = signal(1); pageSize = 25; private loadedPageSize = 25;
+  pageNumbers() { const start = Math.max(1, Math.min(this.page() - 2, this.totalPages() - 4)); return Array.from({ length: Math.min(5, this.totalPages()) }, (_, index) => start + index); }
+  rangeStart() { return this.totalCount() ? (this.page() - 1) * this.loadedPageSize + 1 : 0; }
+  rangeEnd() { return Math.min(this.totalCount(), (this.page() - 1) * this.loadedPageSize + this.users().length); }
+  goToPage(page: number) { if (!this.busy() && page >= 1 && page <= this.totalPages()) void this.load(true, page); }
+  changePageSize() { if (!this.busy()) void this.load(true, 1); }
   readonly nextCursor = signal<string | null>(null);
   readonly confirming = signal<{ id: string; action: 'grant' | 'clear'; name: string } | null>(null);
   readonly expandedUser = signal('');
@@ -84,16 +91,17 @@ export class AdminUsersComponent implements OnChanges {
   search = ''; pendingOnly = false;
   private loadedFilter = { search: '', pending: false, role: '', rating: '', access: '', sort: 'name', direction: 'asc' };
   ngOnChanges() { this.pendingOnly = this.requestsOnly; void this.load(); }
-  async load(more = false) {
+  async load(more = false, targetPage?: number) {
     if (this.loading()) return;
     this.loading.set(true); this.error.set(''); this.roleConfirmation.set(null); this.confirming.set(null);
-    const filter = more ? this.loadedFilter : { search: this.search, pending: this.pendingOnly, role: this.roleFilter, rating: this.ratingFilter, access: this.accessFilter, sort: this.sort, direction: this.direction };
+    const requestedPage = targetPage ?? (more ? this.page() + 1 : 1);
+    const filter = more || targetPage !== undefined ? this.loadedFilter : { search: this.search, pending: this.pendingOnly, role: this.roleFilter, rating: this.ratingFilter, access: this.accessFilter, sort: this.sort, direction: this.direction };
     try {
-      const page = await firstValueFrom(this.http.get<UserPage>('/api/admin/users', { params: { search: filter.search, pending: String(filter.pending), role: filter.role, rating: filter.rating, access: filter.access, sort: filter.sort, direction: filter.direction, ...(more && this.nextCursor() ? { cursor: this.nextCursor()! } : {}) } }));
-      if (!more) { this.loadedFilter = filter; this.ratingDrafts = {}; this.roleDrafts = {}; }
+      const page = await firstValueFrom(this.http.get<UserPage>('/api/admin/users', { params: { search: filter.search, pending: String(filter.pending), role: filter.role, rating: filter.rating, access: filter.access, sort: filter.sort, direction: filter.direction, page: String(requestedPage), pageSize: String(this.pageSize) } }));
+      this.loadedFilter = filter; this.loadedPageSize = this.pageSize; this.ratingDrafts = {}; this.roleDrafts = {}; this.expandedUser.set('');
       for (const user of page.items) { this.ratingDrafts[user.id] = user.adminSkillLevel; this.roleDrafts[user.id] = user.role; }
-      this.users.set(more ? [...this.users(), ...page.items] : page.items); this.nextCursor.set(page.nextCursor); this.pendingCount.set(page.pendingCount); this.totalCount.set(page.totalCount ?? this.users().length);
-    } catch (error) { this.error.set(message(error)); }
+      this.users.set(page.items); this.page.set(page.page ?? requestedPage); this.totalPages.set(page.totalPages ?? Math.max(1, Math.ceil((page.totalCount ?? page.items.length) / this.pageSize))); this.nextCursor.set(page.nextCursor); this.pendingCount.set(page.pendingCount); this.totalCount.set(page.totalCount ?? this.users().length);
+    } catch (error) { this.pageSize = this.loadedPageSize; this.error.set(message(error)); }
     finally { this.loading.set(false); }
   }
   sortBy(sort: string) { this.direction = this.sort === sort && this.direction === 'asc' ? 'desc' : 'asc'; this.sort = sort; void this.load(); }
@@ -117,7 +125,7 @@ export class AdminUsersComponent implements OnChanges {
     this.busy.set(true); this.error.set(''); this.notice.set('');
     try {
       await firstValueFrom(this.http.post(`/api/admin/organizer-requests/${confirmation.id}/${confirmation.action}`, {}));
-      this.confirming.set(null); await this.load(); this.notice.set(confirmation.action !== 'clear' ? 'Organizer access granted. The player has been notified.' : 'Request cleared. The player has been notified.');
+      this.confirming.set(null); await this.load(false, this.page()); this.notice.set(confirmation.action !== 'clear' ? 'Organizer access granted. The player has been notified.' : 'Request cleared. The player has been notified.');
     } catch (error) { this.error.set(message(error)); }
     finally { this.busy.set(false); }
   }

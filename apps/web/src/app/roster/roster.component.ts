@@ -1,3 +1,4 @@
+import { ActionErrorDirective } from '../form-feedback/form-feedback.directive';
 import { SubstituteSeatComponent } from '../substitute-seat/substitute-seat.component';
 import { PlayerPickerComponent } from '../player-picker/player-picker.component';
 import { IconComponent } from '../icon/icon.component';
@@ -14,7 +15,7 @@ import { OrganizerSeat, OrganizerSeatComponent } from '../organizer-seat/organiz
 import { DatePipe } from '@angular/common';
 @Component({
   selector: 'app-roster',
-  imports: [SubstituteSeatComponent, PlayerPickerComponent, IconComponent, FormsModule, PaymentReviewComponent, OrganizerSeatComponent, DatePipe, AvatarComponent, EventTeamsComponent],
+  imports: [ActionErrorDirective, SubstituteSeatComponent, PlayerPickerComponent, IconComponent, FormsModule, PaymentReviewComponent, OrganizerSeatComponent, DatePipe, AvatarComponent, EventTeamsComponent],
   templateUrl: './roster.component.html',
   styleUrl: './roster.component.scss'
 })

@@ -127,6 +127,20 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       } finally { await app.close(); await db.eventPreset.delete({ where: { id: preset.id } }); }
     });
 
+    await t.test('Users page-number pagination respects filters, sorting, page size and bounds', async () => {
+      const prefix = 'PaginationFixture-' + randomUUID();
+      const ids = Array.from({ length: 27 }, (_, i) => ({ firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: `${prefix}-${String(i).padStart(2, '0')}`, role: i % 2 === 0 ? 'PLAYER' as const : 'ORGANIZER' as const }));
+      await db.user.createMany({ data: ids });
+      const first = await requests.users(prefix, false, undefined, { page: '1', pageSize: '10', sort: 'name', direction: 'asc' });
+      const second = await requests.users(prefix, false, undefined, { page: '2', pageSize: '10', sort: 'name', direction: 'asc' });
+      assert.equal(first.totalCount, 27); assert.equal(first.totalPages, 3); assert.equal(first.items.length, 10); assert.equal(second.items.length, 10);
+      assert.ok(!first.items.some(u => second.items.some(v => v.id === u.id))); assert.ok(first.items[9].accountName < second.items[0].accountName);
+      const last = await requests.users(prefix, false, undefined, { page: '999', pageSize: '10', sort: 'name', direction: 'asc' }); assert.equal(last.page, 3); assert.equal(last.items.length, 7);
+      const filtered = await requests.users(prefix, false, undefined, { page: '2', pageSize: '10', role: 'PLAYER', sort: 'name', direction: 'desc' }); assert.equal(filtered.totalCount, 14); assert.equal(filtered.items.length, 4); assert.ok(filtered.items.every(u => u.role === 'PLAYER'));
+      for (const options of [{ page: '0' }, { page: '1.5' }, { pageSize: '101' }, { pageSize: '-1' }]) await assert.rejects(requests.users(prefix, false, undefined, options), /valid/);
+      const empty = await requests.users(prefix + '-missing', false, undefined, { page: '5', pageSize: '10' }); assert.equal(empty.page, 1); assert.equal(empty.totalPages, 1); assert.equal(empty.items.length, 0);
+    });
+
     await t.test('admin app settings persist, audit updates, protect concurrent edits and apply to future worker runs', async () => {
       const settings = new AppSettingsService(db); const adminUser = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Settings administrator', role: 'ADMINISTRATOR' } });
       const initial = await settings.read(); assert.equal(initial.configured, false); assert.equal(initial.revision, 0);

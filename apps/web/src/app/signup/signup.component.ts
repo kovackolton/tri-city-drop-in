@@ -1,3 +1,4 @@
+import { ActionErrorDirective, FormFeedbackDirective } from '../form-feedback/form-feedback.directive';
 import { CancelBookingComponent } from '../cancel-booking/cancel-booking.component';
 import { IconComponent } from '../icon/icon.component';
 import { Component, EventEmitter, Input, Output, inject, signal } from '@angular/core';
@@ -9,7 +10,7 @@ import { DialogComponent } from '../dialog/dialog.component';
 import { Game } from '../../models';
 import { RegistrationsStore } from '../../registrations.store';
 @Component({
-  selector: 'app-signup', imports: [CancelBookingComponent, IconComponent, FormsModule, CurrencyPipe, DialogComponent],
+  selector: 'app-signup', imports: [ActionErrorDirective, FormFeedbackDirective, CancelBookingComponent, IconComponent, FormsModule, CurrencyPipe, DialogComponent],
   templateUrl: './signup.component.html',
   styleUrl: './signup.component.scss'
 })

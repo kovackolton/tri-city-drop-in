@@ -1,3 +1,4 @@
+import { ActionErrorDirective, FormFeedbackDirective } from '../form-feedback/form-feedback.directive';
 import { AppSettingsComponent } from '../app-settings/app-settings.component';
 import { CalendarGameDatesDirective } from '../calendar-picker/calendar-game-dates.directive';
 import { paymentProfileUrl, PaymentMethod } from '../../payment-links';
@@ -25,7 +26,7 @@ interface EventPresetDetail { id: string; name: string; settings: Record<string,
 export type WorkspaceShortcut = 'upcoming' | 'recent' | 'review' | 'all' | 'locations' | 'settings';
 
 @Component({
-  selector: 'app-organizer', imports: [AppSettingsComponent, CalendarGameDatesDirective, PlayerPickerComponent, IconComponent, CalendarPickerComponent, DialogComponent, AvatarComponent, OrganizerContactComponent, EventShareComponent, FormsModule, CurrencyPipe, RosterComponent, LocationsComponent, EventGuidanceComponent],
+  selector: 'app-organizer', imports: [ActionErrorDirective, FormFeedbackDirective, AppSettingsComponent, CalendarGameDatesDirective, PlayerPickerComponent, IconComponent, CalendarPickerComponent, DialogComponent, AvatarComponent, OrganizerContactComponent, EventShareComponent, FormsModule, CurrencyPipe, RosterComponent, LocationsComponent, EventGuidanceComponent],
   templateUrl: './organizer.component.html',
   styleUrl: './organizer.component.scss'
 })
