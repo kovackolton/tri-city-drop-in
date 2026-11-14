@@ -1,3 +1,4 @@
+import { ActionErrorDirective, FormFeedbackDirective } from '../form-feedback/form-feedback.directive';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule, NgForm } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -12,7 +13,7 @@ interface SettingsResponse { values: EmailSettings; revision: number; configured
 type NotificationTier = 'URGENT' | 'IMPORTANT' | 'ROUTINE' | 'IN_APP' | 'TIME_SENSITIVE';
 interface NotificationRule { kind: string; name: string; message: string; audience: string; trigger: string; defaultTier: NotificationTier; }
 interface RulesResponse { rules: Record<string, NotificationTier>; revision: number; catalog: NotificationRule[]; updatedAt: string | null; }
-@Component({ selector: 'app-app-settings', imports: [FormsModule, IconComponent], templateUrl: './app-settings.component.html', styleUrl: './app-settings.component.scss' })
+@Component({ selector: 'app-app-settings', imports: [ActionErrorDirective, FormFeedbackDirective, FormsModule, IconComponent], templateUrl: './app-settings.component.html', styleUrl: './app-settings.component.scss' })
 export class AppSettingsComponent implements OnInit {
   readonly auth = inject(AuthService);
   private readonly http = inject(HttpClient);

@@ -1,3 +1,4 @@
+import { ActionErrorDirective, FormFeedbackDirective } from '../form-feedback/form-feedback.directive';
 import { LocationMapComponent } from '../location-map/location-map.component';
 import { LocationThumbnailComponent } from '../location-thumbnail/location-thumbnail.component';
 import { Component, EventEmitter, OnInit, Output, inject, signal } from '@angular/core';
@@ -7,7 +8,7 @@ import { firstValueFrom } from 'rxjs';
 import { AuthService, message } from '../../auth.service';
 import { Location } from '../../models';
 @Component({
-  selector: 'app-locations', imports: [FormsModule, LocationMapComponent, LocationThumbnailComponent],
+  selector: 'app-locations', imports: [ActionErrorDirective, FormFeedbackDirective, FormsModule, LocationMapComponent, LocationThumbnailComponent],
   templateUrl: './locations.component.html',
   styleUrl: './locations.component.scss'
 })

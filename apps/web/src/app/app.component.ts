@@ -1,3 +1,4 @@
+import { FormFeedbackDirective } from './form-feedback/form-feedback.directive';
 import { CalendarGameDatesDirective } from './calendar-picker/calendar-game-dates.directive';
 import { siteContent } from './site-content';
 import { CalendarPickerComponent } from './calendar-picker/calendar-picker.component';
@@ -26,7 +27,7 @@ import { NotificationsStore } from '../notifications.store';
 import { EventsStore, defaultGameFilters, activeGameFilterCount } from '../events.store';
 
 @Component({
-  selector: 'app-root', imports: [CalendarGameDatesDirective, CalendarPickerComponent, HowToComponent, IconComponent, EventCardComponent, FormsModule, ProfileComponent, AvatarComponent, OrganizerComponent, MyGamesComponent, SignInComponent, AdminUsersComponent],
+  selector: 'app-root', imports: [FormFeedbackDirective, CalendarGameDatesDirective, CalendarPickerComponent, HowToComponent, IconComponent, EventCardComponent, FormsModule, ProfileComponent, AvatarComponent, OrganizerComponent, MyGamesComponent, SignInComponent, AdminUsersComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss'
 })

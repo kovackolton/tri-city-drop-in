@@ -1,8 +1,9 @@
+import { ActionErrorDirective } from '../form-feedback/form-feedback.directive';
 import { Component, Input, OnChanges, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { SharedGame, shareMessage, emailShareLink, emailShareText, emailCardHtml } from '../../event-sharing';
-@Component({ selector: 'app-event-share', templateUrl: './event-share.component.html', styles: [':host { display: block; min-width: 0; } .share-options { padding: 1rem; margin-top: .75rem; border: 1px solid var(--border); border-radius: .8rem; background: var(--surface-muted); }'] })
+@Component({ selector: 'app-event-share', imports: [ActionErrorDirective], templateUrl: './event-share.component.html', styles: [':host { display: block; min-width: 0; } .share-options { padding: 1rem; margin-top: .75rem; border: 1px solid var(--border); border-radius: .8rem; background: var(--surface-muted); }'] })
 export class EventShareComponent implements OnChanges {
   @Input({ required: true }) eventId!: string;
   @Input() inviteToken = '';

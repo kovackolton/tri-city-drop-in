@@ -1,4 +1,8 @@
 import '@angular/compiler';
+import { JSDOM } from 'jsdom';
+import { ElementRef } from '@angular/core';
+import { NgForm } from '@angular/forms';
+import { ActionErrorDirective, FormFeedbackDirective } from '../src/app/form-feedback/form-feedback.directive';
 import { AppSettingsComponent } from '../src/app/app-settings/app-settings.component';
 import { CancelBookingComponent } from '../src/app/cancel-booking/cancel-booking.component';
 import { SubstituteSeatComponent } from '../src/app/substitute-seat/substitute-seat.component';
@@ -1173,5 +1177,49 @@ test('preset loading is optional and failed event/preset saves preserve the form
     component.event.title = 'Retain me'; component.event.startsAt = new Date(Date.now() + 86400000).toISOString(); component.event.endsAt = new Date(Date.now() + 90000000).toISOString();
     await component.createEvent(); component.saveAsPreset = true; component.presetName = ''; await component.confirmCreation('PUBLISHED'); assert.equal(posts, 0);
     component.presetName = 'Duplicate'; await component.confirmCreation('PUBLISHED'); assert.equal(posts, 1); assert.equal(component.event.title, 'Retain me'); assert.equal(component.choosingStatus(), true); assert.match(component.error(), /already have a preset/);
+  } finally { injector.destroy(); }
+});
+
+test('action errors follow the last button in a component, preserve descriptions and clean up', () => {
+  const dom = new JSDOM('<app-demo><p role="alert">Original alert</p><span id="help">Help</span><button aria-describedby="help">Save A</button><button>Save B</button></app-demo>');
+  const buttons = dom.window.document.querySelectorAll('button');
+  const make = (button: Element) => { const injector = Injector.create({ providers: [{ provide: ElementRef, useValue: new ElementRef(button) }] }); return { injector, directive: runInInjectionContext(injector, () => new ActionErrorDirective()) }; };
+  const a = make(buttons[0]), b = make(buttons[1]);
+  try {
+    a.directive.activate(); a.directive.error = 'First API failure'; a.directive.ngOnChanges();
+    const first = buttons[0].nextElementSibling!; assert.equal(first.textContent, 'First API failure'); assert.ok(buttons[0].getAttribute('aria-describedby')!.startsWith('help '));
+    assert.equal(dom.window.document.querySelectorAll('[role="alert"]').length, 1);
+    b.directive.activate(); b.directive.error = 'Second API failure'; b.directive.ngOnChanges();
+    assert.equal(buttons[0].getAttribute('aria-describedby'), 'help'); assert.equal(dom.window.document.querySelectorAll('.action-feedback').length, 1); assert.equal(buttons[1].nextElementSibling!.textContent, 'Second API failure');
+    b.directive.error = ''; b.directive.ngOnChanges(); assert.equal(dom.window.document.querySelectorAll('.action-feedback').length, 0);
+  } finally { a.directive.ngOnDestroy(); b.directive.ngOnDestroy(); a.injector.destroy(); b.injector.destroy(); dom.window.close(); }
+});
+test('invalid forms show feedback at Submit, expand hidden fields and block work until corrected', async () => {
+  const dom = new JSDOM('<app-demo><form><details><label>Email<input name="email" type="email" required></label></details><button type="submit">Save</button></form></app-demo>');
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'HTMLButtonElement');
+  Object.defineProperty(globalThis, 'HTMLButtonElement', { configurable: true, value: dom.window.HTMLButtonElement });
+  const form = dom.window.document.querySelector('form')!, button = form.querySelector('button')!, field = form.querySelector('input')!;
+  let touched = false, submitted = 0; const fake = { invalid: true, form: { markAllAsTouched: () => { touched = true; } } };
+  const injector = Injector.create({ providers: [{ provide: ElementRef, useValue: new ElementRef(form) }, { provide: NgForm, useValue: fake }] });
+  const directive = runInInjectionContext(injector, () => new FormFeedbackDirective());
+  form.addEventListener('submit', () => { submitted++; });
+  try {
+    const invalid = new dom.window.Event('submit', { bubbles: true, cancelable: true }); form.dispatchEvent(invalid);
+    assert.equal(invalid.defaultPrevented, true); assert.equal(submitted, 0); assert.equal(touched, true); assert.equal(form.querySelector('details')!.open, true);
+    assert.ok(button.nextElementSibling!.classList.contains('action-feedback')); assert.match(button.nextElementSibling!.textContent!, /Email/);
+    field.value = 'player@example.test'; fake.invalid = false; field.dispatchEvent(new dom.window.Event('input', { bubbles: true })); await Promise.resolve();
+    assert.equal(form.querySelector('.action-feedback'), null); form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })); assert.equal(submitted, 1);
+  } finally { directive.ngOnDestroy(); injector.destroy(); if (descriptor) Object.defineProperty(globalThis, 'HTMLButtonElement', descriptor); else Reflect.deleteProperty(globalThis, 'HTMLButtonElement'); dom.window.close(); }
+});
+test('Users pagination replaces pages, preserves applied filters and resets for filter changes', async () => {
+  const calls: any[] = [];
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => ({ role: 'ADMINISTRATOR' }) } }, { provide: HttpClient, useValue: { get: (_url: string, options: any) => {
+    calls.push(options.params); const page = Number(options.params.page); return of({ items: [{ id: 'user-' + page, role: 'PLAYER', adminSkillLevel: null }], totalCount: 60, pendingCount: 0, nextCursor: 'cursor', page, pageSize: Number(options.params.pageSize), totalPages: Math.ceil(60 / Number(options.params.pageSize)) });
+  } } }] });
+  try {
+    const component = runInInjectionContext(injector, () => new AdminUsersComponent()); component.search = 'Alice'; await component.load(); assert.equal(component.page(), 1);
+    component.search = 'unapplied'; await component.load(true, 2); assert.equal(component.users().length, 1); assert.equal(component.users()[0].id, 'user-2'); assert.equal(calls[1].search, 'Alice'); assert.equal(component.rangeStart(), 26);
+    await component.load(); assert.equal(component.page(), 1); assert.equal(calls[2].search, 'unapplied');
+    component.pageSize = 10; await component.load(true, 1); assert.equal(calls[3].pageSize, '10'); assert.equal(component.totalPages(), 6);
   } finally { injector.destroy(); }
 });

@@ -1,10 +1,11 @@
+import { ActionErrorDirective, FormFeedbackDirective } from '../form-feedback/form-feedback.directive';
 import { Component, OnDestroy, inject } from '@angular/core';
 import { FormsModule, NgForm } from '@angular/forms';
 import { AuthService } from '../../auth.service';
 
 @Component({
   selector: 'app-sign-in',
-  imports: [FormsModule],
+  imports: [ActionErrorDirective, FormFeedbackDirective, FormsModule],
   templateUrl: './sign-in.component.html',
   styleUrl: './sign-in.component.scss'
 })

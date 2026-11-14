@@ -1,3 +1,4 @@
+import { ActionErrorDirective } from '../form-feedback/form-feedback.directive';
 import { Component, EventEmitter, Input, Output, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
@@ -14,7 +15,7 @@ export interface PaymentReview {
   organizerReviewedAt: string | null;
 }
 @Component({
-  selector: 'app-payment-review', imports: [CurrencyPipe, DialogComponent],
+  selector: 'app-payment-review', imports: [ActionErrorDirective, CurrencyPipe, DialogComponent],
   templateUrl: './payment-review.component.html',
   styleUrl: './payment-review.component.scss'
 })

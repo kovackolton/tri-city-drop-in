@@ -1,3 +1,4 @@
+import { ActionErrorDirective } from '../form-feedback/form-feedback.directive';
 import { Component, EventEmitter, Input, Output, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -14,7 +15,7 @@ export interface OrganizerSeat {
   strikes: { id: string; reason: string; revokedAt: string | null; expiresAt: string | null }[];
 }
 @Component({
-  selector: 'app-organizer-seat', imports: [FormsModule, DialogComponent],
+  selector: 'app-organizer-seat', imports: [ActionErrorDirective, FormsModule, DialogComponent],
   templateUrl: './organizer-seat.component.html',
   styleUrl: './organizer-seat.component.scss'
 })

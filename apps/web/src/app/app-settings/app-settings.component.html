@@ -6,7 +6,7 @@
   @if (loading()) { <p class="text-muted mt-4" role="status">Loading settings...</p> }
   @if (loaded()) {
     @if (!configured) { <p class="notice mt-4">No shared settings have been saved yet. These are starting defaults. The first email worker run imports its existing settings, or you can save the values below.</p> }
-    <form #settingsForm="ngForm" (ngSubmit)="save(settingsForm)" class="mt-5">
+    <form appFormFeedback #settingsForm="ngForm" (ngSubmit)="save(settingsForm)" class="mt-5">
       <fieldset [disabled]="loading() || saving()"><legend class="text-lg font-bold">Evening summaries</legend><p class="text-sm text-muted mt-2">Urgent alerts take priority all day. Digests send from the selected hour until midnight UTC, when the daily allowance resets.</p>
         <div class="settings-grid">
           <label>Digest start time<select name="digestStartHour" [(ngModel)]="values.digestStartHour" required>@for (hour of hours; track hour.value) { <option [ngValue]="hour.value">{{ hour.label }}</option> }</select><span class="settings-help">23:00 UTC is 6 PM Eastern in winter and 7 PM in summer.</span></label>
@@ -24,11 +24,11 @@
       </div></fieldset></details>
       <p class="text-sm text-muted mt-6">Saved changes apply to the next worker execution, normally within five minutes. Urgent alerts still cannot send after the daily quota is exhausted. Players' individual email preferences remain in effect.</p>
       @if (updatedAt) { <p class="text-xs text-muted mt-2">Last updated: {{ updatedLabel() }}</p> }
-      <button type="submit" class="primary mt-4" [disabled]="saving() || loading()">{{ saving() ? 'Saving...' : 'Save app settings' }}</button>
+      <button type="submit" class="primary mt-4" [disabled]="saving() || loading()" [appActionError]="error()">{{ saving() ? 'Saving...' : 'Save app settings' }}</button>
     </form>
   }
 <section class="mt-8" aria-labelledby="notification-rules-heading">
-  <div class="settings-heading"><div><h2 id="notification-rules-heading" class="text-2xl font-bold">Notification email rules</h2><p class="text-sm text-muted mt-2">Choose how each existing notification type is emailed. This changes email delivery, not when notifications are created in the app.</p></div><button type="button" class="secondary refresh-icon-button" (click)="loadRules()" [disabled]="rulesLoading() || rulesSaving()" aria-label="Reload notification rules" title="Reload notification rules"><app-icon name="refresh" /></button></div>
+  <div class="settings-heading"><div><h2 id="notification-rules-heading" class="text-2xl font-bold">Notification email rules</h2><p class="text-sm text-muted mt-2">Choose how each existing notification type is emailed. This changes email delivery, not when notifications are created in the app.</p></div><button type="button" class="secondary refresh-icon-button" (click)="loadRules()" [disabled]="rulesLoading() || rulesSaving()" aria-label="Reload notification rules" title="Reload notification rules" [appActionError]="rulesError()"><app-icon name="refresh" /></button></div>
   <p class="text-xs text-muted mt-3">Unread, eligibility, player email preferences and sending limits still apply. Urgent alerts use the urgent-alert preference; when it is off, they can join a digest if summaries are enabled. Changing a tier does not resend emailed notifications. Example messages below omit event-specific titles; reminder wording changes to today/tomorrow at send time.</p>
   @if (rulesError()) { <p class="notice error mt-4" role="alert">{{ rulesError() }}</p> }
   @if (rulesNotice()) { <p class="notice mt-4" role="status">{{ rulesNotice() }}</p> }
@@ -56,7 +56,7 @@
     <td data-label="Email tier"><select [attr.aria-label]="'Email tier for ' + row.name" [(ngModel)]="rules[row.kind]" [disabled]="rulesSaving()">@for (tier of tiers; track tier.value) { <option [value]="tier.value">{{ tier.label }}</option> }@if (row.kind === 'EVENT_CHANGED') { <option value="TIME_SENSITIVE">Time-sensitive</option> }</select><p class="text-xs text-muted mt-2">Default: {{ tierLabel(row.defaultTier) }}</p>@if (rules[row.kind] !== row.defaultTier) { <button type="button" class="secondary mt-2 text-xs" (click)="resetRule(row)" [disabled]="rulesSaving()">Use default</button> }</td>
     <td data-label="Email timing">{{ timing(rules[row.kind]) }}</td>
   </tr> } @empty { <tr><td colspan="5">No notification types match these filters.</td></tr> }</tbody></table></div>
-  <div class="flex flex-wrap items-center gap-3 mt-4"><button type="button" class="primary" (click)="saveRules()" [disabled]="rulesSaving() || rulesLoading() || !changedRules()">{{ rulesSaving() ? 'Saving...' : 'Save notification rules' }}</button><span class="text-sm text-muted">{{ changedRules() }} unsaved tier changes, including any hidden by filters.</span></div>
+  <div class="flex flex-wrap items-center gap-3 mt-4"><button type="button" class="primary" (click)="saveRules()" [disabled]="rulesSaving() || rulesLoading() || !changedRules()" [appActionError]="rulesError()">{{ rulesSaving() ? 'Saving...' : 'Save notification rules' }}</button><span class="text-sm text-muted">{{ changedRules() }} unsaved tier changes, including any hidden by filters.</span></div>
 </section>
 </section>
 }
