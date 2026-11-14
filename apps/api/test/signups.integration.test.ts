@@ -1,3 +1,4 @@
+import { EventPresetsController, EventPresetsService, saveEventPreset } from '../src/event-presets';
 import { defaultNotificationRules } from '../src/notification-catalog';
 import { AppSettingsController, AppSettingsService } from '../src/app-settings';
 import { readEmailTuning } from '../src/email-settings';
@@ -69,6 +70,62 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
     const location = await db.location.create({ data: { name: 'Test pitch', address: 'Test only', timezone: 'America/New_York' } });
     const event = (capacity: number, priceCents = 1000) => db.event.create({ data: { title: 'Test game', organizerId: users[0].id, locationId: location.id, capacity, priceCents, maxGuestsPerUser: Math.min(3, capacity - 1), status: 'PUBLISHED', startsAt: new Date(Date.now() + 86400000), endsAt: new Date(Date.now() + 90000000) } });
     const join = (user: number, eventId: string, guests: string[] = [], expectedPriceCents = 1000) => service.join(users[user].id, eventId, { guests, costAcknowledged: true, expectedPriceCents, guestPaymentAcknowledged: guests.length > 0 });
+
+    await t.test('private named presets save atomically with events, retain player modes and exclude dates', async () => {
+      const owner = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Preset owner', role: 'ORGANIZER' } });
+      const other = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Preset admin', role: 'ADMINISTRATOR' } });
+      const invited = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Preset invited' } });
+      const booked = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Preset booked' } });
+      const events = new EventsController(db, service), presets = new EventPresetsService(db);
+      const input = { title: 'Weekly soccer', locationId: location.id, startsAt: new Date(Date.now() + 4 * 86400000).toISOString(), endsAt: new Date(Date.now() + 4 * 86400000 + 3600000).toISOString(), capacity: 6, maxGuestsPerUser: 1, priceCents: 0, status: 'PUBLISHED', isPrivate: true, coOrganizerIds: [other.id], teamCount: 3, teamBalancingEnabled: true, shirtColors: ['dark', 'light'], shirtColorCount: 2, createPresetName: 'Friday repeat', initialPlayers: [{ userId: invited.id, mode: 'INVITE' }, { userId: booked.id, mode: 'BOOK' }] };
+      const created = await events.create({ user: owner } as AuthRequest, input);
+      const list = await presets.list(owner.id); assert.equal(list.length, 1); assert.equal(list[0].name, 'Friday repeat');
+      assert.equal((await presets.list(other.id)).length, 0); await assert.rejects(presets.get(other.id, list[0].id), /Preset not found/); await assert.rejects(presets.remove(other.id, list[0].id), /Preset not found/);
+      const detail = await presets.get(owner.id, list[0].id); assert.equal(detail.settings.teamCount, 3); assert.equal(detail.settings.isPrivate, true);
+      assert.deepEqual(detail.players.map(p => p.mode), ['INVITE', 'BOOK']); assert.equal(detail.organizers[0].id, other.id);
+      for (const field of ['startsAt', 'endsAt', 'status', 'privateInviteToken', 'organizerId']) assert.equal(Object.hasOwn(detail.settings, field), false);
+      assert.equal(await db.eventInvitation.count({ where: { eventId: created.id, userId: invited.id } }), 1); assert.equal(await db.signup.count({ where: { eventId: created.id, userId: booked.id } }), 1);
+      const count = await db.event.count({ where: { organizerId: owner.id } });
+      await assert.rejects(events.create({ user: owner } as AuthRequest, { ...input, createPresetName: 'FRIDAY REPEAT' }), /already have a preset/); assert.equal(await db.event.count({ where: { organizerId: owner.id } }), count);
+      const unsigned = await db.user.create({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Unsigned preset booking' } });
+      await assert.rejects(events.create({ user: owner } as AuthRequest, { ...input, createPresetName: 'Should roll back', initialPlayers: [{ userId: unsigned.id, mode: 'BOOK' }] }), /waiver/i);
+      assert.equal(await db.eventPreset.count({ where: { ownerId: owner.id } }), 1); assert.equal(await db.event.count({ where: { organizerId: owner.id } }), count);
+      await events.create({ user: other } as AuthRequest, { ...input, status: 'DRAFT', coOrganizerIds: [], initialPlayers: [] }); assert.equal((await presets.list(other.id)).length, 1);
+      await presets.remove(owner.id, list[0].id); assert.equal(await db.event.count({ where: { organizerId: owner.id } }), count);
+      const beforeRace = await db.event.count({ where: { organizerId: owner.id } });
+      const raced = await Promise.allSettled([events.create({ user: owner } as AuthRequest, { ...input, createPresetName: 'Concurrent name', initialPlayers: [] }), events.create({ user: owner } as AuthRequest, { ...input, createPresetName: 'Concurrent name', initialPlayers: [] })]);
+      assert.equal(raced.filter(r => r.status === 'fulfilled').length, 1); assert.equal(raced.filter(r => r.status === 'rejected').length, 1);
+      assert.equal(await db.event.count({ where: { organizerId: owner.id } }), beforeRace + 1);
+
+    });
+    await t.test('loading a preset drops missing players, unavailable organizers and missing locations without side effects', async () => {
+      const owner = users[0], player = await db.user.create({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Gone preset player' } });
+      const co = await db.user.create({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Former organizer', role: 'ORGANIZER' } });
+      const venue = await db.location.create({ data: { name: 'Temporary preset venue', address: 'Test only', timezone: 'America/New_York' } });
+      const preset = await db.$transaction(tx => saveEventPreset(tx, owner.id, 'Stale references', { title: 'Stale preset', locationId: venue.id, capacity: 10, priceCents: 0, coOrganizerIds: [co.id] }, [{ userId: player.id, mode: 'INVITE' }]));
+      await db.user.delete({ where: { id: player.id } }); await db.user.update({ where: { id: co.id }, data: { role: 'PLAYER' } }); await db.location.delete({ where: { id: venue.id } });
+      const before = await db.notification.count(), eventCount = await db.event.count();
+      const result = await new EventPresetsService(db).get(owner.id, preset.id);
+      assert.equal(result.players.length, 0); assert.equal(result.organizers.length, 0); assert.equal(result.settings.locationId, ''); assert.equal(result.warnings.length, 3);
+      assert.equal(await db.notification.count(), before); assert.equal(await db.event.count(), eventCount);
+      await db.eventPreset.delete({ where: { id: preset.id } });
+    });
+    await t.test('preset HTTP endpoints reject players and never expose another owners presets to admins', async () => {
+      const owner = users[0], adminUser = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Preset HTTP admin', role: 'ADMINISTRATOR' } });
+      const preset = await db.$transaction(tx => saveEventPreset(tx, owner.id, 'HTTP private preset', { title: 'Private settings', locationId: location.id }, []));
+      const accounts = { owner, admin: adminUser, player: users[1] };
+      // Closing this HTTP app must not disconnect the parent suite's transaction pool.
+      const httpDb = new Database({ datasourceUrl: url.toString() });
+      const app = await NestFactory.create<NestExpressApplication>({ module: class PresetTestModule {}, controllers: [EventPresetsController], providers: [EventPresetsService, { provide: Database, useValue: httpDb }, { provide: TokenVerifier, useValue: { verify: async (token: keyof typeof accounts) => { const u = accounts[token]; if (!u) throw new Error('Invalid token'); return { uid: u.firebaseUid, email: u.email, email_verified: true }; } } }] }, { logger: false });
+      try {
+        await app.listen(0, '127.0.0.1'); const base = await app.getUrl() + '/api/organizer/event-presets';
+        assert.equal((await fetch(base)).status, 401); assert.equal((await fetch(base, { headers: { Authorization: 'Bearer player' } })).status, 403);
+        const response = await fetch(base + '/' + preset.id, { headers: { Authorization: 'Bearer owner' } }); assert.equal(response.status, 200); assert.match(response.headers.get('Cache-Control')!, /private/);
+        assert.equal((await fetch(base + '/' + preset.id, { headers: { Authorization: 'Bearer admin' } })).status, 404);
+        assert.equal((await fetch(base + '/' + preset.id, { method: 'DELETE', headers: { Authorization: 'Bearer admin' } })).status, 404);
+        const others = await fetch(base + '?ownerId=' + owner.id, { headers: { Authorization: 'Bearer admin' } }); assert.deepEqual(await others.json(), []);
+      } finally { await app.close(); await db.eventPreset.delete({ where: { id: preset.id } }); }
+    });
 
     await t.test('admin app settings persist, audit updates, protect concurrent edits and apply to future worker runs', async () => {
       const settings = new AppSettingsService(db); const adminUser = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Settings administrator', role: 'ADMINISTRATOR' } });
@@ -163,7 +220,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
           await make(); assert.equal((await worker(sender).deliver()).sent, 1); assert.equal(sends, 1); await clean();
         });
         await tEmail.test('digests wait for the evening window while cancellations send promptly, including after a digest', async () => {
-          await make(); const noon = new Date(); noon.setUTCHours(12, 0, 0, 0);
+          await make(); const noon = new Date(); noon.setUTCHours(12, 0, 0, 0); noon.setUTCDate(noon.getUTCDate() + 1);
           const late = new Date(noon); late.setUTCHours(23, 0, 0, 0); let sends = 0;
           const sender = { send: async () => { sends++; return 'fake'; } };
           assert.equal((await worker(sender, { digestStartHour: 23 }, () => noon).deliver()).sent, 0);

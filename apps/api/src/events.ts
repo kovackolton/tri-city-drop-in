@@ -1,6 +1,8 @@
+import { presetNameInput, saveEventPreset } from './event-presets';
+import { Prisma } from '@prisma/client';
 import { skillEligibilityInput, visibleEvents, eligibleUsers } from './event-eligibility';
 import { coOrganizerInput, managedEvents, validateOrganizers, organizerDirectory, notifyOrganizerChanges } from './event-organizers';
-import { Body, Controller, Get, Inject, Param, Post, Query, Req, UseGuards, Header, BadRequestException } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Post, Query, Req, UseGuards, Header, BadRequestException, ConflictException } from '@nestjs/common';
 import { eventFilters, matchesEventDate, calendarGameDates } from './event-filters';
 import { eventOptionsInput, initialPlayerSelections } from './event-options';
 import { notifyInvitations } from './event-invitation-notices';
@@ -13,7 +15,8 @@ import { AuthRequest, FirebaseGuard, OptionalFirebaseGuard, OrganizerGuard } fro
 import { instant, integer, object, text, uuid } from './validation';
 import { randomBytes } from 'node:crypto';
 export function eventInput(value: unknown) {
-  const b = object(value, ['title', 'description', 'locationId', 'startsAt', 'endsAt', 'capacity', 'priceCents', 'maxGuestsPerUser', 'cancellationCutoffHours', 'status', 'bibsProvided', 'bibCount', 'shirtColors', 'shirtColorCount', 'minPlayers', 'teamCount', 'teamBalancingEnabled', 'organizerContactEmail', 'organizerContactPhone', 'organizerVenmoUrl', 'organizerCashAppUrl', 'organizerPaypalUrl', 'organizerZelleContact', 'contactCallAllowed', 'contactTextAllowed', 'initialPlayerIds', 'initialPlayerMode', 'initialPlayers', 'isPrivate', 'coOrganizerIds', 'minimumSkillLevel', 'maximumSkillLevel']);
+  const b = object(value, ['title', 'description', 'locationId', 'startsAt', 'endsAt', 'capacity', 'priceCents', 'maxGuestsPerUser', 'cancellationCutoffHours', 'status', 'bibsProvided', 'bibCount', 'shirtColors', 'shirtColorCount', 'minPlayers', 'teamCount', 'teamBalancingEnabled', 'organizerContactEmail', 'organizerContactPhone', 'organizerVenmoUrl', 'organizerCashAppUrl', 'organizerPaypalUrl', 'organizerZelleContact', 'contactCallAllowed', 'contactTextAllowed', 'initialPlayerIds', 'initialPlayerMode', 'initialPlayers', 'isPrivate', 'coOrganizerIds', 'minimumSkillLevel', 'maximumSkillLevel', 'createPresetName']);
+  presetNameInput(b.createPresetName);
   if (b.isPrivate !== undefined && typeof b.isPrivate !== 'boolean') throw new BadRequestException('Private game must be a boolean.');
   const startsAt = instant(b.startsAt, 'Start time'), endsAt = instant(b.endsAt, 'End time');
   if (startsAt.getTime() <= Date.now() || endsAt <= startsAt) throw new BadRequestException('Choose a future start and an end after the start.');
@@ -111,15 +114,17 @@ export class EventsController {
   @Post('events') @UseGuards(FirebaseGuard, OrganizerGuard)
   async create(@Req() req: AuthRequest, @Body() value: unknown) {
     const data = eventInput(value);
+    const presetName = presetNameInput((value as Record<string, unknown>).createPresetName);
     const selections = initialPlayerSelections(value as Record<string, unknown>);
     const initial = { ids: selections.map(player => player.userId), mode: selections.every(player => player.mode === 'INVITE') ? 'INVITE' : selections.every(player => player.mode === 'BOOK') ? 'BOOK' : 'MIXED' };
     const bookedIds = selections.filter(player => player.mode === 'BOOK').map(player => player.userId);
     if (bookedIds.length) await refreshPaymentStrikes(this.db, bookedIds);
     if (!await this.db.location.findUnique({ where: { id: data.locationId } })) throw new BadRequestException('Location does not exist.');
-    return this.db.$transaction(async tx => {
+    try { return await this.db.$transaction(async tx => {
       if (initial.ids.length !== await tx.user.count({ where: { id: { in: initial.ids } } })) throw new BadRequestException('A selected player no longer exists. Refresh the selection.');
       await validateOrganizers(tx, data.coOrganizerIds, req.user.id);
       if (await tx.user.count({ where: { id: { in: initial.ids }, AND: [eligibleUsers(data)] } }) !== initial.ids.length) throw new BadRequestException('A selected player is not eligible for this event.');
+      if (presetName) await saveEventPreset(tx, req.user.id, presetName, data, selections);
       const event = await tx.event.create({ data: { ...data, privateInviteToken: data.isPrivate ? randomBytes(32).toString('hex') : null, organizerId: req.user.id } });
       await tx.auditLog.create({ data: { actorId: req.user.id, eventId: event.id, action: 'EVENT_CREATED', details: { isPrivate: data.isPrivate, coOrganizerIds: data.coOrganizerIds, initialPlayers: selections.map(player => ({ ...player })), initialPlayerMode: initial.mode, initialPlayerIds: initial.ids, teamCount: data.teamCount, teamBalancingEnabled: data.teamBalancingEnabled, status: data.status, priceCents: data.priceCents, bibsProvided: data.bibsProvided, bibCount: data.bibCount, shirtColors: data.shirtColors, shirtColorCount: data.shirtColorCount, minPlayers: data.minPlayers } } });
       await notifyOrganizerChanges(tx, event);
@@ -132,7 +137,10 @@ export class EventsController {
         await tx.notification.create({ data: { userId, kind: 'ORGANIZER_BOOKED_PLAYER', dedupeKey: `added:${seats[0].bookingId}`, payload: { eventId: event.id, title: event.title, draft: event.status === 'DRAFT' } } });
       }
       const { privateInviteToken: _invite, ...result } = event; return result;
-    }, { maxWait: 10000, timeout: 15000 });
+    }, { maxWait: 10000, timeout: 15000 }); } catch (error) {
+      if (presetName && error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002' && JSON.stringify(error.meta?.target ?? '').includes('nameKey')) throw new ConflictException('You already have a preset with this name. Choose another name.');
+      throw error;
+    }
   }
   @Post('events/:id/publish') @UseGuards(FirebaseGuard, OrganizerGuard)
   async publish(@Req() req: AuthRequest, @Param('id') id: string) {

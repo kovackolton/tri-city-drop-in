@@ -20,6 +20,8 @@ import { DialogComponent } from '../dialog/dialog.component';
 import { AvatarComponent } from '../avatar/avatar.component';
 import { OrganizerContactComponent } from '../organizer-contact/organizer-contact.component';
 
+interface EventPresetSummary { id: string; name: string; createdAt: string; }
+interface EventPresetDetail { id: string; name: string; settings: Record<string, unknown>; players: PlayerChoice[]; organizers: { id: string; displayName: string; accountName: string }[]; warnings: string[]; }
 export type WorkspaceShortcut = 'upcoming' | 'recent' | 'review' | 'all' | 'locations' | 'settings';
 
 @Component({
@@ -64,6 +66,45 @@ export class OrganizerComponent implements OnInit, OnChanges {
   readonly auth = inject(AuthService);
   readonly view = signal<'events' | 'locations' | 'settings'>('events');
   readonly showEventForm = signal(false);
+  readonly choosingPreset = signal(false); readonly presetLoading = signal(false); readonly presetBusy = signal(false);
+  readonly presets = signal<EventPresetSummary[]>([]); readonly presetError = signal(''); readonly presetWarnings = signal<string[]>([]);
+  selectedPresetId = ''; confirmPresetDelete = false; saveAsPreset = false; presetName = '';
+  async toggleCreateForm() {
+    if (this.busy()) return;
+    if (this.showEventForm()) { this.showEventForm.set(false); return; }
+    if (this.editingId()) { this.showEventForm.set(true); return; }
+    this.choosingPreset.set(true); this.presetError.set(''); this.selectedPresetId = ''; this.confirmPresetDelete = false;
+    const actorId = this.auth.profile()?.id; this.presets.set([]);
+    this.presetLoading.set(true);
+    try { const presets = await firstValueFrom(this.http.get<EventPresetSummary[]>('/api/organizer/event-presets')); if (this.auth.profile()?.id === actorId) this.presets.set(presets); }
+    catch (error) { this.presetError.set(message(error)); }
+    finally { this.presetLoading.set(false); }
+  }
+  closePresetChooser() { if (!this.presetBusy()) this.choosingPreset.set(false); }
+  continueWithoutPreset() { if (this.presetBusy()) return; this.choosingPreset.set(false); this.showEventForm.set(true); }
+  async usePreset() {
+    if (!this.selectedPresetId || this.presetBusy() || this.presetLoading()) return;
+    this.presetBusy.set(true); this.presetError.set('');
+    try {
+      const actorId = this.auth.profile()?.id;
+      const preset = await firstValueFrom(this.http.get<EventPresetDetail>('/api/organizer/event-presets/' + this.selectedPresetId));
+      if (this.auth.profile()?.id !== actorId) return;
+      const { priceCents, minimumSkillLevel, maximumSkillLevel, initialPlayers: _players, ...settings } = preset.settings;
+      for (const field of ['description', 'organizerContactEmail', 'organizerContactPhone', 'organizerVenmoUrl', 'organizerCashAppUrl', 'organizerPaypalUrl', 'organizerZelleContact']) if (settings[field] == null) settings[field] = '';
+      this.cancelEdit(); this.error.set('');
+      this.event = { ...this.event, ...settings, price: (Number(priceCents) / 100).toFixed(2), startsAt: '', endsAt: '', status: 'DRAFT' };
+      this.selectedPlayers.set(preset.players); this.selectedOrganizers.set(preset.organizers);
+      this.skillRestricted = minimumSkillLevel != null || maximumSkillLevel != null; this.skillDirection = maximumSkillLevel != null ? 'below' : 'above'; this.skillThreshold = Number(minimumSkillLevel ?? maximumSkillLevel ?? 3);
+      this.presetWarnings.set(preset.warnings); this.showEventForm.set(true); this.choosingPreset.set(false);
+      this.success.set(`Preset "${preset.name}" loaded. Choose new start/end dates and review players before creating the event.`);
+    } catch (error) { this.presetError.set(message(error)); } finally { this.presetBusy.set(false); }
+  }
+  async deleteSelectedPreset() {
+    if (!this.confirmPresetDelete || !this.selectedPresetId || this.presetBusy()) return;
+    this.presetBusy.set(true); this.presetError.set('');
+    try { await firstValueFrom(this.http.delete('/api/organizer/event-presets/' + this.selectedPresetId)); this.presets.update(presets => presets.filter(p => p.id !== this.selectedPresetId)); this.selectedPresetId = ''; this.confirmPresetDelete = false; }
+    catch (error) { this.presetError.set(message(error)); } finally { this.presetBusy.set(false); }
+  }
   skillRestricted = false; skillDirection: 'above' | 'below' = 'above'; skillThreshold = 3;
   readonly choosingStatus = signal(false);
   readonly cancelling = signal('');
@@ -208,21 +249,23 @@ export class OrganizerComponent implements OnInit, OnChanges {
     const startsAt = new Date(this.event.startsAt), endsAt = new Date(this.event.endsAt);
     if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) { this.error.set('Enter valid start and end times.'); return; }
     if (!this.editingId() && (startsAt.getTime() <= Date.now() || endsAt <= startsAt)) { this.error.set('Choose a future start and an end after the start.'); return; }
-    if (!this.editingId() && !chosenStatus) { this.error.set(''); this.choosingStatus.set(true); return; }
+    if (!this.editingId() && !chosenStatus) { this.error.set(''); if (!this.presetName) this.presetName = this.event.title; this.choosingStatus.set(true); return; }
+    if (!this.editingId() && this.saveAsPreset && (!this.presetName.trim() || this.presetName.trim().length > 80)) { this.error.set('Give your preset a name of 1 to 80 characters.'); return; }
     await this.act(async () => {
       const { price: _, status, isPrivate, ...event } = this.event;
       const payload = { ...event, minimumSkillLevel: this.skillRestricted && this.skillDirection === 'above' ? this.skillThreshold : null, maximumSkillLevel: this.skillRestricted && this.skillDirection === 'below' ? this.skillThreshold : null, bibCount: event.bibsProvided ? event.bibCount : null, shirtColors: event.shirtColors.slice(0, event.shirtColorCount ?? 0), startsAt: this.original && this.event.startsAt === this.localTime(this.original.startsAt) ? this.original.startsAt : startsAt.toISOString(), endsAt: this.original && this.event.endsAt === this.localTime(this.original.endsAt) ? this.original.endsAt : endsAt.toISOString(), priceCents };
-      await firstValueFrom(this.editingId() ? this.http.patch('/api/organizer/events/' + this.editingId(), { ...payload, ...(status === 'DRAFT' ? { status } : {}) }) : this.http.post('/api/events', { ...payload, isPrivate, status: chosenStatus, initialPlayers: this.selectedPlayers().map(player => ({ userId: player.id, mode: player.mode })) }));
+      await firstValueFrom(this.editingId() ? this.http.patch('/api/organizer/events/' + this.editingId(), { ...payload, ...(status === 'DRAFT' ? { status } : {}) }) : this.http.post('/api/events', { ...payload, isPrivate, status: chosenStatus, ...(this.saveAsPreset ? { createPresetName: this.presetName.trim() } : {}), initialPlayers: this.selectedPlayers().map(player => ({ userId: player.id, mode: player.mode })) }));
       this.cancelEdit();
-    }, 'Event saved.');
+    }, this.saveAsPreset && !this.editingId() ? 'Event and private preset saved.' : 'Event saved.');
   }
-  cancelEdit() { this.skillRestricted = false; this.skillDirection = 'above'; this.skillThreshold = 3; this.resetOrganizerSearch(); this.fieldErrors.set({}); this.choosingStatus.set(false); this.showEventForm.set(false); this.selectedPlayers.set([]); this.editingId.set(''); this.original = null; this.event = { coOrganizerIds: [] as string[], isPrivate: false, title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, bibCount: null as number | null, shirtColors: ['dark', 'light'], shirtColorCount: 2 as number | null, minPlayers: null as number | null, teamCount: 2, teamBalancingEnabled: false, organizerContactEmail: '', organizerContactPhone: '', organizerVenmoUrl: '', organizerCashAppUrl: '', organizerPaypalUrl: '', organizerZelleContact: '', contactCallAllowed: false, contactTextAllowed: false }; }
+  cancelEdit() { this.saveAsPreset = false; this.presetName = ''; this.presetWarnings.set([]); this.skillRestricted = false; this.skillDirection = 'above'; this.skillThreshold = 3; this.resetOrganizerSearch(); this.fieldErrors.set({}); this.choosingStatus.set(false); this.showEventForm.set(false); this.selectedPlayers.set([]); this.editingId.set(''); this.original = null; this.event = { coOrganizerIds: [] as string[], isPrivate: false, title: '', locationId: '', startsAt: '', endsAt: '', capacity: 20, price: '0', maxGuestsPerUser: 1, cancellationCutoffHours: 12, description: '', status: 'DRAFT', bibsProvided: false, bibCount: null as number | null, shirtColors: ['dark', 'light'], shirtColorCount: 2 as number | null, minPlayers: null as number | null, teamCount: 2, teamBalancingEnabled: false, organizerContactEmail: '', organizerContactPhone: '', organizerVenmoUrl: '', organizerCashAppUrl: '', organizerPaypalUrl: '', organizerZelleContact: '', contactCallAllowed: false, contactTextAllowed: false }; }
   localTime(value: string) { const d = new Date(value); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
   canEdit(game: ManagedEvent) { const profile = this.auth.profile(); return !game.deletedAt && !!profile && (profile.role === 'ADMINISTRATOR' || profile.role === 'ORGANIZER' && (game.organizerId === profile.id || !!game.coOrganizerIds?.includes(profile.id))) && ['DRAFT', 'PUBLISHED'].includes(game.status); }
   canReturnToDraft(game: ManagedEvent) { return this.canEdit(game) && game.status === 'PUBLISHED' && Date.parse(game.startsAt) > Date.now(); }
   canDraftWhileEditing() { return !!this.original && this.canReturnToDraft(this.original); }
   edit(game: ManagedEvent) {
     if (!this.canEdit(game)) return;
+    this.saveAsPreset = false; this.presetName = ''; this.presetWarnings.set([]);
     this.skillRestricted = game.minimumSkillLevel != null || game.maximumSkillLevel != null; this.skillDirection = game.maximumSkillLevel != null ? 'below' : 'above'; this.skillThreshold = game.minimumSkillLevel ?? game.maximumSkillLevel ?? 3;
     this.resetOrganizerSearch();
     this.selectedOrganizers.set((game.coOrganizers ?? []).map(user => ({ ...user, accountName: user.accountName ?? user.displayName })));
