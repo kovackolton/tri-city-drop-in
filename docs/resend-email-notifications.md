@@ -46,7 +46,7 @@ No additional cloud account or mailbox subscription is needed. Resend is the ext
 | `EMAIL_DAILY_LIMIT` / `EMAIL_MONTHLY_LIMIT` | Cloud Run **email job** environment | `100` / `3000`; lower these if reserving capacity for other account usage. |
 | `EMAIL_SEND_INTERVAL_MS` | Optional Cloud Run **email job** environment | Omit to use `1100` milliseconds between attempted sends. |
 | `EMAIL_REPLY_TO` | Optional Cloud Run **email job** environment | Omit unless you have a monitored reply mailbox. |
-| `EMAIL_PREVIEW_DIR` | Local `apps/api/.env` for local previews | Optional output folder; normally omit on Cloud Run, where files are temporary. |
+| `EMAIL_PREVIEW_DIR` | Local `.env` or Cloud Run job environment | Local default: `email-previews`. Cloud Run: use `/tmp/tricity-email-previews`; production defaults to this writable temporary directory. |
 
 Your existing GitHub `PUBLIC_SITE_ORIGIN` variable still configures the **public app service** through the workflow. Copy that same value into the email job configuration yourself: GitHub variables are not automatically inherited by a different Cloud Run Job. Likewise, `apps/api/.env` and `.env.example` are not loaded by the production worker. `.env.example` is a template; editing it does not configure GCP.
 
@@ -133,6 +133,7 @@ Choose **6.1 (GCP console)** or **6.2 (Cloud Shell)**. Both create the same job;
 | `EMAIL_DELIVERY_MODE` | `preview` |
 | `EMAIL_FROM` | `no_reply@contact.tricitiesdropin.com` |
 | `EMAIL_NOTIFICATIONS_START_AT` | Your actual preparation timestamp in UTC, e.g. `2026-12-01T15:00:00.000Z`; replace this example |
+| `EMAIL_PREVIEW_DIR` | `/tmp/tricity-email-previews` |
 | `EMAIL_BATCH_SIZE` | `50` |
 | `EMAIL_DAILY_LIMIT` | `100` |
 | `EMAIL_MONTHLY_LIMIT` | `3000` |
@@ -187,6 +188,7 @@ EMAIL_ENABLED: "true"
 EMAIL_DELIVERY_MODE: preview
 EMAIL_FROM: no_reply@contact.tricitiesdropin.com
 EMAIL_NOTIFICATIONS_START_AT: "YOUR_ACTUAL_ROLLOUT_UTC_TIMESTAMP"
+EMAIL_PREVIEW_DIR: /tmp/tricity-email-previews
 EMAIL_BATCH_SIZE: "50"
 EMAIL_DAILY_LIMIT: "100"
 EMAIL_MONTHLY_LIMIT: "3000"
@@ -274,3 +276,16 @@ Pause the schedule or lower limits while investigating a backlog. Queued emails 
 - [ ] GitHub deploys the worker image as well as the app; failed executions are monitored.
 
 Resend, Cloud Run, Cloud SQL and Scheduler usage are billed by their providers. Resend email sending is $0 while staying within Free limits. Cloud Run job startup/database work, Scheduler and secrets can still add usage charges; Free email does not make the GCP worker free. Check current provider pricing and actual usage after launch. The existing app/database bill is separate.
+
+## 11. Troubleshoot a failed GCP preview
+
+If logs contain only the older generic failure message, the cause is not yet known. First set `EMAIL_PREVIEW_DIR=/tmp/tricity-email-previews` on the **email job**, save, and execute another preview. The container runs as a non-root user; a relative `email-previews` directory under `/app` may not be writable. Preview output is temporary and uses container memory. Never change delivery mode to resend to bypass a preview failure.
+
+New worker images log a safe JSON diagnostic with `stage`, an allowlisted error `code` when available, and `hint`, without raw error text, credentials or recipients. Deploy the code through GitHub, then verify the email job image matches the successful commit (update manually in the console if `EMAIL_WORKER_ENABLED` is not true). Re-execute in preview mode.
+
+- `configuration`: check sender exactly `no_reply@contact.tricitiesdropin.com`, mode `preview`, valid UTC timestamp ending in `Z`, and site origin. Leave optional variables absent rather than entering placeholder values.
+- `database-connect`: check the database secret reference/version, SQL attachment, Cloud SQL Client role, and network setup.
+- `notification-generation` with `P2021`/`P2022`: confirm the migration job succeeded and the runtime database grants cover the new table/column.
+- `preview-rendering` with `EACCES`/`EPERM`: use the writable `/tmp/tricity-email-previews` directory. Do not use the root-owned `/app` directory.
+
+A successful preview logs `mode: "preview"`, `sent: 0`, and counts for generated/previewed notifications. No Resend API call occurs in preview mode, so Resend DNS/API key troubleshooting is not the first step for a preview failure.

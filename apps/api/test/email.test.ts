@@ -1,3 +1,6 @@
+import { emailDiagnostic } from '../src/email-diagnostics';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { profileInput } from '../src/profile-fields';
 import 'reflect-metadata';
 import { test } from 'node:test';
@@ -69,4 +72,19 @@ test('email preference accepts only explicit booleans and preserves omission', (
   assert.equal(profileInput({ emailNotificationsEnabled: true }).emailNotificationsEnabled, true);
   assert.equal(profileInput({ nickname: 'Player' }).emailNotificationsEnabled, undefined);
   for (const value of ['false', 0, null]) assert.throws(() => profileInput({ emailNotificationsEnabled: value }));
+});
+
+test('production preview uses writable temporary storage while local previews keep the local folder', () => {
+  assert.equal(emailConfig({ ...env, NODE_ENV: 'production' })!.previewDir, join(tmpdir(), 'tricity-email-previews'));
+  assert.ok(emailConfig(env)!.previewDir.endsWith('email-previews'));
+});
+test('worker diagnostics identify permission, database and configuration failures without logging raw errors', () => {
+  assert.match(emailDiagnostic('preview-rendering', { code: 'EACCES', message: 'secret-path' }).hint, /EMAIL_PREVIEW_DIR=/);
+  assert.match(emailDiagnostic('database-connect', { errorCode: 'P1001', message: 'postgresql://password' }).hint, /unreachable/);
+  assert.match(emailDiagnostic('notification-generation', { code: 'P2021' }).hint, /migration/);
+  assert.equal(emailDiagnostic('configuration', new Error('EMAIL_FROM must be no_reply@contact.tricitiesdropin.com.')).hint, 'EMAIL_FROM must be no_reply@contact.tricitiesdropin.com.');
+  for (const error of [{ code: 'private-code', message: 'password recipient@example.test', stack: 'secret' }, new Error('postgresql://password')]) {
+    const result = JSON.stringify(emailDiagnostic('configuration', error));
+    assert.ok(!result.includes('password')); assert.ok(!result.includes('recipient@example.test')); assert.ok(!result.includes('private-code'));
+  }
 });
