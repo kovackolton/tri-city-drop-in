@@ -1,3 +1,4 @@
+import { gameReminderLabel } from './notification-timing';
 import { notificationMessage } from './notifications';
 export interface EmailEvent {
   title: string; startsAt: Date; endsAt: Date; status: string; deletedAt?: Date | null;
@@ -7,7 +8,7 @@ export interface EmailEvent {
 export interface EmailNotification { id: string; kind: string; payload: unknown; }
 export interface RenderedEmail { subject: string; text: string; html: string; }
 const subjects: Record<string, string> = {
-  EVENT_REMINDER: 'Your game starts within 24 hours', EVENT_CHANGED: 'Event details changed',
+  EVENT_REMINDER: 'Your upcoming game', EVENT_CHANGED: 'Event details changed',
   EVENT_CANCELLED: 'Event cancelled', WAITLIST_PROMOTED: 'Your party now has confirmed places',
   BOOKING_REMOVED: 'Your booking was removed', EVENT_RETURNED_TO_DRAFT: 'Event returned to draft',
   EVENT_PUBLISHED: 'Event published', EVENT_INVITATION: 'You are invited to this game',
@@ -21,13 +22,12 @@ const subjects: Record<string, string> = {
   EVENT_ORGANIZER_REMOVED: 'Organizer assignment removed'
 };
 export function escapeEmail(value: string) { return value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!)); }
-export function renderNotificationEmail(notification: EmailNotification, event: EmailEvent | null, origin: string): RenderedEmail {
+function notificationEmailContent(notification: EmailNotification, event: EmailEvent | null, now: Date) {
   const payload = (notification.payload && typeof notification.payload === 'object' ? notification.payload : {}) as { title?: string };
-  const title = typeof payload.title === 'string' ? payload.title : event?.title ?? 'Game update';
-  const subject = `${event?.title ?? 'Tri-City Drop-In Soccer'} - ${subjects[notification.kind] ?? title}`.replace(/[\r\n\t]/g, ' ').slice(0, 240);
-  const notificationsUrl = origin + '/#notifications';
-  const helpUrl = origin + '/#how-to/';
-  const sections: { heading: string; text: string }[] = [{ heading: title, text: notificationMessage(notification.kind) }];
+  const reminder = notification.kind === 'EVENT_REMINDER' && event ? gameReminderLabel(event.startsAt, event.location.timezone, now) : null;
+  const title = reminder ?? (typeof payload.title === 'string' ? payload.title : event?.title ?? 'Game update');
+  const subject = `${event?.title ?? 'Tri-City Drop-In Soccer'} - ${reminder ?? subjects[notification.kind] ?? title}`.replace(/[\r\n\t]/g, ' ').slice(0, 240);
+  const sections: { heading: string; text: string }[] = [{ heading: title, text: (reminder ? reminder + '. ' : '') + notificationMessage(notification.kind) }];
   const released = ['EVENT_CANCELLED', 'BOOKING_REMOVED'].includes(notification.kind);
   const staff = ['ORGANIZER_REVIEW_REMINDER', 'STALE_EVENT_REVIEW_REMINDER'].includes(notification.kind);
   if (event) {
@@ -49,14 +49,29 @@ export function renderNotificationEmail(notification: EmailNotification, event: 
     sections.push({ heading: 'Cancellation cutoff and subs', text: `Cancel more than ${event.cancellationCutoffHours} hours before kickoff to release your confirmed seats without retained late-cancellation payment responsibility. At or inside the ${event.cancellationCutoffHours}-hour cutoff, you must acknowledge that seats stay reserved under your account and that you remain responsible for arranging subs and payment. Organizers need reasonable time to fill places and notify waitlisted people. Finding a sub does not transfer liability: even if the sub promises to pay, an unpaid fee-bearing retained seat can give the original booking account a payment strike after the normal grace period and explicit organizer Not received review. Free seats never receive payment strikes. The cancellation alone does not automatically issue a strike. Players can enter subs before kickoff; organizers/admins can correct them afterward. Waitlisted bookings cancel normally with no payment due, and contact suggestions never automatically book a sub.` });
     sections.push({ heading: 'Booking and payment', text: 'Check your live confirmed or waitlisted status before travelling. Nothing is due while waitlisted. If you are invited, accept the price and current waiver before joining. You are responsible for guests you book. Pay outside the app using the organizer instructions; report payment after the game. Event details and availability can change, so the app is the current record.' });
   }
+  return { subject, sections, staff };
+}
+export interface EmailListItem { notification: EmailNotification; event: EmailEvent | null; }
+export function renderNotificationEmailBatch(items: EmailListItem[], origin: string, kind: 'DIGEST' | 'URGENT', now = new Date()): RenderedEmail {
+  const contents = items.map(item => notificationEmailContent(item.notification, item.event, now));
+  const notificationsUrl = origin + '/#notifications';
+  const helpUrl = origin + '/#how-to/';
+  const subject = contents.length === 1 ? contents[0].subject : `Tri-City Drop-In Soccer - ${kind === 'URGENT' ? 'Important game updates' : 'Your evening notifications'} (${contents.length})`;
   const links = [
-    { label: 'Open Notifications', url: notificationsUrl },
     { label: 'Cancellation, subs and My games guide', url: helpUrl + 'my-games' },
     { label: 'Payment and strike rules', url: helpUrl + 'payment-strikes' },
-    ...(staff ? [{ label: 'Organizer payment review guide', url: helpUrl + 'review-payments' }] : [])
+    ...(contents.some(content => content.staff) ? [{ label: 'Organizer payment review guide', url: helpUrl + 'review-payments' }] : []),
+    { label: 'Email preferences in My profile', url: origin + '/#profile' }
   ];
-  const footer = 'Manage notification emails in My profile and save your preference. In-app notifications remain available. This message was sent from an unmonitored no-reply address; use the organizer contact details in the app for game questions.';
-  const text = sections.map(section => section.heading + '\n' + section.text).join('\n\n') + '\n\n' + links.map(link => link.label + ': ' + link.url).join('\n') + '\n\n' + footer;
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#eef0f3;color:#252a31;font-family:Arial,sans-serif"><main style="max-width:640px;margin:auto;padding:24px;background:#ffffff"><p style="font-weight:bold;color:#8e211e">TRI-CITY DROP-IN SOCCER</p>${sections.map(section => `<section style="margin-bottom:24px"><h2 style="font-size:19px">${escapeEmail(section.heading)}</h2><p style="font-size:15px;line-height:1.6;white-space:pre-line">${escapeEmail(section.text)}</p></section>`).join('')}<p><a href="${escapeEmail(notificationsUrl)}" style="display:inline-block;padding:14px 20px;background:#8e211e;color:white;text-decoration:none;border-radius:8px">Open Notifications</a></p>${links.slice(1).map(link => `<p><a href="${escapeEmail(link.url)}" style="color:#2456a0">${escapeEmail(link.label)}</a></p>`).join('')}<p style="font-size:12px;line-height:1.6;color:#5c6470">${escapeEmail(footer)}</p></main></body></html>`;
+  // List notifications first, then the action, then contextual guidance. Repeated guidance appears once.
+  const overview = contents.map(content => content.sections.filter((section, i) => i === 0 || ['Game details', 'Organizer notes'].includes(section.heading)));
+  const guidance = [...new Map(contents.flatMap(content => content.sections.filter((section, i) => i > 0 && !['Game details', 'Organizer notes'].includes(section.heading))).map(section => [section.heading + section.text, section])).values()];
+  const footer = 'Change evening summaries and urgent game alerts anytime in My profile as your activity changes. Notifications already read or emailed are not repeated. Email delivery is subject to sending limits; in-app notifications remain available. This is an unmonitored no-reply address. Use organizer contacts in the app for game questions.';
+  const text = overview.map((sections, i) => `${i + 1}. ` + sections.map(section => section.heading + '\n' + section.text).join('\n\n')).join('\n\n') + '\n\nOpen Notifications: ' + notificationsUrl + '\n\n' + guidance.map(section => section.heading + '\n' + section.text).join('\n\n') + '\n\n' + links.map(link => link.label + ': ' + link.url).join('\n') + '\n\n' + footer;
+  const sectionHtml = (section: { heading: string; text: string }) => `<h2 style="font-size:18px;margin:0 0 8px">${escapeEmail(section.heading)}</h2><p style="font-size:15px;line-height:1.6;white-space:pre-line">${escapeEmail(section.text)}</p>`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#eef0f3;color:#252a31;font-family:Arial,sans-serif"><main style="max-width:640px;margin:auto;padding:24px;background:#ffffff"><p style="font-weight:bold;color:#8e211e">TRI-CITY DROP-IN SOCCER</p><h1 style="font-size:24px">${kind === 'URGENT' ? 'Important game updates' : 'Your unread notifications'}</h1><ul style="list-style:none;padding:0;margin:16px 0">${overview.map(sections => `<li style="padding:16px;margin-bottom:12px;background:#f0f2f4;border:1px solid #d7dce2;border-radius:10px">${sections.map(sectionHtml).join('')}</li>`).join('')}</ul><p><a href="${escapeEmail(notificationsUrl)}" style="display:inline-block;padding:14px 20px;background:#8e211e;color:white;text-decoration:none;border-radius:8px">Open Notifications</a></p>${guidance.map(section => `<section style="margin-top:24px">${sectionHtml(section)}</section>`).join('')}${links.map(link => `<p><a href="${escapeEmail(link.url)}" style="color:#2456a0">${escapeEmail(link.label)}</a></p>`).join('')}<p style="font-size:12px;line-height:1.6;color:#5c6470">${escapeEmail(footer)}</p></main></body></html>`;
   return { subject, text, html };
+}
+export function renderNotificationEmail(notification: EmailNotification, event: EmailEvent | null, origin: string, now = new Date()) {
+  return renderNotificationEmailBatch([{ notification, event }], origin, 'URGENT', now);
 }

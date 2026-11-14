@@ -9,12 +9,16 @@ export function googleAvatarUrl(value: unknown): string | null {
   } catch { return null; }
 }
 export function profileInput(value: unknown) {
-  const b = object(value, ['nickname', 'skillLevel', 'preferredPositions', 'shareWaitlistContact', 'emailNotificationsEnabled', 'contactEmail', 'phone', 'avatarColor', 'useGooglePhoto', 'accountName']);
-  const data: { preferredPositions?: string[]; shareWaitlistContact?: boolean; emailNotificationsEnabled?: boolean; nickname?: string | null; skillLevel?: number | null; accountName?: string; contactEmail?: string | null; phone?: string | null; avatarColor?: string; useGooglePhoto?: boolean } = {};
+  const b = object(value, ['nickname', 'skillLevel', 'preferredPositions', 'shareWaitlistContact', 'emailNotificationsEnabled', 'emailDigestEnabled', 'emailUrgentEnabled', 'contactEmail', 'phone', 'avatarColor', 'useGooglePhoto', 'accountName']);
+  const data: { preferredPositions?: string[]; shareWaitlistContact?: boolean; emailNotificationsEnabled?: boolean; emailDigestEnabled?: boolean; emailUrgentEnabled?: boolean; nickname?: string | null; skillLevel?: number | null; accountName?: string; contactEmail?: string | null; phone?: string | null; avatarColor?: string; useGooglePhoto?: boolean } = {};
   if (b.nickname !== undefined) data.nickname = b.nickname === '' || b.nickname === null ? null : text(b.nickname, 'Nickname', 80);
+  for (const field of ['emailDigestEnabled', 'emailUrgentEnabled'] as const) {
+    if (b[field] !== undefined) { if (typeof b[field] !== 'boolean') throw new BadRequestException('Choose your email notification preferences.'); data[field] = b[field]; }
+  }
   if (b.emailNotificationsEnabled !== undefined) {
     if (typeof b.emailNotificationsEnabled !== 'boolean') throw new BadRequestException('Choose whether to receive notification emails.');
     data.emailNotificationsEnabled = b.emailNotificationsEnabled;
+    data.emailDigestEnabled ??= b.emailNotificationsEnabled; data.emailUrgentEnabled ??= b.emailNotificationsEnabled;
   }
   if (b.shareWaitlistContact !== undefined) {
     if (typeof b.shareWaitlistContact !== 'boolean') throw new BadRequestException('Choose whether to share waitlist contact details.');

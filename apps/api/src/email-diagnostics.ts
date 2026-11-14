@@ -23,7 +23,7 @@ export function emailDiagnostic(stage: string, error: unknown) {
     'RESEND_API_KEY is required for Resend delivery.'
   ];
   const message = typeof value?.message === 'string' ? value.message : '';
-  const safeConfigMessage = stage === 'configuration' && (configMessages.includes(message) || /^Invalid EMAIL_(BATCH_SIZE|SEND_INTERVAL_MS|DAILY_LIMIT|MONTHLY_LIMIT|REPLY_TO)\.$/.test(message));
+  const safeConfigMessage = stage === 'configuration' && (configMessages.includes(message) || /^Invalid EMAIL_(BATCH_SIZE|SEND_INTERVAL_MS|DAILY_LIMIT|MONTHLY_LIMIT|REPLY_TO|DIGEST_START_HOUR_UTC|DIGEST_DAILY_LIMIT|URGENT_RESERVE)\.$/.test(message));
   return { message: 'Notification email worker failed.', stage, ...(code ? { code } : {}),
     hint: code ? hints[code] : safeConfigMessage ? message : stage === 'configuration' ? 'Check job environment variables, the UTC rollout timestamp and PUBLIC_SITE_ORIGIN.' : 'Check job configuration, database connectivity and runtime permissions. Raw error details are omitted to protect credentials and recipient data.' };
 }

@@ -1,3 +1,4 @@
+import { AppSettingsComponent } from '../app-settings/app-settings.component';
 import { CalendarGameDatesDirective } from '../calendar-picker/calendar-game-dates.directive';
 import { paymentProfileUrl, PaymentMethod } from '../../payment-links';
 import { PlayerPickerComponent, PlayerChoice } from '../player-picker/player-picker.component';
@@ -19,10 +20,10 @@ import { DialogComponent } from '../dialog/dialog.component';
 import { AvatarComponent } from '../avatar/avatar.component';
 import { OrganizerContactComponent } from '../organizer-contact/organizer-contact.component';
 
-export type WorkspaceShortcut = 'upcoming' | 'recent' | 'review' | 'all' | 'locations';
+export type WorkspaceShortcut = 'upcoming' | 'recent' | 'review' | 'all' | 'locations' | 'settings';
 
 @Component({
-  selector: 'app-organizer', imports: [CalendarGameDatesDirective, PlayerPickerComponent, IconComponent, CalendarPickerComponent, DialogComponent, AvatarComponent, OrganizerContactComponent, EventShareComponent, FormsModule, CurrencyPipe, RosterComponent, LocationsComponent, EventGuidanceComponent],
+  selector: 'app-organizer', imports: [AppSettingsComponent, CalendarGameDatesDirective, PlayerPickerComponent, IconComponent, CalendarPickerComponent, DialogComponent, AvatarComponent, OrganizerContactComponent, EventShareComponent, FormsModule, CurrencyPipe, RosterComponent, LocationsComponent, EventGuidanceComponent],
   templateUrl: './organizer.component.html',
   styleUrl: './organizer.component.scss'
 })
@@ -43,11 +44,11 @@ export class OrganizerComponent implements OnInit, OnChanges {
     if (!changes['shortcutRequest'].firstChange) void this.load();
   }
   selectShortcut(shortcut: WorkspaceShortcut, reload = true) {
-    if (this.busy()) return;
+    if (this.busy() || shortcut === 'settings' && this.auth.profile()?.role !== 'ADMINISTRATOR') return;
     this.reviewTargetId = ''; this.reviewScrollPending = false;
-    this.view.set(shortcut === 'locations' ? 'locations' : 'events');
+    this.view.set(shortcut === 'settings' ? 'settings' : shortcut === 'locations' ? 'locations' : 'events');
     this.eventScope.set('mine'); this.events.set([]); this.overview.set([]);
-    if (shortcut !== 'locations') {
+    if (shortcut !== 'locations' && shortcut !== 'settings') {
       this.eventHistory = shortcut === 'review' ? 'past' : shortcut;
       this.calendar = { period: 'all', date: calendarDate(new Date()) };
       this.eventSearch = ''; this.eventStatus = ''; this.eventLocation = '';
@@ -57,11 +58,11 @@ export class OrganizerComponent implements OnInit, OnChanges {
     this.shortcutChanged.emit(shortcut);
     if (reload) void this.load();
   }
-  selectSection(section: 'events' | 'locations') { this.view.set(section); this.emitShortcut(); if (section === 'events') void this.load(); }
-  private emitShortcut() { this.shortcutChanged.emit(this.view() === 'locations' ? 'locations' : this.eventHistory === 'past' ? 'review' : this.eventHistory as WorkspaceShortcut); }
+  selectSection(section: 'events' | 'locations' | 'settings') { if (section === 'settings') { this.selectShortcut('settings'); return; } this.view.set(section); this.emitShortcut(); if (section === 'events') void this.load(); }
+  private emitShortcut() { this.shortcutChanged.emit(this.view() === 'settings' ? 'settings' : this.view() === 'locations' ? 'locations' : this.eventHistory === 'past' ? 'review' : this.eventHistory as WorkspaceShortcut); }
 
   readonly auth = inject(AuthService);
-  readonly view = signal<'events' | 'locations'>('events');
+  readonly view = signal<'events' | 'locations' | 'settings'>('events');
   readonly showEventForm = signal(false);
   skillRestricted = false; skillDirection: 'above' | 'below' = 'above'; skillThreshold = 3;
   readonly choosingStatus = signal(false);
@@ -160,6 +161,7 @@ export class OrganizerComponent implements OnInit, OnChanges {
   ngOnInit() { void this.load(); }
   async load() {
     const revision = ++this.loadRevision;
+    if (this.view() === 'settings') { this.loading.set(false); return; }
     const minimal = this.minimalView();
     this.loading.set(true); this.error.set('');
     try {

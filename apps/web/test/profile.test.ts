@@ -1,4 +1,5 @@
 import '@angular/compiler';
+import { AppSettingsComponent } from '../src/app/app-settings/app-settings.component';
 import { CancelBookingComponent } from '../src/app/cancel-booking/cancel-booking.component';
 import { SubstituteSeatComponent } from '../src/app/substitute-seat/substitute-seat.component';
 import { WaitlistContactsComponent } from '../src/app/substitute-seat/waitlist-contacts.component';
@@ -27,7 +28,7 @@ import { RosterComponent } from '../src/app/roster/roster.component';
 import { OrganizerSeat } from '../src/app/organizer-seat/organizer-seat.component';
 import { DialogComponent } from '../src/app/dialog/dialog.component';
 import { PaymentReviewComponent } from '../src/app/payment-review/payment-review.component';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable, Subject, of, throwError } from 'rxjs';
 import { EventInvitationsComponent } from '../src/app/event-invitations/event-invitations.component';
 import { SignupComponent } from '../src/app/signup/signup.component';
@@ -1069,4 +1070,72 @@ test('notification deep link opens the inbox and asks signed-out users to sign i
     signedIn = true; component.restoreHowToLocation(); assert.equal(loaded, 1);
     const template = readFileSync(resolve('src/app/app.component.html'), 'utf8'); assert.match(template, /Sign in to view notifications/);
   } finally { if (descriptor) Object.defineProperty(globalThis, 'window', descriptor); else Reflect.deleteProperty(globalThis, 'window'); }
+});
+
+test('profile saves independent summary and urgent preferences without reverting the other choice', async () => {
+  let saved: any;
+  const component = Object.assign(Object.create(ProfileComponent.prototype), {
+    preferredPositions: [], shareWaitlistContact: false, emailDigestEnabled: false, emailUrgentEnabled: true,
+    saving: signal(false), error: signal(''), notice: signal(''), nickname: '', skillLevel: null, contactEmail: '', phone: '', avatarColor: 'teal', useGooglePhoto: false,
+    auth: { profile: () => ({ accountNameSetAt: 'set', profileCompletedAt: 'done' }), saveProfile: async (body: any) => { saved = body; } }
+  }) as ProfileComponent;
+  await component.save({ invalid: false } as any); assert.equal(saved.emailDigestEnabled, false); assert.equal(saved.emailUrgentEnabled, true);
+  component.emailUrgentEnabled = false; component.emailDigestEnabled = true;
+  await component.save({ invalid: false } as any); assert.equal(saved.emailDigestEnabled, true); assert.equal(saved.emailUrgentEnabled, false);
+});
+test('email preference link preserves My profile through sign-in', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { location: { hash: '#profile' } } });
+  try {
+    let profile: any = null; const destinations: string[] = [];
+    const component = Object.assign(Object.create(AppComponent.prototype), { page: signal('games'), closeMobileNavigation: () => {}, auth: { profile: () => profile }, navigate: (page: string) => destinations.push(page) }) as AppComponent;
+    component.restoreHowToLocation(); assert.equal(component.page(), 'signin');
+    profile = { id: 'player' }; component.returnToSharedOrGames(); assert.equal(destinations.pop(), 'profile');
+    component.restoreHowToLocation(); assert.equal(component.page(), 'profile');
+  } finally { if (descriptor) Object.defineProperty(globalThis, 'window', descriptor); else Reflect.deleteProperty(globalThis, 'window'); }
+});
+
+test('App Settings loads and saves revisioned values only for administrators', async () => {
+  let role = 'ADMINISTRATOR', gets = 0, patches = 0, conflict = false; const requests: any[] = [];
+  const values = { dailyLimit: 100, monthlyLimit: 3000, digestStartHour: 23, digestDailyLimit: 80, urgentReserve: 5, batchSize: 50, intervalMs: 1100 };
+  const result = { values, revision: 3, configured: true, updatedAt: new Date().toISOString() };
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => ({ role }) } }, { provide: HttpClient, useValue: {
+    get: () => { gets++; return of(result); }, patch: (_url: string, body: any) => { patches++; requests.push(body); return conflict ? throwError(() => new HttpErrorResponse({ status: 409, error: { message: 'Another administrator updated these settings.' } })) : of({ ...result, values: body.values, revision: body.revision + 1 }); }
+  } }] });
+  try {
+    const component = runInInjectionContext(injector, () => new AppSettingsComponent());
+    await component.load(); assert.equal(component.revision, 3); assert.equal(component.values.urgentReserve, 5);
+    component.values.urgentReserve = 12; await component.save({ invalid: false } as any);
+    assert.equal(requests[0].revision, 3); assert.equal(requests[0].values.urgentReserve, 12); assert.equal(component.revision, 4); assert.match(component.notice(), /next runs/);
+    conflict = true; component.values.dailyLimit = 90; await component.save({ invalid: false } as any);
+    assert.equal(component.values.dailyLimit, 90); assert.equal(component.revision, 4); assert.match(component.error(), /Another administrator/);
+    let touched = false; await component.save({ invalid: true, control: { markAllAsTouched: () => { touched = true; } } } as any); assert.equal(touched, true); assert.equal(patches, 2);
+    role = 'ORGANIZER'; await component.load(); await component.save({ invalid: false } as any); assert.equal(gets, 1); assert.equal(patches, 2);
+  } finally { injector.destroy(); }
+});
+test('workspace settings shortcut is admin-only and does not change event history filters', () => {
+  let role = 'ORGANIZER'; const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => ({ id: 'owner', role }) } }, { provide: HttpClient, useValue: {} }] });
+  try {
+    const component = runInInjectionContext(injector, () => new OrganizerComponent()); component.load = async () => {};
+    component.selectShortcut('settings'); assert.equal(component.view(), 'events');
+    role = 'ADMINISTRATOR'; const previous = component.eventHistory; component.selectShortcut('settings'); assert.equal(component.view(), 'settings'); assert.equal(component.eventHistory, previous);
+    component.selectSection('events'); assert.equal(component.view(), 'events');
+  } finally { injector.destroy(); }
+});
+
+test('notification rule table filters, selects and bulk-edits hidden rows then saves all rules', async () => {
+  const catalog: any[] = [{ kind: 'EVENT_CANCELLED', name: 'Event cancelled', message: 'The event was cancelled.', trigger: 'Organizer cancels', audience: 'Players', defaultTier: 'URGENT' }, { kind: 'STRIKE_CLEARED', name: 'Strike cleared', message: 'A strike has been cleared.', trigger: 'Payment received', audience: 'Players', defaultTier: 'ROUTINE' }];
+  let role = 'ADMINISTRATOR', request: any;
+  const response = { catalog, rules: { EVENT_CANCELLED: 'URGENT', STRIKE_CLEARED: 'ROUTINE' }, revision: 2, updatedAt: null };
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => ({ role }) } }, { provide: HttpClient, useValue: {
+    get: () => of(response), patch: (_url: string, body: any) => { request = body; return of({ ...response, rules: body.rules, revision: 3 }); }
+  } }] });
+  try {
+    const component = runInInjectionContext(injector, () => new AppSettingsComponent()); await component.loadRules();
+    component.ruleSearch = 'payment'; assert.equal(component.filteredRules().length, 1); assert.equal(component.activeRuleFilters(), 1);
+    component.selectVisible(true); component.clearRuleFilters(); component.tierFilter = 'URGENT'; assert.equal(component.filteredRules()[0].kind, 'EVENT_CANCELLED');
+    component.bulkTier = 'IN_APP'; component.applyBulkTier(); assert.equal(component.rules.STRIKE_CLEARED, 'IN_APP'); assert.equal(component.changedRules(), 1);
+    await component.saveRules(); assert.equal(request.revision, 2); assert.equal(request.rules.EVENT_CANCELLED, 'URGENT'); assert.equal(request.rules.STRIKE_CLEARED, 'IN_APP'); assert.equal(component.rulesRevision, 3);
+    role = 'ORGANIZER'; request = null; await component.saveRules(); assert.equal(request, null);
+  } finally { injector.destroy(); }
 });

@@ -1,3 +1,6 @@
+import { defaultNotificationRules } from '../src/notification-catalog';
+import { AppSettingsController, AppSettingsService } from '../src/app-settings';
+import { readEmailTuning } from '../src/email-settings';
 import { emailConfig, emailQuotaWindows, NotificationEmailWorker, EmailSender } from '../src/email-delivery';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -67,110 +70,232 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
     const event = (capacity: number, priceCents = 1000) => db.event.create({ data: { title: 'Test game', organizerId: users[0].id, locationId: location.id, capacity, priceCents, maxGuestsPerUser: Math.min(3, capacity - 1), status: 'PUBLISHED', startsAt: new Date(Date.now() + 86400000), endsAt: new Date(Date.now() + 90000000) } });
     const join = (user: number, eventId: string, guests: string[] = [], expectedPriceCents = 1000) => service.join(users[user].id, eventId, { guests, costAcknowledged: true, expectedPriceCents, guestPaymentAcknowledged: guests.length > 0 });
 
-    await t.test('notification email queue respects rollout, preferences, deduplication and read status', async () => {
-      const start = new Date();
-      const config = emailConfig({ EMAIL_ENABLED: 'true', EMAIL_NOTIFICATIONS_START_AT: start.toISOString() })!;
-      const old = await db.notification.create({ data: { userId: users[23].id, kind: 'USER_ROLE_CHANGED', payload: {}, dedupeKey: randomUUID(), createdAt: new Date(start.getTime() - 10000) } });
-      const fresh = await db.notification.create({ data: { userId: users[23].id, kind: 'USER_ROLE_CHANGED', payload: {}, dedupeKey: randomUUID(), readAt: start } });
-      await db.user.update({ where: { id: users[22].id }, data: { emailNotificationsEnabled: false } });
-      const disabled = await db.notification.create({ data: { userId: users[22].id, kind: 'USER_ROLE_CHANGED', payload: {}, dedupeKey: randomUUID() } });
-      try {
-        const worker = new NotificationEmailWorker(db, notifications, config);
-        await Promise.all([worker.generate(), worker.generate()]);
-        assert.equal(await db.notificationEmail.count({ where: { notificationId: fresh.id } }), 1);
-        assert.equal(await db.notificationEmail.count({ where: { notificationId: old.id } }), 0);
-        assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { notificationId: disabled.id } })).status, 'SKIPPED');
-        assert.equal((await db.notification.findUniqueOrThrow({ where: { id: fresh.id } })).readAt!.toISOString(), start.toISOString());
-      } finally {
-        await db.notification.deleteMany({ where: { id: { in: [old.id, fresh.id, disabled.id] } } });
-        await db.user.update({ where: { id: users[22].id }, data: { emailNotificationsEnabled: true } });
-      }
+    await t.test('admin app settings persist, audit updates, protect concurrent edits and apply to future worker runs', async () => {
+      const settings = new AppSettingsService(db); const adminUser = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Settings administrator', role: 'ADMINISTRATOR' } });
+      const initial = await settings.read(); assert.equal(initial.configured, false); assert.equal(initial.revision, 0);
+      const fallback = { ...readEmailTuning({}), digestStartHour: 20, digestDailyLimit: 60, apiKey: 'never-store', mode: 'preview' };
+      assert.equal((await settings.effective(fallback)).digestStartHour, 20);
+      const imported = await settings.read(); assert.equal(imported.values.digestDailyLimit, 60); assert.equal(imported.revision, 0);
+      assert.ok(!JSON.stringify((await db.appSetting.findUniqueOrThrow({ where: { key: 'email' } })).value).includes('never-store'));
+      const values = { ...imported.values, digestStartHour: 22, urgentReserve: 9 };
+      const saved = await settings.save(adminUser.id, { revision: 0, values }); assert.equal(saved.revision, 1);
+      assert.equal((await settings.effective(fallback)).digestStartHour, 22); assert.equal((await settings.effective(fallback)).apiKey, 'never-store');
+      const outcomes = await Promise.allSettled([settings.save(adminUser.id, { revision: 1, values: { ...values, dailyLimit: 90 } }), settings.save(adminUser.id, { revision: 1, values: { ...values, dailyLimit: 80 } })]);
+      assert.equal(outcomes.filter(o => o.status === 'fulfilled').length, 1); assert.equal(outcomes.filter(o => o.status === 'rejected').length, 1);
+      assert.equal((await settings.read()).revision, 2);
+      const audits = await db.auditLog.findMany({ where: { actorId: adminUser.id, action: 'APP_EMAIL_SETTINGS_UPDATED' } }); assert.equal(audits.length, 2);
+      assert.equal((audits[0].details as any).after.urgentReserve, 9);
+      await assert.rejects(settings.save(adminUser.id, { revision: 2, values: { ...values, monthlyLimit: 3001 } }));
+      await db.appSetting.deleteMany();
+      await Promise.all([settings.effective(fallback), settings.save(adminUser.id, { revision: 0, values: { ...values, digestStartHour: 21 } })]);
+      assert.equal((await settings.effective(fallback)).digestStartHour, 21);
+      await db.appSetting.deleteMany();
     });
-    await t.test('email delivery handles concurrent claims, free quotas, opt-out, preview and uncertain sends', async tEmail => {
-      const config = { ...emailConfig({ EMAIL_ENABLED: 'true', EMAIL_NOTIFICATIONS_START_AT: new Date(0).toISOString(), PUBLIC_SITE_ORIGIN: 'https://soccer.example.test' })!, mode: 'resend' as const };
-      let fixtureIds: string[] = [];
-      const make = async (data: Record<string, unknown> = {}, kind = 'USER_ROLE_CHANGED', payload = {}) => {
-        const notification = await db.notification.create({ data: { userId: users[23].id, kind, payload, dedupeKey: randomUUID() } });
-        fixtureIds.push(notification.id);
-        return db.notificationEmail.create({ data: { notificationId: notification.id, ...data } });
-      };
-      const clean = async () => { await db.notification.deleteMany({ where: { id: { in: fixtureIds } } }); fixtureIds = []; };
-      const worker = (sender: EmailSender, extra = {}) => new NotificationEmailWorker(db, notifications, { ...config, ...extra }, sender, async () => {});
+    await t.test('app settings HTTP endpoints deny players and organizers and allow administrators', async () => {
+      const adminUser = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Settings HTTP admin', role: 'ADMINISTRATOR' } });
+      const accounts: Record<string, typeof adminUser> = { admin: adminUser, organizer: users[0], player: users[1] };
+      const app = await NestFactory.create<NestExpressApplication>({ module: class SettingsTestModule {}, controllers: [AppSettingsController], providers: [AppSettingsService, { provide: Database, useValue: db }, { provide: TokenVerifier, useValue: { verify: async (token: string) => { const u = accounts[token]; if (!u) throw new Error('Invalid test token'); return { uid: u.firebaseUid, email: u.email, email_verified: true }; } } }] }, { logger: false });
       try {
-        await tEmail.test('overlapping workers send once and leave inbox unread', async () => {
-          const row = await make(); let sends = 0;
-          const sender = { send: async () => { sends++; return 'fake-provider-id'; } };
+        await app.listen(0, '127.0.0.1'); const url = await app.getUrl();
+        assert.equal((await fetch(url + '/api/admin/app-settings')).status, 401);
+        for (const token of ['player', 'organizer']) {
+          assert.equal((await fetch(url + '/api/admin/app-settings', { headers: { Authorization: `Bearer ${token}` } })).status, 403);
+          assert.equal((await fetch(url + '/api/admin/app-settings', { method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: 0, values: readEmailTuning({}) }) })).status, 403);
+        }
+        for (const token of ['player', 'organizer']) {
+          assert.equal((await fetch(url + '/api/admin/app-settings/notifications', { headers: { Authorization: `Bearer ${token}` } })).status, 403);
+          assert.equal((await fetch(url + '/api/admin/app-settings/notifications', { method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: 0, rules: defaultNotificationRules() }) })).status, 403);
+        }
+        const catalog = await fetch(url + '/api/admin/app-settings/notifications', { headers: { Authorization: 'Bearer admin' } }); assert.equal(catalog.status, 200);
+        const ruleSave = await fetch(url + '/api/admin/app-settings/notifications', { method: 'PATCH', headers: { Authorization: 'Bearer admin', 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: 0, rules: defaultNotificationRules() }) }); assert.equal(ruleSave.status, 200);
+        await db.appSetting.deleteMany();
+        assert.equal(await db.appSetting.count(), 0);
+        const read = await fetch(url + '/api/admin/app-settings', { headers: { Authorization: 'Bearer admin' } }); assert.equal(read.status, 200);
+        const save = await fetch(url + '/api/admin/app-settings', { method: 'PATCH', headers: { Authorization: 'Bearer admin', 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: 0, values: { ...readEmailTuning({}), urgentReserve: 12 } }) });
+        assert.equal(save.status, 200); assert.equal((await save.json() as any).values.urgentReserve, 12);
+      } finally { await app.close(); await db.appSetting.deleteMany(); }
+    });
+
+    await t.test('notification rule edits persist, audit, reject stale revisions and reach worker configuration', async () => {
+      const adminUser = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Rules admin', role: 'ADMINISTRATOR' } });
+      const settings = new AppSettingsService(db); const initial = await settings.notificationRules();
+      assert.equal(initial.rules.WAITLIST_PROMOTED, 'URGENT'); assert.ok(initial.catalog.every(n => n.message && n.trigger));
+      const rules = { ...initial.rules, PAYMENT_REVIEW_REMINDER: 'URGENT', STRIKE_CLEARED: 'IN_APP' };
+      const saved = await settings.saveNotificationRules(adminUser.id, { revision: initial.revision, rules }); assert.equal(saved.revision, 1);
+      const config = await settings.effective(readEmailTuning({})); assert.equal(config.notificationRules.PAYMENT_REVIEW_REMINDER, 'URGENT'); assert.equal(config.notificationRules.STRIKE_CLEARED, 'IN_APP');
+      await assert.rejects(settings.saveNotificationRules(adminUser.id, { revision: 0, rules }), /Another administrator/);
+      assert.equal(await db.auditLog.count({ where: { actorId: adminUser.id, action: 'APP_NOTIFICATION_RULES_UPDATED' } }), 1);
+      await db.appSetting.deleteMany();
+    });
+    await t.test('email digests and urgent alerts against the database', async tEmail => {
+      const config = { ...emailConfig({ EMAIL_ENABLED: 'true', EMAIL_NOTIFICATIONS_START_AT: new Date(0).toISOString(), PUBLIC_SITE_ORIGIN: 'https://soccer.example.test', EMAIL_DIGEST_START_HOUR_UTC: '0', EMAIL_URGENT_RESERVE: '0', EMAIL_DIGEST_DAILY_LIMIT: '100' })!, mode: 'resend' as const };
+      const baseUser = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Digest fixture', accountNameSetAt: new Date(), profileCompletedAt: new Date() } });
+      const fixtureUsers = [baseUser.id]; let ids: string[] = [];
+      const addUser = async () => { const user = await createAcceptedUser({ data: { firebaseUid: randomUUID(), email: `${randomUUID()}@example.invalid`, displayName: 'Email player' } }); fixtureUsers.push(user.id); return user; };
+      const make = async (kind = 'USER_ROLE_CHANGED', payload = {}, userId = baseUser.id, extra: Record<string, unknown> = {}) => {
+        const notification = await db.notification.create({ data: { userId, kind, payload, dedupeKey: randomUUID() } }); ids.push(notification.id);
+        return db.notificationEmail.create({ data: { notificationId: notification.id, ...extra } });
+      };
+      const clean = async () => {
+        await db.notification.deleteMany({ where: { id: { in: ids } } }); ids = [];
+        await db.notificationEmailBatch.deleteMany({ where: { userId: { in: fixtureUsers } } });
+        await db.user.updateMany({ where: { id: { in: fixtureUsers } }, data: { emailNotificationsEnabled: true, emailDigestEnabled: true, emailUrgentEnabled: true } });
+      };
+      const worker = (sender: EmailSender, extra = {}, clock?: () => Date) => new NotificationEmailWorker(db, notifications, { ...config, ...extra }, sender, async () => {}, clock);
+      const never = { send: async () => { throw new Error('must not send'); } };
+      try {
+        await tEmail.test('several unread notifications become one email and overlapping jobs cannot duplicate it', async () => {
+          const first = await make(); await make('STRIKE_CLEARED'); await make('EVENT_ORGANIZER_REMOVED'); let sends = 0;
+          const sender = { send: async (_to: string, message: any) => { sends++; assert.match(message.text, /strike has been cleared/); return 'fake-provider-id'; } };
           await Promise.all([worker(sender).deliver(), worker(sender).deliver()]);
-          assert.equal(sends, 1); const saved = await db.notificationEmail.findUniqueOrThrow({ where: { id: row.id } });
-          assert.equal(saved.status, 'SENT'); assert.equal(saved.providerMessageId, 'fake-provider-id');
-          assert.equal((await db.notification.findUniqueOrThrow({ where: { id: row.notificationId } })).readAt, null);
-          await clean();
+          assert.equal(sends, 1); assert.equal(await db.notificationEmailBatch.count({ where: { status: 'SENT' } }), 1);
+          assert.equal(await db.notificationEmail.count({ where: { notificationId: { in: ids }, status: 'SENT' } }), 3);
+          assert.equal((await db.notification.findUniqueOrThrow({ where: { id: first.notificationId } })).readAt, null);
+          await make(); assert.equal((await worker(sender).deliver()).sent, 0); assert.equal(sends, 1); await clean();
         });
-        await tEmail.test('daily and monthly limits defer without a provider call or attempt consumption', async () => {
+        await tEmail.test('routine notifications alone do not trigger a digest; read and previously emailed entries are excluded', async () => {
+          await make('STRIKE_CLEARED'); let sends = 0;
+          const sender = { send: async () => { sends++; return 'fake'; } };
+          assert.equal((await worker(sender).deliver()).sent, 0);
+          const read = await make(); await db.notification.update({ where: { id: read.notificationId }, data: { readAt: new Date() } });
+          await make('EVENT_ORGANIZER_REMOVED', {}, baseUser.id, { status: 'SENT', sentAt: new Date() });
+          assert.equal((await worker(sender).deliver()).sent, 0);
+          await make(); assert.equal((await worker(sender).deliver()).sent, 1); assert.equal(sends, 1); await clean();
+        });
+        await tEmail.test('digests wait for the evening window while cancellations send promptly, including after a digest', async () => {
+          await make(); const noon = new Date(); noon.setUTCHours(12, 0, 0, 0);
+          const late = new Date(noon); late.setUTCHours(23, 0, 0, 0); let sends = 0;
+          const sender = { send: async () => { sends++; return 'fake'; } };
+          assert.equal((await worker(sender, { digestStartHour: 23 }, () => noon).deliver()).sent, 0);
+          assert.equal((await worker(sender, { digestStartHour: 23 }, () => late).deliver()).sent, 1);
+          await make('EVENT_CANCELLED'); assert.equal((await worker(sender, { digestStartHour: 23 }, () => late).deliver()).sent, 1);
+          assert.equal(sends, 2); await clean();
+        });
+        await tEmail.test('urgent alerts win capacity; reserved slots and digest cap are enforced', async () => {
+          const a = await addUser(), b = await addUser();
+          await make('USER_ROLE_CHANGED', {}, a.id); await make('USER_ROLE_CHANGED', {}, b.id); await make('EVENT_CANCELLED');
+          const kinds: string[] = [];
+          const sender = { send: async (_to: string, m: any) => { kinds.push(m.subject.includes('cancelled') ? 'urgent' : 'digest'); return 'fake'; } };
+          const result = await worker(sender, { dailyLimit: 3, urgentReserve: 1 }).deliver();
+          assert.deepEqual(kinds, ['urgent', 'digest']); assert.equal(result.deferred, 1);
+          await clean(); await make('USER_ROLE_CHANGED', {}, a.id); await make('USER_ROLE_CHANGED', {}, b.id);
+          assert.equal((await worker(sender, { digestDailyLimit: 1 }).deliver()).sent, 1); await clean();
+        });
+        await tEmail.test('oldest waiting recipient gets the next night before a newcomer; sent notifications never repeat', async () => {
+          const a = await addUser(), b = await addUser();
+          await make('USER_ROLE_CHANGED', {}, a.id);
+          const old = await make('USER_ROLE_CHANGED', {}, b.id); const age = new Date(Date.now() - 86400000);
+          await db.notificationEmail.update({ where: { id: old.id }, data: { createdAt: age } });
+          const seen: string[] = []; const sender = { send: async (to: string) => { seen.push(to); return 'fake'; } };
+          await worker(sender, { digestDailyLimit: 1 }).deliver(); assert.equal(seen[0], b.email);
+          const tomorrow = new Date(Date.now() + 86400000);
+          await worker(sender, { digestDailyLimit: 1 }, () => tomorrow).deliver(); assert.equal(seen[1], a.email);
+          assert.equal(await db.notificationEmail.count({ where: { notificationId: { in: ids }, status: 'SENT' } }), 2); await clean();
+        });
+        await tEmail.test('daily and monthly caps include legacy single-notification sends', async () => {
           for (const period of ['daily', 'monthly']) {
-            await make({ status: 'SENT', attempts: 1, claimedAt: new Date(), sentAt: new Date() });
-            const queued = await make(); let sends = 0;
-            const result = await worker({ send: async () => { sends++; return 'unused'; } }, period === 'daily' ? { dailyLimit: 1 } : { monthlyLimit: 1 }).deliver();
-            assert.equal(sends, 0); assert.equal(result.deferred, 1);
-            const saved = await db.notificationEmail.findUniqueOrThrow({ where: { id: queued.id } });
-            assert.equal(saved.status, 'PENDING'); assert.equal(saved.attempts, 0);
-            assert.equal(saved.nextAttemptAt.toISOString(), (period === 'daily' ? emailQuotaWindows().nextDay : emailQuotaWindows().nextMonth).toISOString());
-            await clean();
+            await make('USER_ROLE_CHANGED', {}, baseUser.id, { status: 'SENT', attempts: 1, claimedAt: new Date(), sentAt: new Date() }); await make();
+            const result = await worker(never, period === 'daily' ? { dailyLimit: 1 } : { monthlyLimit: 1 }).deliver();
+            assert.equal(result.deferred, 1); assert.equal(await db.notificationEmailBatch.count(), 0); await clean();
           }
         });
-        await tEmail.test('provider daily/monthly quotas preserve pending deliveries for the reset', async () => {
+        await tEmail.test('provider quotas keep the grouped email pending without exhausting attempts', async () => {
           for (const name of ['daily_quota_exceeded', 'monthly_quota_exceeded']) {
-            const row = await make(); await make(); let sends = 0;
-            const result = await worker({ send: async () => { sends++; throw Object.assign(new Error('quota'), { name, status: 429 }); } }).deliver();
-            assert.equal(sends, 1); assert.equal(result.deferred, 1);
-            const saved = await db.notificationEmail.findUniqueOrThrow({ where: { id: row.id } });
-            // Ordering ties use UUIDs, so check both deliveries rather than assuming which was attempted.
-            const pending = await db.notificationEmail.findMany({ where: { notificationId: { in: fixtureIds } } });
-            assert.ok(pending.every(r => r.status === 'PENDING' && r.attempts === 0 && r.nextAttemptAt > new Date()));
-            assert.equal(saved.status, 'PENDING'); await clean();
+            await make(); await make('EVENT_ORGANIZER_REMOVED'); let sends = 0;
+            const instance = worker({ send: async () => { sends++; throw Object.assign(new Error('quota'), { name, status: 429 }); } });
+            assert.equal((await instance.deliver()).deferred, 1); await instance.deliver(); assert.equal(sends, 1);
+            const batch = await db.notificationEmailBatch.findFirstOrThrow(); assert.equal(batch.status, 'PENDING'); assert.equal(batch.attempts, 0); assert.ok(batch.nextAttemptAt > new Date());
+            assert.equal(await db.notificationEmail.count({ where: { batchId: batch.id, status: 'PENDING', attempts: 0 } }), 2); await clean();
           }
         });
-        await tEmail.test('uncertain sends are quarantined and definite rejection is not resent', async () => {
-          for (const [error, expected] of [[new Error('network lost'), 'UNKNOWN'], [Object.assign(new Error('rejected'), { status: 403 }), 'FAILED']] as const) {
-            const row = await make(); let sends = 0;
-            const instance = worker({ send: async () => { sends++; throw error; } });
-            await instance.deliver(); await instance.deliver(); assert.equal(sends, 1);
-            assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { id: row.id } })).status, expected); await clean();
-          }
-          const stale = await make({ status: 'SENDING', attempts: 1, claimedAt: new Date(Date.now() - 20 * 60000) });
-          await worker({ send: async () => { throw new Error('must not send'); } }).deliver();
-          assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { id: stale.id } })).status, 'UNKNOWN'); await clean();
+        await tEmail.test('uncertain sends quarantine the entire email and interrupted batches cannot be resent', async () => {
+          await make(); await make('STRIKE_CLEARED'); let sends = 0;
+          const instance = worker({ send: async () => { sends++; throw new Error('network lost'); } });
+          assert.equal((await instance.deliver()).unknown, 1); await instance.deliver(); assert.equal(sends, 1);
+          assert.equal(await db.notificationEmail.count({ where: { notificationId: { in: ids }, status: 'UNKNOWN' } }), 2);
+          await clean();
+          const row = await make(); const batch = await db.notificationEmailBatch.create({ data: { userId: baseUser.id, kind: 'DIGEST', status: 'SENDING', attempts: 1, claimedAt: new Date(Date.now() - 20 * 60000) } });
+          await db.notificationEmail.update({ where: { id: row.id }, data: { batchId: batch.id, status: 'SENDING' } }); await worker(never).deliver();
+          assert.equal((await db.notificationEmailBatch.findUniqueOrThrow({ where: { id: batch.id } })).status, 'UNKNOWN'); await clean();
         });
-        await tEmail.test('ordinary throttling retries later and stops after five definitive failures', async () => {
-          const row = await make(); let sends = 0;
-          const instance = worker({ send: async () => { sends++; throw Object.assign(new Error('throttled'), { status: 429, name: 'rate_limit_exceeded' }); } });
-          assert.equal((await instance.deliver()).retrying, 1);
-          const saved = await db.notificationEmail.findUniqueOrThrow({ where: { id: row.id } });
-          assert.equal(saved.status, 'PENDING'); assert.equal(saved.attempts, 1); assert.ok(saved.nextAttemptAt > new Date());
-          await instance.deliver(); assert.equal(sends, 1);
-          await db.notificationEmail.update({ where: { id: row.id }, data: { attempts: 4, nextAttemptAt: new Date(0) } });
-          assert.equal((await instance.deliver()).failed, 1);
-          assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { id: row.id } })).status, 'FAILED');
+        await tEmail.test('definite throttling retries, rebuilding unread list, and hard rejections stop', async () => {
+          const first = await make(); const second = await make('STRIKE_CLEARED'); let sends = 0;
+          const sender = { send: async (_to: string, m: any) => { sends++; if (sends === 1) throw Object.assign(new Error('throttled'), { status: 429 }); assert.ok(!m.text.includes('strike has been cleared')); return 'fake'; } };
+          assert.equal((await worker(sender).deliver()).retrying, 1);
+          await db.notification.update({ where: { id: second.notificationId }, data: { readAt: new Date() } });
+          await db.notificationEmailBatch.updateMany({ data: { nextAttemptAt: new Date(0) } }); await db.notificationEmail.updateMany({ where: { notificationId: { in: ids } }, data: { nextAttemptAt: new Date(0) } });
+          assert.equal((await worker(sender).deliver()).sent, 1);
+          assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { id: first.id } })).status, 'SENT'); await clean();
+          await make(); const result = await worker({ send: async () => { throw Object.assign(new Error('rejected'), { status: 403 }); } }).deliver(); assert.equal(result.failed, 1); await clean();
+        });
+        await tEmail.test('separate preferences persist and a read notification/disabled channel is never emailed', async () => {
+          const profiles = new ProfilesController(db), req = { user: baseUser } as AuthRequest;
+          const saved = await profiles.update(req, { emailDigestEnabled: false, emailUrgentEnabled: true }); assert.equal(saved.emailDigestEnabled, false); assert.equal(saved.emailUrgentEnabled, true);
+          await make(); await make('EVENT_CANCELLED');
+          assert.equal((await worker({ send: async () => 'fake' }).deliver()).sent, 1);
+          await profiles.update(req, { emailDigestEnabled: false, emailUrgentEnabled: false });
+          await make('EVENT_CANCELLED'); assert.equal((await worker(never).deliver()).sent, 0);
+          await profiles.update(req, { emailDigestEnabled: true }); assert.equal((await db.user.findUniqueOrThrow({ where: { id: baseUser.id } })).emailNotificationsEnabled, true);
           await clean();
         });
-        await tEmail.test('opted-out users and expired kickoff reminders are skipped', async () => {
-          const optedOut = await make(); await db.user.update({ where: { id: users[23].id }, data: { emailNotificationsEnabled: false } });
-          try { assert.equal((await worker({ send: async () => { throw new Error('must not send'); } }).deliver()).skipped, 1); }
-          finally { await db.user.update({ where: { id: users[23].id }, data: { emailNotificationsEnabled: true } }); }
-          assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { id: optedOut.id } })).status, 'SKIPPED'); await clean();
-          const e = await event(2); await join(23, e.id);
+        await tEmail.test('expired kickoff reminders are skipped and promotion emails require an active confirmed booking', async () => {
+          const e = await event(2); await service.join(baseUser.id, e.id, { guests: [], expectedPriceCents: 1000, costAcknowledged: true });
           await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() - 7200000), endsAt: new Date(Date.now() - 3600000) } });
-          const expired = await make({}, 'EVENT_REMINDER', { eventId: e.id });
-          assert.equal((await worker({ send: async () => { throw new Error('must not send'); } }).deliver()).skipped, 1);
-          assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { id: expired.id } })).status, 'SKIPPED'); await clean();
+          const expired = await make('EVENT_REMINDER', { eventId: e.id });
+          await worker(never).deliver(); assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { id: expired.id } })).status, 'SKIPPED');
+          const future = await event(2); const seats = await service.join(baseUser.id, future.id, { guests: [], expectedPriceCents: 1000, costAcknowledged: true });
+          await make('WAITLIST_PROMOTED', { eventId: future.id, bookingId: seats[0].bookingId });
+          assert.equal((await worker({ send: async () => 'fake' }, { digestStartHour: 23 }).deliver()).sent, 1); await clean();
         });
-        await tEmail.test('preview writes inspectable files without sending or consuming attempts', async () => {
-          const row = await make(); const dir = await mkdtemp(resolve(tmpdir(), 'tricity-email-'));
+        await tEmail.test('inbox reminder generation covers tomorrow late evening beyond 24 hours and skips the day after', async () => {
+          const user = await addUser(); const e = await event(2);
+          await service.join(user.id, e.id, { guests: [], expectedPriceCents: 1000, costAcknowledged: true });
+          const now = new Date('2027-03-13T05:00:00Z');
+          await db.event.update({ where: { id: e.id }, data: { startsAt: new Date('2027-03-15T03:00:00Z'), endsAt: new Date('2027-03-15T04:00:00Z') } });
+          const inbox = await notifications.inbox(user.id, now); const reminders = inbox.items.filter(n => n.eventId === e.id && n.kind === 'EVENT_REMINDER');
+          assert.equal(reminders.length, 1); assert.match(reminders[0].message, /tomorrow/); ids.push(reminders[0].id);
+          const today = await notifications.inbox(user.id, new Date('2027-03-14T12:00:00Z')); assert.match(today.items.find(n => n.id === reminders[0].id)!.message, /today/);
+          await clean();
+        });
+        await tEmail.test('configured tiers promote, suppress and demote pending notifications without changing the inbox', async () => {
+          const noon = new Date(); noon.setUTCHours(12, 0, 0, 0); noon.setUTCDate(noon.getUTCDate() + 1);
+          let sends = 0; const sender = { send: async () => { sends++; return 'fake'; } };
+          await make(); const urgent = { ...defaultNotificationRules(), USER_ROLE_CHANGED: 'URGENT' };
+          assert.equal((await worker(sender, { digestStartHour: 23, notificationRules: urgent }, () => noon).deliver()).sent, 1);
+          assert.equal((await db.notificationEmailBatch.findFirstOrThrow()).kind, 'URGENT'); await clean();
+          const row = await make(); const suppressed = { ...defaultNotificationRules(), USER_ROLE_CHANGED: 'IN_APP' };
+          assert.equal((await worker(never, { notificationRules: suppressed }).deliver()).sent, 0);
+          assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { id: row.id } })).status, 'SKIPPED');
+          assert.equal((await db.notification.findUniqueOrThrow({ where: { id: row.notificationId } })).readAt, null); await clean();
+          await make(); const routine = { ...defaultNotificationRules(), USER_ROLE_CHANGED: 'ROUTINE' };
+          assert.equal((await worker(never, { notificationRules: routine }).deliver()).sent, 0);
+          await make('EVENT_ORGANIZER_REMOVED'); assert.equal((await worker(sender, { notificationRules: routine }).deliver()).sent, 1); assert.equal(sends, 2); await clean();
+        });
+        await tEmail.test('pending rejected digest can become urgent after a tier edit', async () => {
+          await make(); const pending = worker({ send: async () => { throw Object.assign(new Error('throttle'), { status: 429 }); } });
+          assert.equal((await pending.deliver()).retrying, 1);
+          await db.notificationEmailBatch.updateMany({ data: { nextAttemptAt: new Date(0) } }); await db.notificationEmail.updateMany({ where: { notificationId: { in: ids } }, data: { nextAttemptAt: new Date(0) } });
+          const noon = new Date(); noon.setUTCHours(12, 0, 0, 0);
+          const result = await worker({ send: async () => 'fake' }, { digestStartHour: 23, notificationRules: { ...defaultNotificationRules(), USER_ROLE_CHANGED: 'URGENT' } }, () => noon).deliver();
+          assert.equal(result.sent, 1); assert.equal(await db.notificationEmailBatch.count({ where: { status: 'SENT', kind: 'URGENT' } }), 1); await clean();
+        });
+        await tEmail.test('preview groups notifications into one file pair without consuming history or quota', async () => {
+          await make(); await make('STRIKE_CLEARED'); const dir = await mkdtemp(resolve(tmpdir(), 'tricity-email-'));
           try {
-            const result = await worker({ send: async () => { throw new Error('must not send'); } }, { mode: 'preview', previewDir: dir }).deliver();
-            assert.equal(result.previewed, 1); assert.match(await readFile(resolve(dir, row.id + '.html'), 'utf8'), /Open Notifications/);
-            const saved = await db.notificationEmail.findUniqueOrThrow({ where: { id: row.id } }); assert.equal(saved.status, 'PENDING'); assert.equal(saved.attempts, 0);
+            assert.equal((await worker(never, { mode: 'preview', previewDir: dir }).deliver()).previewed, 1);
+            assert.match(await readFile(resolve(dir, 'digest-' + baseUser.id + '.html'), 'utf8'), /Your unread notifications/);
+            assert.equal(await db.notificationEmailBatch.count(), 0); assert.equal(await db.notificationEmail.count({ where: { notificationId: { in: ids }, status: 'PENDING', attempts: 0 } }), 2);
           } finally { await rm(dir, { recursive: true, force: true }); await clean(); }
+        });
+        await tEmail.test('generation ignores read/history, queues opt-outs as skipped and deduplicates concurrent runs', async () => {
+          const start = new Date(); const instance = worker(never, { startAt: start });
+          const old = await db.notification.create({ data: { userId: baseUser.id, kind: 'USER_ROLE_CHANGED', payload: {}, dedupeKey: randomUUID(), createdAt: new Date(start.getTime() - 10000) } }); ids.push(old.id);
+          const read = await db.notification.create({ data: { userId: baseUser.id, kind: 'USER_ROLE_CHANGED', payload: {}, dedupeKey: randomUUID(), readAt: start } }); ids.push(read.id);
+          const fresh = await db.notification.create({ data: { userId: baseUser.id, kind: 'USER_ROLE_CHANGED', payload: {}, dedupeKey: randomUUID() } }); ids.push(fresh.id);
+          await db.user.update({ where: { id: baseUser.id }, data: { emailDigestEnabled: false, emailUrgentEnabled: false } });
+          await Promise.all([instance.generate(), instance.generate()]);
+          assert.equal(await db.notificationEmail.count({ where: { notificationId: { in: [old.id, read.id] } } }), 0);
+          assert.equal((await db.notificationEmail.findUniqueOrThrow({ where: { notificationId: fresh.id } })).status, 'SKIPPED'); await clean();
         });
       } finally { await clean(); }
     });
@@ -295,7 +420,7 @@ test('signup transactions against isolated PostgreSQL schema', { timeout: 120000
       assert.equal((await db.notification.findUniqueOrThrow({ where: { id: scheduled.id } })).readAt, null);
     });
 
-    await t.test('reminders respect the 24-hour window and rescheduling creates only one new reminder', async () => {
+    await t.test('reminders cover today and tomorrow and rescheduling creates only one new reminder', async () => {
       const e = await event(1); await join(20, e.id);
       await db.event.update({ where: { id: e.id }, data: { startsAt: new Date(Date.now() + 172800000), endsAt: new Date(Date.now() + 176400000) } });
       assert.equal((await notifications.inbox(users[20].id)).items.length, 0);
