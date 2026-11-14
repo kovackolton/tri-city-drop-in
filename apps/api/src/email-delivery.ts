@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { Database } from './database';
 import { NotificationsService } from './notifications';
 import { managesEvent } from './event-organizers';
@@ -20,7 +21,7 @@ export function emailConfig(env: NodeJS.ProcessEnv = process.env): EmailConfig |
   const number = (name: string, fallback: number, max: number) => { const value = Number(env[name] ?? fallback); if (!Number.isInteger(value) || value < 1 || value > max) throw new Error(`Invalid ${name}.`); return value; };
   const address = (name: string) => { const value = env[name]?.trim(); if (value && !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value)) throw new Error(`Invalid ${name}.`); return value; };
   if (mode === 'resend' && !env.RESEND_API_KEY?.trim()) throw new Error('RESEND_API_KEY is required for Resend delivery.');
-  return { mode: mode as EmailConfig['mode'], from, startAt, origin: origin.origin, batchSize: number('EMAIL_BATCH_SIZE', 50, 500), previewDir: resolve(env.EMAIL_PREVIEW_DIR ?? 'email-previews'), intervalMs: number('EMAIL_SEND_INTERVAL_MS', 1100, 60000), dailyLimit: number('EMAIL_DAILY_LIMIT', 100, 100), monthlyLimit: number('EMAIL_MONTHLY_LIMIT', 3000, 3000), apiKey: env.RESEND_API_KEY?.trim(), replyTo: address('EMAIL_REPLY_TO') };
+  return { mode: mode as EmailConfig['mode'], from, startAt, origin: origin.origin, batchSize: number('EMAIL_BATCH_SIZE', 50, 500), previewDir: resolve(env.EMAIL_PREVIEW_DIR ?? (env.NODE_ENV === 'production' ? join(tmpdir(), 'tricity-email-previews') : 'email-previews')), intervalMs: number('EMAIL_SEND_INTERVAL_MS', 1100, 60000), dailyLimit: number('EMAIL_DAILY_LIMIT', 100, 100), monthlyLimit: number('EMAIL_MONTHLY_LIMIT', 3000, 3000), apiKey: env.RESEND_API_KEY?.trim(), replyTo: address('EMAIL_REPLY_TO') };
 }
 export interface EmailSender { send(to: string, message: RenderedEmail, deliveryId: string): Promise<string>; }
 export class ResendEmailSender implements EmailSender {
