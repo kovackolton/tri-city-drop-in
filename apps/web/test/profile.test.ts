@@ -658,13 +658,14 @@ test('event sharing fetches fresh public metadata and ignores results for a prev
 });
 
 
-test('calendar uses venue dates and Monday weeks across DST and year boundaries', () => {
+test('calendar uses venue dates and Sunday weeks across DST and year boundaries', () => {
   assert.equal(venueDate('2027-01-01T01:00:00Z', 'America/New_York'), '2026-12-31');
   assert.equal(matchesCalendar('2027-01-01T01:00:00Z', 'America/New_York', { period: 'day', date: '2026-12-31' }), true);
   assert.equal(matchesCalendar('2026-11-02T04:30:00Z', 'America/New_York', { period: 'week', date: '2026-11-01' }), true);
-  assert.equal(matchesCalendar('2026-11-02T05:00:00Z', 'America/New_York', { period: 'week', date: '2026-11-01' }), false);
+  assert.equal(matchesCalendar('2026-11-02T05:00:00Z', 'America/New_York', { period: 'week', date: '2026-11-01' }), true);
+  assert.equal(matchesCalendar('2026-11-08T05:00:00Z', 'America/New_York', { period: 'week', date: '2026-11-01' }), false);
   const calendar = new CalendarPickerComponent(); calendar.selection = { period: 'day', date: '2028-02-29' }; calendar.ngOnChanges();
-  assert.equal(calendar.days().length, 42); assert.ok(calendar.days().some(day => day.key === '2028-02-29' && !day.outside));
+  assert.equal(calendar.days().length, 42); assert.equal(new Date(calendar.days()[0].key + 'T12:00:00').getDay(), 0); assert.deepEqual(calendar.weekdays, ['S', 'M', 'T', 'W', 'T', 'F', 'S']); assert.ok(calendar.days().some(day => day.key === '2028-02-29' && !day.outside));
   calendar.move(1); assert.match(calendar.title(), /March 2028/);
   let emitted: any; calendar.selectionChange.subscribe(value => emitted = value);
   calendar.selection = { period: 'week', date: '2028-02-29' }; calendar.choose('2028-03-07');

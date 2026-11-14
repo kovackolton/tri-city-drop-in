@@ -16,7 +16,7 @@ export function matchesEventDate(startsAt: Date, timezone: string, filters: Even
   const part = (name: string) => parts.find(value => value.type === name)!.value;
   const local = `${part('year')}-${part('month')}-${part('day')}`;
   if (filters.period === 'day') return local === filters.date;
-  const start = new Date(filters.date! + 'T00:00:00Z'); const weekday = start.getUTCDay(); start.setUTCDate(start.getUTCDate() - (weekday + 6) % 7);
+  const start = new Date(filters.date! + 'T00:00:00Z'); const weekday = start.getUTCDay(); start.setUTCDate(start.getUTCDate() - weekday);
   const end = new Date(start); end.setUTCDate(end.getUTCDate() + 7);
   return local >= start.toISOString().slice(0, 10) && local < end.toISOString().slice(0, 10);
 }

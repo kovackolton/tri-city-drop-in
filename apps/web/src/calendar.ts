@@ -11,7 +11,7 @@ export function matchesCalendar(value: string, timezone: string, selection: Cale
   const local = venueDate(value, timezone);
   if (selection.period === 'day') return local === selection.date;
   const start = new Date(selection.date + 'T00:00:00Z');
-  start.setUTCDate(start.getUTCDate() - (start.getUTCDay() + 6) % 7);
+  start.setUTCDate(start.getUTCDate() - start.getUTCDay());
   const end = new Date(start); end.setUTCDate(end.getUTCDate() + 7);
   return local >= start.toISOString().slice(0, 10) && local < end.toISOString().slice(0, 10);
 }
