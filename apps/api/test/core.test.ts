@@ -248,13 +248,15 @@ test('initial player lists validate identity, mode, uniqueness and bounds', () =
 });
 
 
-test('event date filters follow venue calendars and Monday-to-Sunday weeks across UTC boundaries', () => {
+test('event date filters follow venue calendars and Sunday-to-Saturday weeks across UTC boundaries', () => {
   const day = eventFilters({ period: 'day', date: '2027-01-03' });
   assert.equal(matchesEventDate(new Date('2027-01-04T01:00:00Z'), 'America/Toronto', day), true);
   assert.equal(matchesEventDate(new Date('2027-01-04T01:00:00Z'), 'UTC', day), false);
   const week = eventFilters({ period: 'week', date: '2027-01-03' });
-  assert.equal(matchesEventDate(new Date('2026-12-28T17:00:00Z'), 'America/Toronto', week), true);
-  assert.equal(matchesEventDate(new Date('2027-01-04T05:00:00Z'), 'America/Toronto', week), false);
+  assert.equal(matchesEventDate(new Date('2026-12-28T17:00:00Z'), 'America/Toronto', week), false);
+  assert.equal(matchesEventDate(new Date('2027-01-03T05:00:00Z'), 'America/Toronto', week), true);
+  assert.equal(matchesEventDate(new Date('2027-01-04T05:00:00Z'), 'America/Toronto', week), true);
+  assert.equal(matchesEventDate(new Date('2027-01-10T05:00:00Z'), 'America/Toronto', week), false);
   for (const value of [{ period: 'day' }, { period: 'month' }, { date: '2027-02-30' }, { freeOnly: 'yes' }, { organizerId: 'not-a-uuid' }, { city: ['Midland'] }]) assert.throws(() => eventFilters(value));
 });
 test('reshuffling seeks new teammates while retaining rating-aware balance and even team sizes', () => {

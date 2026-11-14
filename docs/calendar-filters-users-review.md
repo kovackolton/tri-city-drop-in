@@ -1,6 +1,6 @@
 # Calendar, follow-up queues and Users directory
 
-Upcoming games, My games and the organizer/administrator event workspace share a calendar with day/week filtering, month navigation, Today and All dates. Weeks run Monday through Sunday; filtering uses each venue timezone. Keyboard arrows navigate dates. The calendar stays beside results on wide screens and expands from a button above results on smaller screens.
+Upcoming games, My games and the organizer/administrator event workspace share a calendar with day/week filtering, month navigation, Today and All dates. Weeks run Sunday through Saturday; filtering uses each venue timezone. Keyboard arrows navigate dates. The calendar stays beside results on wide screens and expands from a button above results on smaller screens.
 
 My games has Upcoming games and Past games & payments tabs. Search, venue, organizer, booking and player payment-report filters retain the existing one-card-per-event history. Needs my payment report includes eligible, unreported confirmed host/guest paid seats after an event ends. Reporting paid/unpaid uses the existing payment dialog and never substitutes for an organizer's payment record.
 

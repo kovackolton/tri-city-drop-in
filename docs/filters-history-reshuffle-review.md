@@ -2,7 +2,7 @@
 
 ## Upcoming games
 
-The filter panel supports All dates / Specific day / Week of selected date, venue, city, organizer, title/venue/address search, free games and available places. Today and This week are shortcuts; Clear filters restores the full upcoming listing. Date matching uses each event venue's timezone, with Monday-Sunday weeks. Existing upcoming-only visibility remains: expired, draft, deleted and cancelled events are excluded.
+The filter panel supports All dates / Specific day / Week of selected date, venue, city, organizer, title/venue/address search, free games and available places. Today and This week are shortcuts; Clear filters restores the full upcoming listing. Date matching uses each event venue's timezone, with Sunday-Saturday weeks. Existing upcoming-only visibility remains: expired, draft, deleted and cancelled events are excluded.
 
 Filtering happens server-side before the existing 100-result cap, including availability/date checks. Available places excludes full events and events with a waiting queue, since FIFO may prevent joining even when unused capacity remains. Results stay chronological, and active filters persist across refresh, joining games and navigating away/back. Newer filter responses win over stale in-flight requests. Facets come only from venues/organizers with upcoming published events and contain no private contacts or Firebase identifiers.
 
