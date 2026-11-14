@@ -1,3 +1,4 @@
+import { presetNameInput, presetSettings } from '../src/event-presets';
 import { lateCancellationApplies, cancellationInput, substituteInput } from '../src/late-cancellation';
 import { calendarGameDates } from '../src/event-filters';
 import { eligibleForEvent, skillEligibilityInput } from '../src/event-eligibility';
@@ -407,4 +408,13 @@ test('late sub rules enforce cutoff boundaries, acknowledgment types and safe su
   assert.deepEqual(substituteInput({ subName: ' Cover ', subWillPay: true }), { subName: 'Cover', subWillPay: true });
   assert.throws(() => substituteInput({ subName: '', subWillPay: true })); assert.throws(() => substituteInput({ subName: 'Cover', subWillPay: 'yes' }));
   assert.deepEqual(substituteInput({ subName: '', subWillPay: false }), { subName: null, subWillPay: false });
+});
+
+test('event presets store only reusable validated settings and player modes, never dates or event access tokens', () => {
+  const players = [{ userId: '12345678-1234-1234-1234-123456789012', mode: 'BOOK' as const }];
+  const data = presetSettings({ title: 'Weekly soccer', locationId: 'location', priceCents: 1200, startsAt: new Date(), endsAt: new Date(), status: 'PUBLISHED', privateInviteToken: 'secret', id: 'event', organizerId: 'other', coOrganizerIds: ['co'], shirtColors: ['dark', 'light'] }, players);
+  assert.equal(data.priceCents, 1200); assert.deepEqual(data.initialPlayers, players); assert.deepEqual(data.coOrganizerIds, ['co']);
+  for (const key of ['startsAt', 'endsAt', 'status', 'privateInviteToken', 'id', 'organizerId']) assert.equal(Object.hasOwn(data, key), false);
+  assert.equal(presetNameInput('  Friday soccer  '), 'Friday soccer'); assert.equal(presetNameInput(undefined), undefined);
+  for (const name of ['', ' ', null, 12, 'x'.repeat(81)]) assert.throws(() => presetNameInput(name));
 });

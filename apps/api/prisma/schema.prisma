@@ -51,6 +51,7 @@ enum PaymentStatus {
 }
 
 model User {
+  eventPresets EventPreset[]
   id          String   @id @default(uuid()) @db.Uuid
   firebaseUid String   @unique
   email       String   @unique
@@ -336,4 +337,15 @@ model AppSetting {
   value Json
   revision Int @default(0)
   updatedAt DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+}
+
+model EventPreset {
+  id String @id @default(uuid()) @db.Uuid
+  ownerId String @db.Uuid
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name String
+  nameKey String
+  settings Json
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  @@unique([ownerId, nameKey])
 }

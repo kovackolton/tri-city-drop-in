@@ -1139,3 +1139,39 @@ test('notification rule table filters, selects and bulk-edits hidden rows then s
     role = 'ORGANIZER'; request = null; await component.saveRules(); assert.equal(request, null);
   } finally { injector.destroy(); }
 });
+
+test('event preset chooser loads private settings and player modes but always clears dates', async () => {
+  const calls: any[] = [];
+  const detail = { id: 'preset', name: 'Friday repeat', settings: { title: 'Soccer repeat', locationId: 'venue', priceCents: 1250, organizerVenmoUrl: null, organizerContactPhone: null, teamCount: 3, coOrganizerIds: ['co'], isPrivate: true, minimumSkillLevel: 3, maximumSkillLevel: null, initialPlayers: [], startsAt: 'old date', endsAt: 'old date', status: 'PUBLISHED' }, players: [{ id: 'player', displayName: 'Player', accountName: 'Player', mode: 'BOOK' }], organizers: [{ id: 'co', displayName: 'Co', accountName: 'Co' }], warnings: ['Review current player eligibility.'] };
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => ({ id: 'owner', role: 'ORGANIZER' }) } }, { provide: HttpClient, useValue: {
+    get: (url: string) => of(url === '/api/organizer/event-presets' ? [{ id: 'preset', name: detail.name }] : url.endsWith('/event-presets/preset') ? detail : []),
+    post: (url: string, body: any) => { calls.push({ url, body }); return of({ id: 'new-event' }); }
+  } }] });
+  try {
+    const component = runInInjectionContext(injector, () => new OrganizerComponent());
+    await component.toggleCreateForm(); assert.equal(component.choosingPreset(), true); assert.equal(component.showEventForm(), false);
+    component.selectedPresetId = 'preset'; await component.usePreset();
+    assert.equal(component.event.startsAt, ''); assert.equal(component.event.endsAt, ''); assert.equal(component.event.status, 'DRAFT'); assert.equal(component.event.price, '12.50'); assert.equal(component.paymentUsername('venmo'), ''); assert.equal(component.event.organizerContactPhone, '');
+    assert.equal(component.event.isPrivate, true); assert.equal(component.skillThreshold, 3); assert.equal(component.selectedPlayers()[0].mode, 'BOOK'); assert.equal(component.selectedOrganizers()[0].id, 'co');
+    assert.equal(component.showEventForm(), true); assert.equal(calls.length, 0);
+    component.event.startsAt = new Date(Date.now() + 86400000).toISOString(); component.event.endsAt = new Date(Date.now() + 90000000).toISOString();
+    await component.createEvent(); assert.equal(component.choosingStatus(), true);
+    component.saveAsPreset = true; component.presetName = 'Next Friday'; await component.confirmCreation('DRAFT');
+    assert.equal(calls.length, 1); assert.equal(calls[0].body.createPresetName, 'Next Friday'); assert.equal(calls[0].body.status, 'DRAFT');
+    assert.deepEqual(calls[0].body.initialPlayers, [{ userId: 'player', mode: 'BOOK' }]); assert.equal(component.showEventForm(), false);
+  } finally { injector.destroy(); }
+});
+test('preset loading is optional and failed event/preset saves preserve the form for correction', async () => {
+  let posts = 0;
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => ({ id: 'owner', role: 'ORGANIZER' }) } }, { provide: HttpClient, useValue: {
+    get: () => throwError(() => new HttpErrorResponse({ status: 500, error: { message: 'Presets unavailable' } })),
+    post: () => { posts++; return throwError(() => new HttpErrorResponse({ status: 409, error: { message: 'You already have a preset with this name.' } })); }
+  } }] });
+  try {
+    const component = runInInjectionContext(injector, () => new OrganizerComponent()); await component.toggleCreateForm(); assert.match(component.presetError(), /unavailable/);
+    component.continueWithoutPreset(); assert.equal(component.showEventForm(), true);
+    component.event.title = 'Retain me'; component.event.startsAt = new Date(Date.now() + 86400000).toISOString(); component.event.endsAt = new Date(Date.now() + 90000000).toISOString();
+    await component.createEvent(); component.saveAsPreset = true; component.presetName = ''; await component.confirmCreation('PUBLISHED'); assert.equal(posts, 0);
+    component.presetName = 'Duplicate'; await component.confirmCreation('PUBLISHED'); assert.equal(posts, 1); assert.equal(component.event.title, 'Retain me'); assert.equal(component.choosingStatus(), true); assert.match(component.error(), /already have a preset/);
+  } finally { injector.destroy(); }
+});
