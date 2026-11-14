@@ -1,3 +1,10 @@
+import { notificationRulesInput } from '../src/app-settings';
+import { notificationCatalog, defaultNotificationRules } from '../src/notification-catalog';
+import { appSettingsInput } from '../src/app-settings';
+import { pickEmailTuning, readEmailTuning } from '../src/email-settings';
+import { reminderDue, gameReminderLabel } from '../src/notification-timing';
+import { urgentNotification, importantNotification, digestWindow } from '../src/email-policy';
+import { renderNotificationEmailBatch } from '../src/notification-email';
 import { emailDiagnostic } from '../src/email-diagnostics';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -87,4 +94,74 @@ test('worker diagnostics identify permission, database and configuration failure
     const result = JSON.stringify(emailDiagnostic('configuration', error));
     assert.ok(!result.includes('password')); assert.ok(!result.includes('recipient@example.test')); assert.ok(!result.includes('private-code'));
   }
+});
+
+test('tomorrow spans the full local calendar day, including DST, and delayed text changes to today', () => {
+  const zone = 'America/New_York', now = new Date('2027-03-13T05:00:00Z'), starts = new Date('2027-03-15T03:00:00Z');
+  assert.ok(starts.getTime() - now.getTime() > 24 * 3600000);
+  assert.equal(reminderDue(starts, zone, now), true);
+  assert.equal(gameReminderLabel(starts, zone, now), 'You have a game tomorrow');
+  assert.equal(gameReminderLabel(starts, zone, new Date('2027-03-14T22:00:00Z')), 'Your game is today');
+  assert.equal(reminderDue(starts, zone, starts), false);
+  assert.equal(reminderDue(new Date('2027-03-15T04:00:00Z'), zone, now), false);
+  assert.match(gameReminderLabel(starts, zone, new Date('2027-03-11T12:00:00Z')), /upcoming game is on Sunday/);
+  // The fall-back day is 25 hours long; its late evening is still part of tomorrow.
+  assert.equal(reminderDue(new Date('2027-11-08T04:30:00Z'), zone, new Date('2027-11-06T04:00:00Z')), true);
+});
+test('email lists precede the action, which precedes payment/cancellation guidance; queued reminders render at send time', () => {
+  const game = { ...event, title: 'Evening soccer', startsAt: new Date('2027-03-15T03:00:00Z'), endsAt: new Date('2027-03-15T04:00:00Z') };
+  const item = { notification: { id: 'reminder', kind: 'EVENT_REMINDER', payload: {} }, event: game };
+  const tomorrow = renderNotificationEmailBatch([item], env.PUBLIC_SITE_ORIGIN, 'DIGEST', new Date('2027-03-13T12:00:00Z'));
+  const today = renderNotificationEmailBatch([item], env.PUBLIC_SITE_ORIGIN, 'DIGEST', new Date('2027-03-14T12:00:00Z'));
+  assert.match(tomorrow.subject, /tomorrow/); assert.match(today.subject, /today/); assert.doesNotMatch(today.text, /tomorrow|within 24 hours/);
+  assert.ok(today.html.indexOf('</ul>') < today.html.indexOf('>Open Notifications</a>'));
+  assert.ok(today.html.indexOf('>Open Notifications</a>') < today.html.indexOf('Cancellation cutoff and subs'));
+  assert.match(today.text, /Sunday, March 14, 2027/); assert.match(today.text, /America\/New_York/);
+  const combined = renderNotificationEmailBatch([item, { ...item, notification: { id: 'second', kind: 'EVENT_CHANGED', payload: {} } }], env.PUBLIC_SITE_ORIGIN, 'DIGEST');
+  assert.equal((combined.html.match(/<li /g) ?? []).length, 2);
+  assert.equal((combined.text.match(/Cancellation cutoff and subs/g) ?? []).length, 1);
+});
+test('urgent policy covers promotions, cancellations and only last-minute time/location changes', () => {
+  const now = new Date('2026-11-14T12:00:00Z'), game = { ...event, startsAt: new Date('2026-11-15T10:00:00Z') };
+  const n = (kind: string, payload = {}) => ({ id: 'id', kind, payload });
+  assert.equal(urgentNotification(n('WAITLIST_PROMOTED'), game, now), true);
+  assert.equal(urgentNotification(n('EVENT_CANCELLED'), null, now), true);
+  assert.equal(urgentNotification(n('EVENT_CHANGED', { timeOrLocationChanged: true }), game, now), true);
+  assert.equal(urgentNotification(n('EVENT_CHANGED'), game, now), false);
+  assert.equal(urgentNotification(n('EVENT_CHANGED', { timeOrLocationChanged: true }), event, now), false);
+  assert.equal(urgentNotification(n('EVENT_CHANGED', { timeOrLocationChanged: true, previousStartsAt: '2026-11-14T18:00:00Z' }), event, now), true);
+  assert.equal(importantNotification('STRIKE_CLEARED'), false); assert.equal(importantNotification('PAYMENT_REVIEW_REMINDER'), true);
+  assert.equal(digestWindow(new Date('2026-11-14T22:59:59Z'), 23), false); assert.equal(digestWindow(new Date('2026-11-14T23:00:00Z'), 23), true);
+});
+test('digest thresholds are configurable, bounded and accept zero where appropriate', () => {
+  const c = emailConfig(env)!;
+  assert.equal(c.digestStartHour, 23); assert.equal(c.digestDailyLimit, 80); assert.equal(c.urgentReserve, 5);
+  const zero = emailConfig({ ...env, EMAIL_DIGEST_START_HOUR_UTC: '0', EMAIL_DIGEST_DAILY_LIMIT: '0', EMAIL_URGENT_RESERVE: '0' })!;
+  assert.equal(zero.digestDailyLimit, 0);
+  for (const bad of [{ EMAIL_DIGEST_START_HOUR_UTC: '24' }, { EMAIL_DIGEST_DAILY_LIMIT: '101' }, { EMAIL_URGENT_RESERVE: '-1' }]) assert.throws(() => emailConfig({ ...env, ...bad }));
+});
+test('independent email preferences validate booleans and legacy preferences map to both options', () => {
+  assert.equal(profileInput({ emailDigestEnabled: true, emailUrgentEnabled: false }).emailUrgentEnabled, false);
+  assert.equal(profileInput({ emailNotificationsEnabled: false }).emailDigestEnabled, false);
+  for (const field of ['emailDigestEnabled', 'emailUrgentEnabled']) assert.throws(() => profileInput({ [field]: 'false' }));
+});
+
+test('app settings enforce integer ranges, complete values, concurrency revision and reject infrastructure/secrets', () => {
+  const values = readEmailTuning({}); assert.equal(appSettingsInput({ revision: 0, values }).values.digestStartHour, 23);
+  for (const bad of [{ revision: -1, values }, { revision: 1.5, values }, { revision: 0, values: {} },
+    { revision: 0, values: { ...values, dailyLimit: 101 } }, { revision: 0, values: { ...values, digestStartHour: 24 } },
+    { revision: 0, values: { ...values, intervalMs: 1.5 } }, { revision: 0, values: { ...values, urgentReserve: '5' } },
+    { revision: 0, values, RESEND_API_KEY: 'bad' }, { revision: 0, values: { ...values, enabled: true } }]) assert.throws(() => appSettingsInput(bad));
+  assert.deepEqual(pickEmailTuning({ ...values, apiKey: 'secret' } as any), values);
+});
+
+test('notification catalog covers every inbox kind and rule overrides control urgent/important tiers', () => {
+  assert.deepEqual(notificationCatalog.map(n => n.kind).sort(), Object.keys(notificationDescriptions).sort());
+  assert.ok(notificationCatalog.every(n => n.message && n.trigger && n.audience));
+  const rules = defaultNotificationRules();
+  assert.equal(notificationRulesInput({ revision: 0, rules }).rules.EVENT_CHANGED, 'TIME_SENSITIVE');
+  const custom = { ...rules, STRIKE_CLEARED: 'URGENT', EVENT_CANCELLED: 'ROUTINE' } as any;
+  assert.equal(urgentNotification({ id: 'n', kind: 'STRIKE_CLEARED', payload: {} }, null, new Date(), custom), true);
+  assert.equal(importantNotification('EVENT_CANCELLED', custom), false);
+  for (const invalid of [{ ...rules, STRIKE_CLEARED: 'TIME_SENSITIVE' }, { ...rules, EVENT_REMINDER: 'BAD' }, { ...rules, UNKNOWN: 'URGENT' }, {}]) assert.throws(() => notificationRulesInput({ revision: 0, rules: invalid }));
 });

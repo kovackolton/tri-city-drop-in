@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { AppSettingsService } from './app-settings';
 import { Database } from './database';
 import { NotificationsService } from './notifications';
 import { emailConfig, NotificationEmailWorker, ResendEmailSender } from './email-delivery';
@@ -7,11 +8,13 @@ async function main() {
   let stage = 'configuration';
   let db: Database | undefined;
   try {
-    const config = emailConfig();
+    let config = emailConfig();
     if (!config) { console.log('Notification email worker disabled. Set EMAIL_ENABLED=true to enable it.'); return; }
     stage = 'database-connect';
     db = new Database();
     await db.$connect();
+    stage = 'email-settings';
+    config = await new AppSettingsService(db).effective(config);
     const worker = new NotificationEmailWorker(db, new NotificationsService(db), config, config.mode === 'resend' ? new ResendEmailSender(config) : undefined);
     stage = 'notification-generation';
     const generation = await worker.generate();

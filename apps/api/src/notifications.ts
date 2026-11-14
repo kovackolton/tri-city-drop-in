@@ -1,3 +1,4 @@
+import { reminderDue, gameReminderLabel } from './notification-timing';
 import { managedEvents, managesEvent } from './event-organizers';
 import { Controller, Get, Inject, Injectable, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthRequest, FirebaseGuard } from './auth';
@@ -29,7 +30,7 @@ export const notificationDescriptions: Record<string, string> = {
   EVENT_RETURNED_TO_DRAFT: 'The organizer returned this event to draft while reviewing it. Your booking is retained as provisional. New joins are paused until the event is published again. Check My games for updates.',
   EVENT_PUBLISHED: 'This event is published and open for joining. Your existing booking is retained. Check My games for the latest details and booking status.',
   EVENT_CANCELLED: 'The event was cancelled. Your booking has been cancelled.',
-  EVENT_REMINDER: 'Your game starts within 24 hours. Check the time and location in My games.'
+  EVENT_REMINDER: 'Check the date, time and location in My games.'
 };
 export function notificationMessage(kind: string) { return notificationDescriptions[kind] ?? 'There is an update about your game.'; }
 @Injectable()
@@ -56,9 +57,8 @@ export class NotificationsService {
     return eventIds;
   }
   // In-app reminders are generated on inbox refresh. No worker or external delivery provider is needed.
-  async inbox(userId: string) {
+  async inbox(userId: string, now = new Date()) {
     await refreshPaymentStrikes(this.db, [userId]);
-    const now = new Date();
     const overdue = { userId, status: 'CONFIRMED' as const, event: { deletedAt: null, status: { in: ['PUBLISHED', 'COMPLETED'] as ('PUBLISHED' | 'COMPLETED')[] }, endsAt: { lt: new Date(now.getTime() - paymentGraceMs) } }, payment: { amountCents: { gt: 0 }, status: { not: 'VOID' as const }, playerPaid: null } };
     const pending = await this.db.signup.findMany({ where: overdue, select: { eventId: true, bookingId: true }, distinct: ['bookingId'] });
     const reminderKeys: string[] = [];
@@ -83,11 +83,11 @@ export class NotificationsService {
         await tx.notification.upsert({ where: { dedupeKey }, update: {}, create: { userId, kind: 'ORGANIZER_REQUEST', dedupeKey, payload: { requestId: request.id, requesterId: request.userId, title: `${request.user.displayName} requested organizer access` } } });
       });
     }
-    const bookings = await this.db.signup.findMany({ where: { userId, guestNumber: 0, status: 'CONFIRMED', event: { deletedAt: null, status: 'PUBLISHED', startsAt: { gt: now, lte: new Date(now.getTime() + 86400000) } } }, select: { eventId: true, bookingId: true } });
+    const bookings = await this.db.signup.findMany({ where: { userId, guestNumber: 0, status: 'CONFIRMED', event: { deletedAt: null, status: 'PUBLISHED', startsAt: { gt: now, lte: new Date(now.getTime() + 3 * 86400000) } } }, select: { eventId: true, bookingId: true } });
     for (const booking of bookings) await this.db.$transaction(async tx => {
       await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${booking.eventId}::uuid FOR UPDATE`;
-      const current = await tx.signup.findFirst({ where: { bookingId: booking.bookingId, userId, guestNumber: 0, status: 'CONFIRMED', event: { deletedAt: null, status: 'PUBLISHED', startsAt: { gt: new Date(), lte: new Date(Date.now() + 86400000) } } }, include: { event: true } });
-      if (!current) return;
+      const current = await tx.signup.findFirst({ where: { bookingId: booking.bookingId, userId, guestNumber: 0, status: 'CONFIRMED', subResponsibilityAcknowledgedAt: null, event: { deletedAt: null, status: 'PUBLISHED', startsAt: { gt: now } } }, include: { event: { include: { location: true } } } });
+      if (!current || !reminderDue(current.event.startsAt, current.event.location.timezone, now)) return;
       const dedupeKey = `reminder:${booking.bookingId}:${current.event.startsAt.getTime()}`;
       await tx.notification.upsert({ where: { dedupeKey }, update: {}, create: { userId, kind: 'EVENT_REMINDER', dedupeKey, payload: { eventId: booking.eventId, title: current.event.title } } });
     });
@@ -97,10 +97,12 @@ export class NotificationsService {
       this.db.notification.count({ where: { ...where, readAt: null } })
     ]);
     const ids = rows.map(row => (row.payload as { eventId?: string }).eventId).filter((id): id is string => !!id && /^[0-9a-f-]{36}$/i.test(id));
-    const events = await this.db.event.findMany({ where: { id: { in: ids } }, select: { id: true, title: true } });
+    const events = await this.db.event.findMany({ where: { id: { in: ids } }, select: { id: true, title: true, startsAt: true, location: { select: { timezone: true } } } });
     return { unread, items: rows.map(row => {
       const payload = row.payload as { eventId?: string; bookingId?: string; title?: string; note?: string };
-      return { id: row.id, eventId: payload.eventId ?? null, bookingId: payload.bookingId ?? null, kind: row.kind, reviewAvailable: ['ORGANIZER_REVIEW_REMINDER', 'STALE_EVENT_REVIEW_REMINDER'].includes(row.kind) && !!payload.eventId && reviewEvents.has(payload.eventId), title: payload.title ?? events.find(e => e.id === payload.eventId)?.title ?? 'Game update', message: notificationMessage(row.kind), createdAt: row.createdAt, readAt: row.readAt };
+      const event = events.find(e => e.id === payload.eventId);
+      const reminder = row.kind === 'EVENT_REMINDER' && event ? gameReminderLabel(event.startsAt, event.location.timezone, now) + '. ' : '';
+      return { id: row.id, eventId: payload.eventId ?? null, bookingId: payload.bookingId ?? null, kind: row.kind, reviewAvailable: ['ORGANIZER_REVIEW_REMINDER', 'STALE_EVENT_REVIEW_REMINDER'].includes(row.kind) && !!payload.eventId && reviewEvents.has(payload.eventId), title: payload.title ?? events.find(e => e.id === payload.eventId)?.title ?? 'Game update', message: reminder + notificationMessage(row.kind), createdAt: row.createdAt, readAt: row.readAt };
     }) };
   }
   async read(userId: string, id?: string) {

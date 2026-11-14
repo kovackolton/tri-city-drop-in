@@ -2,8 +2,8 @@
     <p class="mt-2 text-muted">Create a pitch, then schedule your next game. All prices are per player in USD.</p>
     @if (error()) { <p role="alert" class="notice error mt-5">{{ error() }}</p> }
     @if (success()) { <p role="status" class="notice mt-5">{{ success() }}</p> }
-    <nav aria-label="Organizer pages" class="flex gap-3 mt-5"><button type="button" class="secondary workspace-chip" [class.selected]="view() === 'events'" [attr.aria-pressed]="view() === 'events'" (click)="selectSection('events')">Events</button><button type="button" class="secondary workspace-chip" [class.selected]="view() === 'locations'" [attr.aria-pressed]="view() === 'locations'" (click)="selectSection('locations')">Locations</button></nav>
-    @if (view() === 'locations') { <app-locations (changed)="load()" /> } @else {
+    <nav aria-label="Organizer pages" class="flex flex-wrap gap-3 mt-5"><button type="button" class="secondary workspace-chip" [class.selected]="view() === 'events'" [attr.aria-pressed]="view() === 'events'" (click)="selectSection('events')">Events</button><button type="button" class="secondary workspace-chip" [class.selected]="view() === 'locations'" [attr.aria-pressed]="view() === 'locations'" (click)="selectSection('locations')">Locations</button>@if (auth.profile()?.role === 'ADMINISTRATOR') { <button type="button" class="secondary workspace-chip" [class.selected]="view() === 'settings'" [attr.aria-pressed]="view() === 'settings'" (click)="selectSection('settings')">App Settings</button> }</nav>
+    @if (view() === 'settings' && auth.profile()?.role === 'ADMINISTRATOR') { <app-app-settings /> } @else if (view() === 'locations') { <app-locations (changed)="load()" /> } @else {
     <div class="mt-6"><button type="button" class="primary" [disabled]="busy()" [attr.aria-expanded]="showEventForm()" aria-controls="organizer-event-form" (click)="showEventForm.set(!showEventForm())">{{ showEventForm() ? 'Hide event form' : editingId() ? 'Continue editing event' : 'Create an event' }}</button></div>
     @if (showEventForm()) {
     <div id="organizer-event-form" class="max-w-3xl mt-5">
