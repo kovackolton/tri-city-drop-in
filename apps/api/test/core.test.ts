@@ -1,3 +1,4 @@
+import { presetNameInput, presetSettings } from '../src/event-presets';
 import { lateCancellationApplies, cancellationInput, substituteInput } from '../src/late-cancellation';
 import { calendarGameDates } from '../src/event-filters';
 import { eligibleForEvent, skillEligibilityInput } from '../src/event-eligibility';
@@ -247,13 +248,15 @@ test('initial player lists validate identity, mode, uniqueness and bounds', () =
 });
 
 
-test('event date filters follow venue calendars and Monday-to-Sunday weeks across UTC boundaries', () => {
+test('event date filters follow venue calendars and Sunday-to-Saturday weeks across UTC boundaries', () => {
   const day = eventFilters({ period: 'day', date: '2027-01-03' });
   assert.equal(matchesEventDate(new Date('2027-01-04T01:00:00Z'), 'America/Toronto', day), true);
   assert.equal(matchesEventDate(new Date('2027-01-04T01:00:00Z'), 'UTC', day), false);
   const week = eventFilters({ period: 'week', date: '2027-01-03' });
-  assert.equal(matchesEventDate(new Date('2026-12-28T17:00:00Z'), 'America/Toronto', week), true);
-  assert.equal(matchesEventDate(new Date('2027-01-04T05:00:00Z'), 'America/Toronto', week), false);
+  assert.equal(matchesEventDate(new Date('2026-12-28T17:00:00Z'), 'America/Toronto', week), false);
+  assert.equal(matchesEventDate(new Date('2027-01-03T05:00:00Z'), 'America/Toronto', week), true);
+  assert.equal(matchesEventDate(new Date('2027-01-04T05:00:00Z'), 'America/Toronto', week), true);
+  assert.equal(matchesEventDate(new Date('2027-01-10T05:00:00Z'), 'America/Toronto', week), false);
   for (const value of [{ period: 'day' }, { period: 'month' }, { date: '2027-02-30' }, { freeOnly: 'yes' }, { organizerId: 'not-a-uuid' }, { city: ['Midland'] }]) assert.throws(() => eventFilters(value));
 });
 test('reshuffling seeks new teammates while retaining rating-aware balance and even team sizes', () => {
@@ -407,4 +410,13 @@ test('late sub rules enforce cutoff boundaries, acknowledgment types and safe su
   assert.deepEqual(substituteInput({ subName: ' Cover ', subWillPay: true }), { subName: 'Cover', subWillPay: true });
   assert.throws(() => substituteInput({ subName: '', subWillPay: true })); assert.throws(() => substituteInput({ subName: 'Cover', subWillPay: 'yes' }));
   assert.deepEqual(substituteInput({ subName: '', subWillPay: false }), { subName: null, subWillPay: false });
+});
+
+test('event presets store only reusable validated settings and player modes, never dates or event access tokens', () => {
+  const players = [{ userId: '12345678-1234-1234-1234-123456789012', mode: 'BOOK' as const }];
+  const data = presetSettings({ title: 'Weekly soccer', locationId: 'location', priceCents: 1200, startsAt: new Date(), endsAt: new Date(), status: 'PUBLISHED', privateInviteToken: 'secret', id: 'event', organizerId: 'other', coOrganizerIds: ['co'], shirtColors: ['dark', 'light'] }, players);
+  assert.equal(data.priceCents, 1200); assert.deepEqual(data.initialPlayers, players); assert.deepEqual(data.coOrganizerIds, ['co']);
+  for (const key of ['startsAt', 'endsAt', 'status', 'privateInviteToken', 'id', 'organizerId']) assert.equal(Object.hasOwn(data, key), false);
+  assert.equal(presetNameInput('  Friday soccer  '), 'Friday soccer'); assert.equal(presetNameInput(undefined), undefined);
+  for (const name of ['', ' ', null, 12, 'x'.repeat(81)]) assert.throws(() => presetNameInput(name));
 });

@@ -4,11 +4,16 @@ This guide adds email delivery for the same notifications shown in the app. Send
 
 ## 1. What gets deployed
 
-The existing app continues to create in-app notifications. A separate scheduled Cloud Run **Job**, using the same app image, refreshes due reminders for users even when nobody is online, queues eligible notifications, then sends email through Resend. Run it every five minutes. This is approximate delivery, not a guarantee of an exact send time.
+A separate Cloud Run **Job** uses the app's container image and refreshes existing in-app notification rules every five minutes, even when nobody is online. The public app remains unchanged as a deployment resource. The job sends two types of individually addressed email:
 
-Each notification has its own email-delivery record. Email state never changes whether its in-app notification is read. Email bodies include that notification's title/message, relevant event times/location/price, applicable cutoff/sub/payment guidance, and authenticated Notifications and How to links. Subjects start with the event name when one exists. The worker rechecks time-sensitive reminders before sending.
+- **Evening summaries:** at most one digest per user per UTC day, only when they have an important unread notification. The list can also include their other relevant unread notifications. Routine updates alone do not trigger a digest. Defaults: send during 23:00-24:00 UTC, at most 80 digests, while keeping five of the remaining daily slots for late urgent alerts.
+- **Urgent game alerts:** waitlist promotions, event cancellations, and time/location changes for a game starting within 24 hours. These run throughout the day and can arrive in addition to a digest. They take priority over digests, subject to the same shared provider quota. Several pending urgent notifications for one user can share an email.
 
-Existing notification history is not emailed in bulk: EMAIL_NOTIFICATIONS_START_AT is an explicit rollout timestamp. Players can disable notification emails in My profile; emails use the sign-in email, not the separately shared organizer contact address. Guest-seat messages go to the booking account.
+The email shows a list of unread notifications, then **Open Notifications**, then relevant cancellation/payment/strike guidance and How to links. Notification text, subject and event details are rebuilt at send time. A reminder uses the venue's local calendar: tomorrow means the entire next day, not a rolling 24 hours; a delayed reminder says today before kickoff, and is skipped after kickoff. Full date, time and timezone are always shown.
+
+`NotificationEmail` keeps one unique record per notification. `NotificationEmailBatch` tracks one outgoing email and links all included notification records. Provider acceptance marks the included entries emailed, without marking them read in-app. Already emailed/read, expired or resolved notifications are excluded. No raw error details, email bodies or secrets are logged. Uncertain acceptance is held for investigation rather than automatically resent.
+
+Players independently choose Evening summaries and Urgent game alerts in My profile. Both use the sign-in email, not the separate organizer contact address; guest-seat messages go to the booking account. Existing opt-outs are preserved when migrating. Existing sent/unknown delivery history is retained so notifications are not re-emailed. The rollout cutoff excludes old history.
 
 ## 2. Set up Resend Free and verify your domain
 
@@ -32,6 +37,25 @@ No additional cloud account or mailbox subscription is needed. Resend is the ext
 
 ### 4.1 Where each value belongs
 
+**After the first worker run or an administrator save, change the seven numeric delivery settings in Administrator workspace > App Settings.** The worker reads those shared database values at the start of each execution; no rebuild or deployment is required. The sidebar includes the same admin-only shortcut. Controls cover daily/monthly limits, digest start hour, daily digest cap, urgent reserve, batch size and send interval. Changes are audited and concurrent edits require reload instead of silently overwriting another administrator.
+
+The same page has a **Notification email rules** table for every existing notification type. Search/filter by wording, tier and audience; select individual or visible rows for bulk tier changes, then press **Save notification rules**. The table shows the exact base message, its creation trigger and email timing. Filters do not discard hidden edits; the save count includes them. Rules are stored separately in `AppSetting` under `notification-rules`, with their own revision and audit action `APP_NOTIFICATION_RULES_UPDATED`; changing rules requires no migration or deployment after this feature is installed.
+
+Available tiers:
+
+| Tier | Email behavior |
+| --- | --- |
+| Urgent | Prioritized on the next worker run, including outside the digest window; can follow a digest the same day. If urgent email consent is off but summaries are on, it can still be included in a digest. |
+| Important digest | Triggers the recipient's evening digest when unread, eligible and not already emailed. |
+| Routine digest | Does not trigger an email alone; joins a digest triggered by another important notification. |
+| In-app only | Excluded from email without changing in-app notification creation or read state. |
+| Time-sensitive (event changes only) | Urgent for actual time/location changes within 24 hours of old/new kickoff; otherwise important digest. This preserves the original default. |
+
+Defaults preserve existing behavior. Tier edits apply to eligible pending/new notifications on the next execution, including definitively rejected queued emails. Sent/unknown emails are never automatically replayed. In-app-only skips are not resurrected when a tier is later re-enabled. Player consent, live booking/event checks, quotas, digest caps and unread checks remain authoritative. The rules table changes delivery classification, not the notification text or event trigger. Currently running executions retain the rule snapshot they loaded.
+
+The environment values below are **bootstrap defaults** for those seven fields. On its first run the worker imports its current values into `AppSetting` (key `email`), preserving an existing job's tuning. Once that record exists, editing numeric environment values does not override it. Before the first run, the settings page shows starting defaults and explains that saving them makes them authoritative. Sender, secrets, rollout cutoff, delivery mode, `EMAIL_ENABLED`, site origin and scheduler frequency remain infrastructure configuration; they are intentionally not editable by this screen.
+
+
 | Setting | Where you enter it | Initial value / purpose |
 | --- | --- | --- |
 | `EMAIL_WORKER_ENABLED` | GitHub repository **Settings > Secrets and variables > Actions > Variables** | Leave absent or set `false` for the first code deployment. Set `true` only after creating/testing the Cloud Run Job. This is a variable, not a GitHub secret. |
@@ -42,11 +66,14 @@ No additional cloud account or mailbox subscription is needed. Resend is the ext
 | `EMAIL_FROM` | Cloud Run **email job** environment | `no_reply@contact.tricitiesdropin.com` |
 | `EMAIL_NOTIFICATIONS_START_AT` | Cloud Run **email job** environment | Explicit UTC activation timestamp ending in `Z`; explained below. |
 | `PUBLIC_SITE_ORIGIN` | Cloud Run **email job** environment | Copy the same HTTPS origin already used by the app, e.g. `https://YOUR_SERVICE.us-east1.run.app` or your custom domain. No trailing path, query or hash. |
-| `EMAIL_BATCH_SIZE` | Cloud Run **email job** environment | `50` |
-| `EMAIL_DAILY_LIMIT` / `EMAIL_MONTHLY_LIMIT` | Cloud Run **email job** environment | `100` / `3000`; lower these if reserving capacity for other account usage. |
-| `EMAIL_SEND_INTERVAL_MS` | Optional Cloud Run **email job** environment | Omit to use `1100` milliseconds between attempted sends. |
+| `EMAIL_BATCH_SIZE` | App Settings; job env for initial import | `50` |
+| `EMAIL_DAILY_LIMIT` / `EMAIL_MONTHLY_LIMIT` | App Settings; job env for initial import | `100` / `3000`; lower these if reserving capacity for other account usage. |
+| `EMAIL_DIGEST_START_HOUR_UTC` | App Settings; job env for initial import | `23`; digests send from this hour to midnight UTC. Urgent alerts run all day. |
+| `EMAIL_DIGEST_DAILY_LIMIT` | App Settings; job env for initial import | `80`; maximum digest recipients per UTC day, also constrained by remaining total quota. |
+| `EMAIL_URGENT_RESERVE` | App Settings; job env for initial import | `5`; slots held back from digest use for late urgent alerts. |
+| `EMAIL_SEND_INTERVAL_MS` | App Settings; optional job env for initial import | Omit to use `1100` milliseconds between attempted sends. |
 | `EMAIL_REPLY_TO` | Optional Cloud Run **email job** environment | Omit unless you have a monitored reply mailbox. |
-| `EMAIL_PREVIEW_DIR` | Local `apps/api/.env` for local previews | Optional output folder; normally omit on Cloud Run, where files are temporary. |
+| `EMAIL_PREVIEW_DIR` | Local `.env` or Cloud Run job environment | Local default: `email-previews`. Cloud Run: use `/tmp/tricity-email-previews`; production defaults to this writable temporary directory. |
 
 Your existing GitHub `PUBLIC_SITE_ORIGIN` variable still configures the **public app service** through the workflow. Copy that same value into the email job configuration yourself: GitHub variables are not automatically inherited by a different Cloud Run Job. Likewise, `apps/api/.env` and `.env.example` are not loaded by the production worker. `.env.example` is a template; editing it does not configure GCP.
 
@@ -56,7 +83,7 @@ Sections 6-7 use Cloud Shell variables such as `PROJECT_ID`, `REGION`, `IMAGE`, 
 
 1. **Keep the email pipeline step inactive.** In GitHub, open your repository > **Settings > Secrets and variables > Actions > Variables**. Leave `EMAIL_WORKER_ENABLED` absent, or set it to the text `false`. The workflow uses the `production` environment too; if you previously added this variable under **Settings > Environments > production**, check that it is not overriding your repository value with `true`.
 2. **If you already created a scheduler/job, pause it before proceeding.** In GCP **Cloud Scheduler**, pause `tricity-email-notifications`. In **Cloud Run > Jobs > tricity-email-notifications > Edit > Variables & Secrets**, set `EMAIL_ENABLED=false` and save. Wait for any already-running execution to finish; changing configuration does not stop an existing execution. Skip this step if these resources do not exist yet. Changing the GitHub variable alone does not pause a schedule or disable a worker.
-3. **Commit and push the email feature through your normal branch/PR flow.** Include the worker, templates, profile preference/UI, tests, workflow change, documentation, package files, Prisma schema, and `apps/api/prisma/migrations/20261111050000_notification_email_delivery/`. Keep local `.env`, API keys and credential files out of the commit. Run local checks in section 5 before merging.
+3. **Commit and push the email feature through your normal branch/PR flow.** Include the worker, templates, profile preference/UI, tests, workflow change, documentation, package files, Prisma schema, and `apps/api/prisma/migrations/20261111050000_notification_email_delivery/` and `apps/api/prisma/migrations/20261114010000_notification_email_digests/` and `apps/api/prisma/migrations/20261114020000_admin_app_settings/`. Keep local `.env`, API keys and credential files out of the commit. Run local checks in section 5 before merging.
 4. **Merge to `main` and let your existing GitHub pipeline finish.** It runs tests/builds, pushes the commit-tagged images, deploys and executes `tri-city-migrate`, then deploys the public app. The migration adds the profile preference and email-delivery table. The optional **Update configured notification email worker** step should show **Skipped** at this stage. Do not manually apply the migration to production as an additional step. If the migration/deployment fails, resolve that failure before creating or executing the worker.
 5. **Record the successful release's full commit SHA and image.** In GitHub **Actions**, open the successful deployment run and inspect **Build commit-tagged images** / **Push commit-tagged images**. The app image is `<REGION>-docker.pkg.dev/<PROJECT_ID>/<AR_REPOSITORY>/app:<FULL_COMMIT_SHA>`. Copy that exact app image for `IMAGE` in section 6; do not use the migrations image or assume a `latest` tag. You can also find it in **GCP Artifact Registry > your repository > app**. The public app now supports email preferences, but no worker is sending email yet.
 6. **Create the provider secret in GCP.** Finish sections 2-3. In **Secret Manager > Create secret**, name it `resend-api-key` and paste the restricted Resend key into the secret value. Confirm the existing `db_url-app` secret is present; do not create a second production database or replace its password. Section 6 grants the worker identity access to these two secrets. You do not need to add the Resend key as a GitHub secret.
@@ -73,7 +100,8 @@ Sections 6-7 use Cloud Shell variables such as `PROJECT_ID`, `REGION`, `IMAGE`, 
 | What you changed | What to do |
 | --- | --- |
 | App/worker source code or database schema | Commit/merge through the existing pipeline. With `EMAIL_WORKER_ENABLED=true`, it migrates first, deploys the app, then updates the email job image. |
-| Sender, mode, rollout time, origin or limits | Edit the **email job's** environment in GCP, or edit your Cloud Shell `email-worker.env.yaml` and rerun the section 6 deploy command. An image-only CI update preserves those settings. Keep your YAML copy consistent with console edits so a later manual deploy does not restore old values. |
+| Sender, mode, rollout time or origin | Edit the **email job's** environment in GCP, or edit your Cloud Shell `email-worker.env.yaml` and rerun the section 6 deploy command. An image-only CI update preserves those settings. Keep your YAML copy consistent with console edits so a later manual deploy does not restore old values. |
+| Numeric email limits, digest time, urgent reserve, batch size or send delay | Save in **Administrator workspace > App Settings**. The next worker run loads them; the existing schedule and image stay unchanged. Environment values are only used on the first import. |
 | Resend API key | Add a new version to the `resend-api-key` secret and verify the job's secret reference. The section 6 example uses `latest`, so a new execution resolves the current version; pin a version instead if you need controlled rotation. Never put the key in GitHub. |
 | How often emails are checked | Edit the **Cloud Scheduler** schedule. No app rebuild is needed. |
 | Pause email | Pause Cloud Scheduler and set `EMAIL_ENABLED=false` on the email job. Leave in-app notifications running. `EMAIL_WORKER_ENABLED=false` only stops CI image updates. |
@@ -82,7 +110,25 @@ The public app service needs neither `RESEND_API_KEY` nor the `EMAIL_*` worker s
 
 ## 5. Test locally before sending
 
-In `apps/api/.env`, use your LOCAL database and EMAIL_DELIVERY_MODE=preview. Supply the rollout timestamp, EMAIL_ENABLED=true, EMAIL_FROM, PUBLIC_SITE_ORIGIN=http://localhost:4200 and EMAIL_PREVIEW_DIR pointing to a local folder. Do not put real API keys into a preview setup.
+In `apps/api/.env`, use your LOCAL database and EMAIL_DELIVERY_MODE=preview. Supply the rollout timestamp, EMAIL_ENABLED=true, EMAIL_FROM, PUBLIC_SITE_ORIGIN=http://localhost:4200 and EMAIL_PREVIEW_DIR pointing to a local folder. Do not put real API keys into a preview setup. Use the following alongside your existing local DATABASE_URL:
+
+```dotenv
+EMAIL_ENABLED=true
+EMAIL_DELIVERY_MODE=preview
+EMAIL_FROM=no_reply@contact.tricitiesdropin.com
+PUBLIC_SITE_ORIGIN=http://localhost:4200
+# Replace with a UTC time before your test notifications were created:
+EMAIL_NOTIFICATIONS_START_AT=2026-11-14T00:00:00.000Z
+EMAIL_PREVIEW_DIR=email-previews
+EMAIL_DAILY_LIMIT=100
+EMAIL_MONTHLY_LIMIT=3000
+EMAIL_DIGEST_DAILY_LIMIT=80
+EMAIL_URGENT_RESERVE=5
+# LOCAL PREVIEW ONLY: allow digest previews at any hour.
+EMAIL_DIGEST_START_HOUR_UTC=0
+```
+
+Use `23`, not `0`, for EMAIL_DIGEST_START_HOUR_UTC on the production job unless intentionally changing its window. If your local worker has already imported settings, use **App Settings** in your local app to change its digest hour for testing; changing `.env` alone will no longer override the stored value. Keep local testing on your local database. Preview mode obeys the digest window and current unread/preferences/eligibility rules. If you test with 23 outside the evening window, only eligible urgent alerts can produce previews. Preview file names are `digest-USER_ID.html/.txt` or `urgent-USER_ID.html/.txt`; files contain user-specific information and should stay local.
 
 ```powershell
 npm run notifications:email --workspace @tri-city/api
@@ -99,7 +145,7 @@ npm run test:profile --workspace @tri-city/web
 npm run build --workspace @tri-city/web
 ```
 
-Delivery records are in the `NotificationEmail` table, linked to `Notification` by `notificationId`. Inspect `status`, `attempts`, `nextAttemptAt`, `providerMessageId` and `lastError` when diagnosing issues. Use the Resend dashboard for actual delivery/bounce status.
+Outgoing email records are in `NotificationEmailBatch`, with channel `DIGEST` or `URGENT`. `NotificationEmail` links each notification through `notificationId` and the outgoing email through `batchId`; legacy individual emails have no batch. Inspect batch `status`, `attempts`, `nextAttemptAt`, `providerMessageId` and `lastError`, plus the included notification records, when diagnosing issues. Quota accounting counts each outgoing batch once, plus legacy accepted/in-flight/uncertain individual sends. Use the Resend dashboard for actual delivery/bounce status.
 
 ## 6. Create the Cloud Run email job
 
@@ -133,9 +179,13 @@ Choose **6.1 (GCP console)** or **6.2 (Cloud Shell)**. Both create the same job;
 | `EMAIL_DELIVERY_MODE` | `preview` |
 | `EMAIL_FROM` | `no_reply@contact.tricitiesdropin.com` |
 | `EMAIL_NOTIFICATIONS_START_AT` | Your actual preparation timestamp in UTC, e.g. `2026-12-01T15:00:00.000Z`; replace this example |
+| `EMAIL_PREVIEW_DIR` | `/tmp/tricity-email-previews` |
 | `EMAIL_BATCH_SIZE` | `50` |
 | `EMAIL_DAILY_LIMIT` | `100` |
 | `EMAIL_MONTHLY_LIMIT` | `3000` |
+| `EMAIL_DIGEST_START_HOUR_UTC` | `23` |
+| `EMAIL_DIGEST_DAILY_LIMIT` | `80` |
+| `EMAIL_URGENT_RESERVE` | `5` |
 | `PUBLIC_SITE_ORIGIN` | Copy your app's actual HTTPS origin; no path or query |
 
 9. In that same tab, use **Reference a secret** (rather than Add variable) twice. Map environment variable **`DATABASE_URL`** to secret **`db_url-app`**, and **`RESEND_API_KEY`** to **`resend-api-key`**. Select the enabled versions recorded above and expose them as **environment variables**, not mounted files. Do not paste either secret's value into a plain variable.
@@ -187,9 +237,13 @@ EMAIL_ENABLED: "true"
 EMAIL_DELIVERY_MODE: preview
 EMAIL_FROM: no_reply@contact.tricitiesdropin.com
 EMAIL_NOTIFICATIONS_START_AT: "YOUR_ACTUAL_ROLLOUT_UTC_TIMESTAMP"
+EMAIL_PREVIEW_DIR: /tmp/tricity-email-previews
 EMAIL_BATCH_SIZE: "50"
 EMAIL_DAILY_LIMIT: "100"
 EMAIL_MONTHLY_LIMIT: "3000"
+EMAIL_DIGEST_START_HOUR_UTC: "23"
+EMAIL_DIGEST_DAILY_LIMIT: "80"
+EMAIL_URGENT_RESERVE: "5"
 PUBLIC_SITE_ORIGIN: "https://YOUR_APP_ORIGIN"
 ```
 
@@ -248,15 +302,23 @@ Keep the rollout timestamp stable after activation; moving it backward can enque
 
 To pause: pause the Cloud Scheduler job and set EMAIL_ENABLED=false on the job. In-app notifications continue working. Do not delete sent delivery history or reset it to pending as a routine retry procedure.
 
-## 9. Free-plan limits and recovery
+## 9. Free-plan scheduling, fairness and recovery
 
-The worker reserves capacity in a short database transaction shared across overlapping executions: at most 100 daily and 3,000 monthly accepted/in-flight/uncertain emails for this app, using UTC boundaries. Limits cannot be configured higher than Free. Lower them if the Resend account also sends other mail. Provider limits remain authoritative because dashboard tests, other apps and received messages may consume the same quota. Keep this app's Resend account dedicated where possible.
+Resend Free is limited to 100 recipient emails per UTC day and 3,000 per month. Multiple To/CC/BCC recipients still count separately. The job sends one recipient per request and counts one grouped email, not one notification. Provider quota headers/errors remain authoritative if your account also sends or receives other mail. See [Resend quotas](https://resend.com/docs/knowledge-base/account-quotas-and-limits).
 
-When a local or provider quota is reached, affected emails remain pending until the next UTC day/month. Quota deferrals do not exhaust normal retry attempts. The worker checks whether each reminder is still relevant at send time; an expired kickoff reminder is skipped rather than sent after the game. Thus Free may delay or omit emails during busy days. Players should use the app as the source of truth.
+The existing five-minute Cloud Scheduler schedule does not change. Every execution processes urgent alerts first; digest sending additionally requires the configured UTC evening window. Midnight UTC is 7 PM Eastern in winter and 8 PM in summer; the default 23:00 UTC digest start is 6 PM/7 PM Eastern. Keep the window configured in UTC so it tracks provider resets rather than daylight-saving changes.
 
-Each request includes a stable delivery ID as its Resend idempotency key. Resend retains these for 24 hours. The database prevents ordinary duplicate claims; uncertain network failures and interrupted sends are held as UNKNOWN for manual investigation, not automatically resent beyond that window. Definitive throttling has bounded retries; hard rejections become FAILED. Fix credentials/configuration and inspect the provider dashboard before manually changing delivery states. Never reset SENT records as a routine retry.
+Defaults are configured initially through `EMAIL_DIGEST_START_HOUR_UTC=23`, `EMAIL_DIGEST_DAILY_LIMIT=80`, `EMAIL_URGENT_RESERVE=5`, and the total daily/monthly caps. After import, administrators edit them directly in **App Settings**. Digests can use at most the lesser of the remaining digest allowance and remaining daily capacity minus the urgent reserve. With 10 prior sends, up to 80 digests can send; with 35 prior sends, up to 60 can send. A zero digest limit disables digests; a zero reserve allows them to consume all remaining daily capacity. These settings never raise the provider's total Free limits.
 
-Pause the schedule or lower limits while investigating a backlog. Queued emails recheck user preferences before sending. Monitor pending age, retrying/deferred counts and failures. Do not enable pay-as-you-go or upgrade without intentionally deciding to change this Free-only setup.
+Only eligible opted-in recipients with important unread, not-yet-emailed notifications count as digest candidates, rather than every registered player. Approaching event deadlines are prioritized, then the oldest waiting notification, with stable tie-breaking. Recipients who have waited since the previous night stay ahead of newly eligible recipients at the same deadline priority. A digest counts once per user per UTC day. Urgent alerts are exceptions to that user limit and can still send after their digest. Read, resolved, expired or previously emailed notifications are rechecked and removed before each send. Turning urgent alerts off still allows important urgent-type notifications in a digest if the user opted into summaries.
+
+When daily capacity is exhausted, urgent alerts can resume after midnight UTC. Digests wait for the following evening window, preserving their queue age. Provider quota errors pause further calls until the relevant reset and do not exhaust retry attempts. A delayed kickoff reminder is rebuilt as today/tomorrow using the event timezone; if kickoff has passed, it is skipped. Free sending therefore prioritizes urgent messages but cannot guarantee prompt delivery after the shared cap is reached.
+
+Each outgoing email uses a stable Resend idempotency key. Definitive throttling retries are bounded; hard rejections become FAILED. Network/acceptance uncertainty or interrupted sends become UNKNOWN for the email and its included notifications. Do not reset those states without checking the provider dashboard. Provider acceptance is not proof of inbox delivery, and exactly-once external delivery is not guaranteed.
+
+For an existing installation: pause the schedule and wait for active executions, deploy the new migration/app/worker through the normal pipeline, include both the digest migration and App Settings migration, deploy the new worker image, then preview and resume the existing schedule. The first run imports its numeric environment settings into the database; review/edit them in App Settings afterward. Keep the original rollout timestamp. Existing email opt-outs initialize both new preferences off; existing opt-ins initialize both on. Existing sent/unknown records remain excluded. The old master preference stays compatible with older app clients while the new page saves independent choices.
+
+Monitor failed job executions, batch status, pending notification age, deferred counts, and Resend delivery/suppression status. Do not upgrade or enable paid overages unless intentionally changing the Free-only setup.
 
 ## 10. Launch checklist
 
@@ -268,9 +330,25 @@ Pause the schedule or lower limits while investigating a backlog. Queued emails 
 - [ ] HTTPS origin and rollout timestamp verified.
 - [ ] Previewed all notification types, cutoff wording and How to links.
 - [ ] Confirmed a cancelled game does not receive upcoming/late-payment instructions.
-- [ ] Verified profile email preferences and sign-out/sign-in notification links.
+- [ ] Verified admin App Settings imports existing worker values, saves without deployment, and denies organizer/player access.
+- [ ] Verified both independent profile preferences and sign-out/sign-in notification/profile links.
+- [ ] Verified one digest/user/UTC day, urgent exceptions, evening window, reserve, and queue fairness.
+- [ ] Previewed a delayed reminder changing from tomorrow to today, and expiring after kickoff.
 - [ ] Verified overlapping job runs do not claim the same email twice.
 - [ ] Scheduled execution works with no app users online.
 - [ ] GitHub deploys the worker image as well as the app; failed executions are monitored.
 
 Resend, Cloud Run, Cloud SQL and Scheduler usage are billed by their providers. Resend email sending is $0 while staying within Free limits. Cloud Run job startup/database work, Scheduler and secrets can still add usage charges; Free email does not make the GCP worker free. Check current provider pricing and actual usage after launch. The existing app/database bill is separate.
+
+## 11. Troubleshoot a failed GCP preview
+
+If logs contain only the older generic failure message, the cause is not yet known. First set `EMAIL_PREVIEW_DIR=/tmp/tricity-email-previews` on the **email job**, save, and execute another preview. The container runs as a non-root user; a relative `email-previews` directory under `/app` may not be writable. Preview output is temporary and uses container memory. Never change delivery mode to resend to bypass a preview failure.
+
+New worker images log a safe JSON diagnostic with `stage`, an allowlisted error `code` when available, and `hint`, without raw error text, credentials or recipients. Deploy the code through GitHub, then verify the email job image matches the successful commit (update manually in the console if `EMAIL_WORKER_ENABLED` is not true). Re-execute in preview mode.
+
+- `configuration`: check sender exactly `no_reply@contact.tricitiesdropin.com`, mode `preview`, valid UTC timestamp ending in `Z`, and site origin. Leave optional variables absent rather than entering placeholder values.
+- `database-connect`: check the database secret reference/version, SQL attachment, Cloud SQL Client role, and network setup.
+- `notification-generation` with `P2021`/`P2022`: confirm the migration job succeeded and the runtime database grants cover the new table/column.
+- `preview-rendering` with `EACCES`/`EPERM`: use the writable `/tmp/tricity-email-previews` directory. Do not use the root-owned `/app` directory.
+
+A successful preview logs `mode: "preview"`, `sent: 0`, and counts for generated/previewed notifications. No Resend API call occurs in preview mode, so Resend DNS/API key troubleshooting is not the first step for a preview failure.

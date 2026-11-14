@@ -1,4 +1,6 @@
 import 'reflect-metadata';
+import { EventPresetsController, EventPresetsService } from './event-presets';
+import { AppSettingsController, AppSettingsService } from './app-settings';
 import { Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
@@ -21,7 +23,7 @@ import { OrganizerController, OrganizerService } from './organizer';
 import { LocationsController, LocationsService } from './locations';
 import { AdministrationController, AdministrationService, OrganizerEventEditingController } from './administration';
 
-@Module({ controllers: [EventSharingController, WaiverController, MyStrikesController, AdminStrikesController, TeamsController, EventInvitationsController, OrganizerRequestsController, AdminUsersController, NotificationsController, EventManagementController, EventsController, ProfilesController, SignupsController, PaymentsController, OrganizerController, LocationsController, AdministrationController, OrganizerEventEditingController], providers: [EventSharingService, WaiverService, StrikesService, TeamsService, EventInvitationsService, OrganizerRequestsService, NotificationsService, EventManagementService, Database, AdministratorGuard, FirebaseGuard, OptionalFirebaseGuard, OrganizerGuard, TokenVerifier, SignupsService, PaymentsService, OrganizerService, LocationsService, AdministrationService] })
+@Module({ controllers: [EventPresetsController, AppSettingsController, EventSharingController, WaiverController, MyStrikesController, AdminStrikesController, TeamsController, EventInvitationsController, OrganizerRequestsController, AdminUsersController, NotificationsController, EventManagementController, EventsController, ProfilesController, SignupsController, PaymentsController, OrganizerController, LocationsController, AdministrationController, OrganizerEventEditingController], providers: [EventPresetsService, AppSettingsService, EventSharingService, WaiverService, StrikesService, TeamsService, EventInvitationsService, OrganizerRequestsService, NotificationsService, EventManagementService, Database, AdministratorGuard, FirebaseGuard, OptionalFirebaseGuard, OrganizerGuard, TokenVerifier, SignupsService, PaymentsService, OrganizerService, LocationsService, AdministrationService] })
 export class AppModule {}
 
 async function bootstrap() {

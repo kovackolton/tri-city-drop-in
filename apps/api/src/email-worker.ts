@@ -1,16 +1,31 @@
 import 'reflect-metadata';
+import { AppSettingsService } from './app-settings';
 import { Database } from './database';
 import { NotificationsService } from './notifications';
 import { emailConfig, NotificationEmailWorker, ResendEmailSender } from './email-delivery';
+import { emailDiagnostic } from './email-diagnostics';
 async function main() {
-  const config = emailConfig();
-  if (!config) { console.log('Notification email worker disabled. Set EMAIL_ENABLED=true to enable it.'); return; }
-  const db = new Database();
+  let stage = 'configuration';
+  let db: Database | undefined;
   try {
+    let config = emailConfig();
+    if (!config) { console.log('Notification email worker disabled. Set EMAIL_ENABLED=true to enable it.'); return; }
+    stage = 'database-connect';
+    db = new Database();
     await db.$connect();
+    stage = 'email-settings';
+    config = await new AppSettingsService(db).effective(config);
     const worker = new NotificationEmailWorker(db, new NotificationsService(db), config, config.mode === 'resend' ? new ResendEmailSender(config) : undefined);
-    const result = await worker.run(); console.log(JSON.stringify({ mode: config.mode, ...result }));
-    if (result.generation.refreshFailures || result.delivery.failed || result.delivery.unknown) process.exitCode = 1;
-  } finally { await db.$disconnect(); }
+    stage = 'notification-generation';
+    const generation = await worker.generate();
+    stage = config.mode === 'preview' ? 'preview-rendering' : 'email-delivery';
+    const delivery = await worker.deliver();
+    console.log(JSON.stringify({ mode: config.mode, generation, delivery }));
+    if (generation.refreshFailures || delivery.failed || delivery.unknown) process.exitCode = 1;
+  } catch (error) {
+    console.error(JSON.stringify(emailDiagnostic(stage, error))); process.exitCode = 1;
+  } finally {
+    if (db) try { await db.$disconnect(); } catch (error) { console.error(JSON.stringify(emailDiagnostic('database-disconnect', error))); process.exitCode = 1; }
+  }
 }
-main().catch(() => { console.error('Notification email worker failed. Check configuration, database connectivity and provider access; no credentials or message bodies are logged.'); process.exitCode = 1; });
+void main();

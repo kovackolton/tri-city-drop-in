@@ -51,12 +51,16 @@ enum PaymentStatus {
 }
 
 model User {
+  eventPresets EventPreset[]
   id          String   @id @default(uuid()) @db.Uuid
   firebaseUid String   @unique
   email       String   @unique
   displayName String
   nickname    String?
   emailNotificationsEnabled Boolean @default(true)
+  emailDigestEnabled Boolean @default(true)
+  emailUrgentEnabled Boolean @default(true)
+  notificationEmailBatches NotificationEmailBatch[]
   shareWaitlistContact Boolean @default(false)
   preferredPositions String[] @default([])
   skillLevel  Int?
@@ -292,6 +296,8 @@ model NotificationEmail {
   id String @id @default(uuid()) @db.Uuid
   notificationId String @unique @db.Uuid
   notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  batchId String? @db.Uuid
+  batch NotificationEmailBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
   status String @default("PENDING")
   attempts Int @default(0)
   nextAttemptAt DateTime @default(now()) @db.Timestamptz(3)
@@ -303,4 +309,43 @@ model NotificationEmail {
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
   @@index([status, nextAttemptAt])
+  @@index([batchId])
+}
+
+model NotificationEmailBatch {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  kind String
+  status String @default("PENDING")
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now()) @db.Timestamptz(3)
+  claimedAt DateTime? @db.Timestamptz(3)
+  sentAt DateTime? @db.Timestamptz(3)
+  recipient String?
+  providerMessageId String?
+  lastError String?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  entries NotificationEmail[]
+  @@index([status, nextAttemptAt])
+  @@index([userId, kind, claimedAt])
+}
+
+model AppSetting {
+  key String @id
+  value Json
+  revision Int @default(0)
+  updatedAt DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+}
+
+model EventPreset {
+  id String @id @default(uuid()) @db.Uuid
+  ownerId String @db.Uuid
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name String
+  nameKey String
+  settings Json
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  @@unique([ownerId, nameKey])
 }

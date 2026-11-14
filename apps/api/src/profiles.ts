@@ -14,14 +14,14 @@ export class ProfilesController {
       if (accountName !== undefined && user.accountNameSetAt) throw new ConflictException('Your account name cannot be edited. Use your nickname instead.');
       if (!user.accountNameSetAt && !accountName) throw new ConflictException('Set your account name to complete your profile. It cannot be changed afterward.');
       return this.profile(await tx.user.update({ where: { id: user.id }, data: {
-        ...data, ...(accountName === undefined ? {} : { displayName: accountName, accountNameSetAt: new Date() }),
+        ...data, ...((data.emailDigestEnabled !== undefined || data.emailUrgentEnabled !== undefined) ? { emailNotificationsEnabled: (data.emailDigestEnabled ?? user.emailDigestEnabled) || (data.emailUrgentEnabled ?? user.emailUrgentEnabled) } : {}), ...(accountName === undefined ? {} : { displayName: accountName, accountNameSetAt: new Date() }),
         profileCompletedAt: user.profileCompletedAt ?? new Date()
       } }));
     });
   }
   private profile(user: AuthRequest['user']) {
     return { id: user.id, displayName: user.nickname ?? user.displayName, accountName: user.displayName,
-      accountNameSetAt: user.accountNameSetAt, profileCompletedAt: user.profileCompletedAt, nickname: user.nickname, skillLevel: user.skillLevel, preferredPositions: user.preferredPositions, shareWaitlistContact: user.shareWaitlistContact, emailNotificationsEnabled: user.emailNotificationsEnabled,
+      accountNameSetAt: user.accountNameSetAt, profileCompletedAt: user.profileCompletedAt, nickname: user.nickname, skillLevel: user.skillLevel, preferredPositions: user.preferredPositions, shareWaitlistContact: user.shareWaitlistContact, emailNotificationsEnabled: user.emailNotificationsEnabled, emailDigestEnabled: user.emailDigestEnabled, emailUrgentEnabled: user.emailUrgentEnabled,
       email: user.email, role: user.role, contactEmail: user.contactEmail, phone: user.phone,
       avatarUrl: googleAvatarUrl(user.avatarUrl), avatarColor: user.avatarColor, useGooglePhoto: user.useGooglePhoto };
   }

@@ -1,3 +1,4 @@
+import { ActionErrorDirective, FormFeedbackDirective } from '../form-feedback/form-feedback.directive';
 import { IconComponent } from '../icon/icon.component';
 import { Component, EventEmitter, Input, OnInit, Output, effect, inject, signal } from '@angular/core';
 import { FormsModule, NgForm } from '@angular/forms';
@@ -9,7 +10,7 @@ import { WaiverPanelComponent } from '../waiver-panel/waiver-panel.component';
 import { StrikePanelComponent } from '../strike-panel/strike-panel.component';
 import { avatarColors } from '../../avatar';
 interface OrganizerRequest { id: string; status: 'PENDING' | 'GRANTED' | 'CLEARED'; }
-@Component({ selector: 'app-profile', imports: [IconComponent, FormsModule, AvatarComponent, StrikePanelComponent, WaiverPanelComponent], templateUrl: './profile.component.html' })
+@Component({ selector: 'app-profile', imports: [ActionErrorDirective, FormFeedbackDirective, IconComponent, FormsModule, AvatarComponent, StrikePanelComponent, WaiverPanelComponent], templateUrl: './profile.component.html' })
 export class ProfileComponent implements OnInit {
   @Input() sectionRequest: { section: 'strikes' | 'waiver'; id: number } | null = null;
   readonly auth = inject(AuthService);
@@ -26,13 +27,14 @@ export class ProfileComponent implements OnInit {
   readonly positions = [{ code: 'GK', label: 'Goal keeper' }, { code: 'DF', label: 'Defense' }, { code: 'MF', label: 'Midfield' }, { code: 'F', label: 'Forward' }];
   preferredPositions: string[] = [];
   shareWaitlistContact = false;
-  emailNotificationsEnabled = true;
+  emailDigestEnabled = true;
+  emailUrgentEnabled = true;
   togglePosition(code: string, selected: boolean) { this.preferredPositions = selected ? [...new Set([...this.preferredPositions, code])] : this.preferredPositions.filter(position => position !== code); }
   accountName = ''; nickname = ''; skillLevel: number | null = null; contactEmail = ''; phone = ''; avatarColor = 'emerald'; useGooglePhoto = true;
   constructor() {
     effect(() => {
       const profile = this.auth.profile();
-      this.accountName = profile?.accountName ?? ''; this.nickname = profile?.nickname ?? ''; this.skillLevel = profile?.skillLevel ?? null; this.preferredPositions = [...(profile?.preferredPositions ?? [])]; this.shareWaitlistContact = profile?.shareWaitlistContact ?? false; this.emailNotificationsEnabled = profile?.emailNotificationsEnabled ?? true;
+      this.accountName = profile?.accountName ?? ''; this.nickname = profile?.nickname ?? ''; this.skillLevel = profile?.skillLevel ?? null; this.preferredPositions = [...(profile?.preferredPositions ?? [])]; this.shareWaitlistContact = profile?.shareWaitlistContact ?? false; this.emailDigestEnabled = profile?.emailDigestEnabled ?? profile?.emailNotificationsEnabled ?? true; this.emailUrgentEnabled = profile?.emailUrgentEnabled ?? profile?.emailNotificationsEnabled ?? true;
       this.contactEmail = profile?.contactEmail ?? ''; this.phone = profile?.phone ?? ''; this.avatarColor = profile?.avatarColor ?? 'emerald'; this.useGooglePhoto = profile?.useGooglePhoto ?? true;
     });
   }
@@ -57,7 +59,7 @@ export class ProfileComponent implements OnInit {
     const onboarding = !this.auth.profile()?.profileCompletedAt;
     this.saving.set(true); this.notice.set(''); this.error.set('');
     try {
-      await this.auth.saveProfile({ nickname: this.nickname.trim() || null, skillLevel: this.skillLevel, preferredPositions: this.preferredPositions, shareWaitlistContact: this.shareWaitlistContact, emailNotificationsEnabled: this.emailNotificationsEnabled, ...(!this.auth.profile()?.accountNameSetAt ? { accountName: this.accountName } : {}), contactEmail: this.contactEmail.trim() || null, phone: this.phone.trim() || null, avatarColor: this.avatarColor, useGooglePhoto: this.useGooglePhoto });
+      await this.auth.saveProfile({ nickname: this.nickname.trim() || null, skillLevel: this.skillLevel, preferredPositions: this.preferredPositions, shareWaitlistContact: this.shareWaitlistContact, emailDigestEnabled: this.emailDigestEnabled, emailUrgentEnabled: this.emailUrgentEnabled, ...(!this.auth.profile()?.accountNameSetAt ? { accountName: this.accountName } : {}), contactEmail: this.contactEmail.trim() || null, phone: this.phone.trim() || null, avatarColor: this.avatarColor, useGooglePhoto: this.useGooglePhoto });
       this.notice.set('Profile saved.'); if (onboarding) this.completed.emit();
     } catch (error) { this.error.set(message(error)); }
     finally { this.saving.set(false); }

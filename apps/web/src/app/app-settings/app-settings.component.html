@@ -1,0 +1,62 @@
+@if (auth.profile()?.role === 'ADMINISTRATOR') {
+<section class="panel mt-6" aria-labelledby="app-settings-heading">
+  <div class="settings-heading"><div><h2 id="app-settings-heading" class="text-2xl font-bold">App Settings</h2><p class="text-sm text-muted mt-2">Control notification emails for the whole app. Saving does not send emails immediately.</p></div><button type="button" class="secondary refresh-icon-button" (click)="refresh()" [disabled]="loading() || saving() || rulesLoading() || rulesSaving()" aria-label="Reload app settings" title="Reload app settings"><app-icon name="refresh" /></button></div>
+  @if (error()) { <p class="notice error mt-4" role="alert">{{ error() }}</p> }
+  @if (notice()) { <p class="notice mt-4" role="status">{{ notice() }}</p> }
+  @if (loading()) { <p class="text-muted mt-4" role="status">Loading settings...</p> }
+  @if (loaded()) {
+    @if (!configured) { <p class="notice mt-4">No shared settings have been saved yet. These are starting defaults. The first email worker run imports its existing settings, or you can save the values below.</p> }
+    <form appFormFeedback #settingsForm="ngForm" (ngSubmit)="save(settingsForm)" class="mt-5">
+      <fieldset [disabled]="loading() || saving()"><legend class="text-lg font-bold">Evening summaries</legend><p class="text-sm text-muted mt-2">Urgent alerts take priority all day. Digests send from the selected hour until midnight UTC, when the daily allowance resets.</p>
+        <div class="settings-grid">
+          <label>Digest start time<select name="digestStartHour" [(ngModel)]="values.digestStartHour" required>@for (hour of hours; track hour.value) { <option [ngValue]="hour.value">{{ hour.label }}</option> }</select><span class="settings-help">23:00 UTC is 6 PM Eastern in winter and 7 PM in summer.</span></label>
+          <label>Maximum digests per day<input name="digestDailyLimit" type="number" [(ngModel)]="values.digestDailyLimit" min="0" max="100" step="1" required><span class="settings-help">0-100. Set to 0 to pause summaries. Each user receives at most one digest per UTC day.</span></label>
+          <label>Slots reserved for urgent alerts<input name="urgentReserve" type="number" [(ngModel)]="values.urgentReserve" min="0" max="100" step="1" required><span class="settings-help">0-100. Digests leave this many daily slots unused for late urgent alerts. If the reserve equals or exceeds the daily limit, no digests send.</span></label>
+        </div>
+      </fieldset>
+      <fieldset class="mt-6" [disabled]="loading() || saving()"><legend class="text-lg font-bold">Shared sending limits</legend><p class="text-sm text-muted mt-2">These limits cover urgent alerts and digests together. Resend's account limits still apply, including any usage outside this app.</p><div class="settings-grid">
+        <label>Daily email limit<input name="dailyLimit" type="number" [(ngModel)]="values.dailyLimit" min="1" max="100" step="1" required><span class="settings-help">1-100 recipients per UTC day. Lower this to reserve provider capacity for other uses.</span></label>
+        <label>Monthly email limit<input name="monthlyLimit" type="number" [(ngModel)]="values.monthlyLimit" min="1" max="3000" step="1" required><span class="settings-help">1-3,000 recipients per month. Quota changes do not reset the number already sent.</span></label>
+      </div></fieldset>
+      <details class="mt-6"><summary class="font-semibold cursor-pointer">Advanced delivery settings</summary><fieldset [disabled]="loading() || saving()"><legend class="sr-only">Advanced delivery settings</legend><div class="settings-grid">
+        <label>Maximum emails per worker run<input name="batchSize" type="number" [(ngModel)]="values.batchSize" min="1" max="500" step="1" required><span class="settings-help">1-500. Daily and monthly limits still apply. Larger batches can take longer to finish.</span></label>
+        <label>Delay between sends (milliseconds)<input name="intervalMs" type="number" [(ngModel)]="values.intervalMs" min="1" max="60000" step="1" required><span class="settings-help">1-60,000. Default 1,100 avoids bursts. This does not change how often the worker runs.</span></label>
+      </div></fieldset></details>
+      <p class="text-sm text-muted mt-6">Saved changes apply to the next worker execution, normally within five minutes. Urgent alerts still cannot send after the daily quota is exhausted. Players' individual email preferences remain in effect.</p>
+      @if (updatedAt) { <p class="text-xs text-muted mt-2">Last updated: {{ updatedLabel() }}</p> }
+      <button type="submit" class="primary mt-4" [disabled]="saving() || loading()" [appActionError]="error()">{{ saving() ? 'Saving...' : 'Save app settings' }}</button>
+    </form>
+  }
+<section class="mt-8" aria-labelledby="notification-rules-heading">
+  <div class="settings-heading"><div><h2 id="notification-rules-heading" class="text-2xl font-bold">Notification email rules</h2><p class="text-sm text-muted mt-2">Choose how each existing notification type is emailed. This changes email delivery, not when notifications are created in the app.</p></div><button type="button" class="secondary refresh-icon-button" (click)="loadRules()" [disabled]="rulesLoading() || rulesSaving()" aria-label="Reload notification rules" title="Reload notification rules" [appActionError]="rulesError()"><app-icon name="refresh" /></button></div>
+  <p class="text-xs text-muted mt-3">Unread, eligibility, player email preferences and sending limits still apply. Urgent alerts use the urgent-alert preference; when it is off, they can join a digest if summaries are enabled. Changing a tier does not resend emailed notifications. Example messages below omit event-specific titles; reminder wording changes to today/tomorrow at send time.</p>
+  @if (rulesError()) { <p class="notice error mt-4" role="alert">{{ rulesError() }}</p> }
+  @if (rulesNotice()) { <p class="notice mt-4" role="status">{{ rulesNotice() }}</p> }
+  @if (rulesLoading()) { <p class="text-muted mt-4" role="status">Loading notification rules...</p> }
+  <details class="panel game-filters mt-5"><summary>Filter notifications <span class="filter-count">{{ activeRuleFilters() }} active</span></summary>
+    <div class="filter-toolbar mt-4"><label>Search<input type="search" [(ngModel)]="ruleSearch" maxlength="100" placeholder="Notification, message or trigger"></label>
+      <label>Email tier<select [(ngModel)]="tierFilter"><option value="">All tiers</option>@for (tier of tiers; track tier.value) { <option [value]="tier.value">{{ tier.label }}</option> }<option value="TIME_SENSITIVE">Time-sensitive</option></select></label>
+      <label>Audience<select [(ngModel)]="audienceFilter"><option value="">All audiences</option>@for (audience of audiences(); track audience) { <option [value]="audience">{{ audience }}</option> }</select></label>
+      <label>Sort by<select [(ngModel)]="ruleSort"><option value="name">Notification name</option><option value="tier">Email tier</option></select></label>
+      <button type="button" class="secondary" (click)="clearRuleFilters()">Clear filters</button>
+    </div>
+  </details>
+  <div class="flex flex-wrap gap-3 items-end mt-4"><p class="text-sm text-muted">{{ filteredRules().length }} of {{ catalog().length }} notification types</p>
+    <label>Tier for selected notifications<select [(ngModel)]="bulkTier" [disabled]="rulesSaving()">@for (tier of tiers; track tier.value) { <option [value]="tier.value">{{ tier.label }}</option> }</select></label>
+    <button type="button" class="secondary" [disabled]="!selectedRules.size || rulesSaving()" (click)="applyBulkTier()">Apply to {{ selectedRules.size }} selected</button>
+    @if (selectedRules.size) { <button type="button" class="secondary" (click)="selectedRules.clear()">Clear selection (includes hidden rows)</button> }
+  </div>
+  <div class="notification-rule-table mt-4"><table><caption class="sr-only">Notification wording, creation triggers and configurable email delivery tiers</caption><thead><tr>
+    <th scope="col"><input type="checkbox" class="!w-auto !m-0" aria-label="Select all visible notification types" [ngModel]="allVisibleSelected()" (ngModelChange)="selectVisible($event)" [disabled]="rulesSaving()"></th>
+    <th scope="col">Notification &amp; message</th><th scope="col">Created when</th><th scope="col">Email tier</th><th scope="col">Email timing</th>
+  </tr></thead><tbody>@for (row of filteredRules(); track row.kind) { <tr [class.rule-changed]="rules[row.kind] !== row.defaultTier">
+    <td data-label="Select"><input type="checkbox" class="!w-auto !m-0" [attr.aria-label]="'Select ' + row.name" [ngModel]="selectedRules.has(row.kind)" (ngModelChange)="selectRule(row.kind, $event)" [disabled]="rulesSaving()"></td>
+    <th scope="row"><span class="font-bold">{{ row.name }}</span><span class="block text-xs text-muted mt-1">{{ row.audience }}</span><p class="text-sm mt-3">{{ row.message }}</p></th>
+    <td data-label="Created when">{{ row.trigger }}</td>
+    <td data-label="Email tier"><select [attr.aria-label]="'Email tier for ' + row.name" [(ngModel)]="rules[row.kind]" [disabled]="rulesSaving()">@for (tier of tiers; track tier.value) { <option [value]="tier.value">{{ tier.label }}</option> }@if (row.kind === 'EVENT_CHANGED') { <option value="TIME_SENSITIVE">Time-sensitive</option> }</select><p class="text-xs text-muted mt-2">Default: {{ tierLabel(row.defaultTier) }}</p>@if (rules[row.kind] !== row.defaultTier) { <button type="button" class="secondary mt-2 text-xs" (click)="resetRule(row)" [disabled]="rulesSaving()">Use default</button> }</td>
+    <td data-label="Email timing">{{ timing(rules[row.kind]) }}</td>
+  </tr> } @empty { <tr><td colspan="5">No notification types match these filters.</td></tr> }</tbody></table></div>
+  <div class="flex flex-wrap items-center gap-3 mt-4"><button type="button" class="primary" (click)="saveRules()" [disabled]="rulesSaving() || rulesLoading() || !changedRules()" [appActionError]="rulesError()">{{ rulesSaving() ? 'Saving...' : 'Save notification rules' }}</button><span class="text-sm text-muted">{{ changedRules() }} unsaved tier changes, including any hidden by filters.</span></div>
+</section>
+</section>
+}

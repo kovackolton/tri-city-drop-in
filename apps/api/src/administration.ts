@@ -56,7 +56,7 @@ export class AdministrationService {
       if (updated.status === 'PUBLISHED' && updated.startsAt > new Date() && capacity > event.capacity) await this.signups.promote(tx, updated);
       await tx.paymentObligation.updateMany({ where: { signup: { eventId: id }, status: 'UNPAID' }, data: { dueAt: endsAt } });
       const hosts = await tx.signup.findMany({ where: { eventId: id, guestNumber: 0, status: { in: ['CONFIRMED', 'WAITLISTED'] } }, select: { userId: true } });
-      for (const host of hosts) await tx.notification.create({ data: { userId: host.userId, kind: returningToDraft ? 'EVENT_RETURNED_TO_DRAFT' : 'EVENT_CHANGED', dedupeKey: `edit:${id}:${revision}:${host.userId}`, payload: { eventId: id, title: updated.title } } });
+      for (const host of hosts) await tx.notification.create({ data: { userId: host.userId, kind: returningToDraft ? 'EVENT_RETURNED_TO_DRAFT' : 'EVENT_CHANGED', dedupeKey: `edit:${id}:${revision}:${host.userId}`, payload: { eventId: id, title: updated.title, previousStartsAt: event.startsAt.toISOString(), timeOrLocationChanged: event.startsAt.getTime() !== updated.startsAt.getTime() || event.endsAt.getTime() !== updated.endsAt.getTime() || event.locationId !== updated.locationId } } });
       await tx.auditLog.create({ data: { actorId, eventId: id, action: administrator ? 'ADMIN_EVENT_EDITED' : 'EVENT_EDITED', details: { before: JSON.parse(JSON.stringify({ ...event, privateInviteToken: undefined })), after: JSON.parse(JSON.stringify(data)) } } });
       if (returningToDraft) await tx.auditLog.create({ data: { actorId, eventId: id, action: 'EVENT_RETURNED_TO_DRAFT', details: { previousStatus: event.status, bookingsRetained: true } } });
       return updated;

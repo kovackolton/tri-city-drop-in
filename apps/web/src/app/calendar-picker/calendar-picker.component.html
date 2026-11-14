@@ -7,6 +7,6 @@
     @for (day of days(); track day.key) { <button type="button" [attr.data-date]="day.key" [attr.aria-label]="day.label + (hasGame(day.key) ? ', has games' : '')" [attr.aria-pressed]="selected(day.key)" [attr.aria-current]="today(day.key) ? 'date' : null" [class.outside]="day.outside" [class.chosen]="selected(day.key)" [class.today]="today(day.key)" (click)="choose(day.key)" (keydown)="keyboard($event, day.key, dates)">{{ day.day }}@if (hasGame(day.key)) { <span class="game-dot" aria-hidden="true"></span> }</button> }
   </div>
   <div class="calendar-footer"><button type="button" class="secondary" (click)="goToday()">Today</button><button type="button" class="secondary" (click)="mode('all')">All dates</button></div>
-  <p class="text-xs text-muted mt-3">A dot marks a day with matching games. Dates follow the venue timezone. Weeks start Monday.</p>
+  <p class="text-xs text-muted mt-3">A dot marks a day with matching games. Dates follow the venue timezone. Weeks start Sunday.</p>
 @if (markerError()) { <p role="status" class="text-xs text-muted mt-2">Game dates could not be loaded. Refresh this page to retry.</p> }
 </section>

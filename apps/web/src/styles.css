@@ -78,3 +78,6 @@ aside :focus-visible, .game-header :focus-visible { outline-color: var(--focus-o
 button.refresh-icon-button.refresh-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 44px; min-width: 44px; height: 44px; padding: 0; vertical-align: middle; flex-shrink: 0; }
 
 .filter-count { display: inline-block; margin-left: .5rem; padding: .2rem .6rem; border-radius: 999px; font-size: .75rem; color: var(--badge-text); background: var(--badge-bg); }
+
+.danger-action { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 44px; padding: .75rem 1.15rem; border: 2px solid currentColor; border-radius: .7rem; background: var(--destructive-bg); color: var(--on-destructive); font-size: .875rem; font-weight: 750; }
+.danger-action:hover:not(:disabled) { background: var(--destructive-hover); }

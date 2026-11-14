@@ -1,4 +1,9 @@
 import '@angular/compiler';
+import { JSDOM } from 'jsdom';
+import { ElementRef } from '@angular/core';
+import { NgForm } from '@angular/forms';
+import { ActionErrorDirective, FormFeedbackDirective } from '../src/app/form-feedback/form-feedback.directive';
+import { AppSettingsComponent } from '../src/app/app-settings/app-settings.component';
 import { CancelBookingComponent } from '../src/app/cancel-booking/cancel-booking.component';
 import { SubstituteSeatComponent } from '../src/app/substitute-seat/substitute-seat.component';
 import { WaitlistContactsComponent } from '../src/app/substitute-seat/waitlist-contacts.component';
@@ -27,7 +32,7 @@ import { RosterComponent } from '../src/app/roster/roster.component';
 import { OrganizerSeat } from '../src/app/organizer-seat/organizer-seat.component';
 import { DialogComponent } from '../src/app/dialog/dialog.component';
 import { PaymentReviewComponent } from '../src/app/payment-review/payment-review.component';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable, Subject, of, throwError } from 'rxjs';
 import { EventInvitationsComponent } from '../src/app/event-invitations/event-invitations.component';
 import { SignupComponent } from '../src/app/signup/signup.component';
@@ -653,13 +658,14 @@ test('event sharing fetches fresh public metadata and ignores results for a prev
 });
 
 
-test('calendar uses venue dates and Monday weeks across DST and year boundaries', () => {
+test('calendar uses venue dates and Sunday weeks across DST and year boundaries', () => {
   assert.equal(venueDate('2027-01-01T01:00:00Z', 'America/New_York'), '2026-12-31');
   assert.equal(matchesCalendar('2027-01-01T01:00:00Z', 'America/New_York', { period: 'day', date: '2026-12-31' }), true);
   assert.equal(matchesCalendar('2026-11-02T04:30:00Z', 'America/New_York', { period: 'week', date: '2026-11-01' }), true);
-  assert.equal(matchesCalendar('2026-11-02T05:00:00Z', 'America/New_York', { period: 'week', date: '2026-11-01' }), false);
+  assert.equal(matchesCalendar('2026-11-02T05:00:00Z', 'America/New_York', { period: 'week', date: '2026-11-01' }), true);
+  assert.equal(matchesCalendar('2026-11-08T05:00:00Z', 'America/New_York', { period: 'week', date: '2026-11-01' }), false);
   const calendar = new CalendarPickerComponent(); calendar.selection = { period: 'day', date: '2028-02-29' }; calendar.ngOnChanges();
-  assert.equal(calendar.days().length, 42); assert.ok(calendar.days().some(day => day.key === '2028-02-29' && !day.outside));
+  assert.equal(calendar.days().length, 42); assert.equal(new Date(calendar.days()[0].key + 'T12:00:00').getDay(), 0); assert.deepEqual(calendar.weekdays, ['S', 'M', 'T', 'W', 'T', 'F', 'S']); assert.ok(calendar.days().some(day => day.key === '2028-02-29' && !day.outside));
   calendar.move(1); assert.match(calendar.title(), /March 2028/);
   let emitted: any; calendar.selectionChange.subscribe(value => emitted = value);
   calendar.selection = { period: 'week', date: '2028-02-29' }; calendar.choose('2028-03-07');
@@ -1069,4 +1075,152 @@ test('notification deep link opens the inbox and asks signed-out users to sign i
     signedIn = true; component.restoreHowToLocation(); assert.equal(loaded, 1);
     const template = readFileSync(resolve('src/app/app.component.html'), 'utf8'); assert.match(template, /Sign in to view notifications/);
   } finally { if (descriptor) Object.defineProperty(globalThis, 'window', descriptor); else Reflect.deleteProperty(globalThis, 'window'); }
+});
+
+test('profile saves independent summary and urgent preferences without reverting the other choice', async () => {
+  let saved: any;
+  const component = Object.assign(Object.create(ProfileComponent.prototype), {
+    preferredPositions: [], shareWaitlistContact: false, emailDigestEnabled: false, emailUrgentEnabled: true,
+    saving: signal(false), error: signal(''), notice: signal(''), nickname: '', skillLevel: null, contactEmail: '', phone: '', avatarColor: 'teal', useGooglePhoto: false,
+    auth: { profile: () => ({ accountNameSetAt: 'set', profileCompletedAt: 'done' }), saveProfile: async (body: any) => { saved = body; } }
+  }) as ProfileComponent;
+  await component.save({ invalid: false } as any); assert.equal(saved.emailDigestEnabled, false); assert.equal(saved.emailUrgentEnabled, true);
+  component.emailUrgentEnabled = false; component.emailDigestEnabled = true;
+  await component.save({ invalid: false } as any); assert.equal(saved.emailDigestEnabled, true); assert.equal(saved.emailUrgentEnabled, false);
+});
+test('email preference link preserves My profile through sign-in', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { location: { hash: '#profile' } } });
+  try {
+    let profile: any = null; const destinations: string[] = [];
+    const component = Object.assign(Object.create(AppComponent.prototype), { page: signal('games'), closeMobileNavigation: () => {}, auth: { profile: () => profile }, navigate: (page: string) => destinations.push(page) }) as AppComponent;
+    component.restoreHowToLocation(); assert.equal(component.page(), 'signin');
+    profile = { id: 'player' }; component.returnToSharedOrGames(); assert.equal(destinations.pop(), 'profile');
+    component.restoreHowToLocation(); assert.equal(component.page(), 'profile');
+  } finally { if (descriptor) Object.defineProperty(globalThis, 'window', descriptor); else Reflect.deleteProperty(globalThis, 'window'); }
+});
+
+test('App Settings loads and saves revisioned values only for administrators', async () => {
+  let role = 'ADMINISTRATOR', gets = 0, patches = 0, conflict = false; const requests: any[] = [];
+  const values = { dailyLimit: 100, monthlyLimit: 3000, digestStartHour: 23, digestDailyLimit: 80, urgentReserve: 5, batchSize: 50, intervalMs: 1100 };
+  const result = { values, revision: 3, configured: true, updatedAt: new Date().toISOString() };
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => ({ role }) } }, { provide: HttpClient, useValue: {
+    get: () => { gets++; return of(result); }, patch: (_url: string, body: any) => { patches++; requests.push(body); return conflict ? throwError(() => new HttpErrorResponse({ status: 409, error: { message: 'Another administrator updated these settings.' } })) : of({ ...result, values: body.values, revision: body.revision + 1 }); }
+  } }] });
+  try {
+    const component = runInInjectionContext(injector, () => new AppSettingsComponent());
+    await component.load(); assert.equal(component.revision, 3); assert.equal(component.values.urgentReserve, 5);
+    component.values.urgentReserve = 12; await component.save({ invalid: false } as any);
+    assert.equal(requests[0].revision, 3); assert.equal(requests[0].values.urgentReserve, 12); assert.equal(component.revision, 4); assert.match(component.notice(), /next runs/);
+    conflict = true; component.values.dailyLimit = 90; await component.save({ invalid: false } as any);
+    assert.equal(component.values.dailyLimit, 90); assert.equal(component.revision, 4); assert.match(component.error(), /Another administrator/);
+    let touched = false; await component.save({ invalid: true, control: { markAllAsTouched: () => { touched = true; } } } as any); assert.equal(touched, true); assert.equal(patches, 2);
+    role = 'ORGANIZER'; await component.load(); await component.save({ invalid: false } as any); assert.equal(gets, 1); assert.equal(patches, 2);
+  } finally { injector.destroy(); }
+});
+test('workspace settings shortcut is admin-only and does not change event history filters', () => {
+  let role = 'ORGANIZER'; const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => ({ id: 'owner', role }) } }, { provide: HttpClient, useValue: {} }] });
+  try {
+    const component = runInInjectionContext(injector, () => new OrganizerComponent()); component.load = async () => {};
+    component.selectShortcut('settings'); assert.equal(component.view(), 'events');
+    role = 'ADMINISTRATOR'; const previous = component.eventHistory; component.selectShortcut('settings'); assert.equal(component.view(), 'settings'); assert.equal(component.eventHistory, previous);
+    component.selectSection('events'); assert.equal(component.view(), 'events');
+  } finally { injector.destroy(); }
+});
+
+test('notification rule table filters, selects and bulk-edits hidden rows then saves all rules', async () => {
+  const catalog: any[] = [{ kind: 'EVENT_CANCELLED', name: 'Event cancelled', message: 'The event was cancelled.', trigger: 'Organizer cancels', audience: 'Players', defaultTier: 'URGENT' }, { kind: 'STRIKE_CLEARED', name: 'Strike cleared', message: 'A strike has been cleared.', trigger: 'Payment received', audience: 'Players', defaultTier: 'ROUTINE' }];
+  let role = 'ADMINISTRATOR', request: any;
+  const response = { catalog, rules: { EVENT_CANCELLED: 'URGENT', STRIKE_CLEARED: 'ROUTINE' }, revision: 2, updatedAt: null };
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => ({ role }) } }, { provide: HttpClient, useValue: {
+    get: () => of(response), patch: (_url: string, body: any) => { request = body; return of({ ...response, rules: body.rules, revision: 3 }); }
+  } }] });
+  try {
+    const component = runInInjectionContext(injector, () => new AppSettingsComponent()); await component.loadRules();
+    component.ruleSearch = 'payment'; assert.equal(component.filteredRules().length, 1); assert.equal(component.activeRuleFilters(), 1);
+    component.selectVisible(true); component.clearRuleFilters(); component.tierFilter = 'URGENT'; assert.equal(component.filteredRules()[0].kind, 'EVENT_CANCELLED');
+    component.bulkTier = 'IN_APP'; component.applyBulkTier(); assert.equal(component.rules.STRIKE_CLEARED, 'IN_APP'); assert.equal(component.changedRules(), 1);
+    await component.saveRules(); assert.equal(request.revision, 2); assert.equal(request.rules.EVENT_CANCELLED, 'URGENT'); assert.equal(request.rules.STRIKE_CLEARED, 'IN_APP'); assert.equal(component.rulesRevision, 3);
+    role = 'ORGANIZER'; request = null; await component.saveRules(); assert.equal(request, null);
+  } finally { injector.destroy(); }
+});
+
+test('event preset chooser loads private settings and player modes but always clears dates', async () => {
+  const calls: any[] = [];
+  const detail = { id: 'preset', name: 'Friday repeat', settings: { title: 'Soccer repeat', locationId: 'venue', priceCents: 1250, organizerVenmoUrl: null, organizerContactPhone: null, teamCount: 3, coOrganizerIds: ['co'], isPrivate: true, minimumSkillLevel: 3, maximumSkillLevel: null, initialPlayers: [], startsAt: 'old date', endsAt: 'old date', status: 'PUBLISHED' }, players: [{ id: 'player', displayName: 'Player', accountName: 'Player', mode: 'BOOK' }], organizers: [{ id: 'co', displayName: 'Co', accountName: 'Co' }], warnings: ['Review current player eligibility.'] };
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => ({ id: 'owner', role: 'ORGANIZER' }) } }, { provide: HttpClient, useValue: {
+    get: (url: string) => of(url === '/api/organizer/event-presets' ? [{ id: 'preset', name: detail.name }] : url.endsWith('/event-presets/preset') ? detail : []),
+    post: (url: string, body: any) => { calls.push({ url, body }); return of({ id: 'new-event' }); }
+  } }] });
+  try {
+    const component = runInInjectionContext(injector, () => new OrganizerComponent());
+    await component.toggleCreateForm(); assert.equal(component.choosingPreset(), true); assert.equal(component.showEventForm(), false);
+    component.selectedPresetId = 'preset'; await component.usePreset();
+    assert.equal(component.event.startsAt, ''); assert.equal(component.event.endsAt, ''); assert.equal(component.event.status, 'DRAFT'); assert.equal(component.event.price, '12.50'); assert.equal(component.paymentUsername('venmo'), ''); assert.equal(component.event.organizerContactPhone, '');
+    assert.equal(component.event.isPrivate, true); assert.equal(component.skillThreshold, 3); assert.equal(component.selectedPlayers()[0].mode, 'BOOK'); assert.equal(component.selectedOrganizers()[0].id, 'co');
+    assert.equal(component.showEventForm(), true); assert.equal(calls.length, 0);
+    component.event.startsAt = new Date(Date.now() + 86400000).toISOString(); component.event.endsAt = new Date(Date.now() + 90000000).toISOString();
+    await component.createEvent(); assert.equal(component.choosingStatus(), true);
+    component.saveAsPreset = true; component.presetName = 'Next Friday'; await component.confirmCreation('DRAFT');
+    assert.equal(calls.length, 1); assert.equal(calls[0].body.createPresetName, 'Next Friday'); assert.equal(calls[0].body.status, 'DRAFT');
+    assert.deepEqual(calls[0].body.initialPlayers, [{ userId: 'player', mode: 'BOOK' }]); assert.equal(component.showEventForm(), false);
+  } finally { injector.destroy(); }
+});
+test('preset loading is optional and failed event/preset saves preserve the form for correction', async () => {
+  let posts = 0;
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => ({ id: 'owner', role: 'ORGANIZER' }) } }, { provide: HttpClient, useValue: {
+    get: () => throwError(() => new HttpErrorResponse({ status: 500, error: { message: 'Presets unavailable' } })),
+    post: () => { posts++; return throwError(() => new HttpErrorResponse({ status: 409, error: { message: 'You already have a preset with this name.' } })); }
+  } }] });
+  try {
+    const component = runInInjectionContext(injector, () => new OrganizerComponent()); await component.toggleCreateForm(); assert.match(component.presetError(), /unavailable/);
+    component.continueWithoutPreset(); assert.equal(component.showEventForm(), true);
+    component.event.title = 'Retain me'; component.event.startsAt = new Date(Date.now() + 86400000).toISOString(); component.event.endsAt = new Date(Date.now() + 90000000).toISOString();
+    await component.createEvent(); component.saveAsPreset = true; component.presetName = ''; await component.confirmCreation('PUBLISHED'); assert.equal(posts, 0);
+    component.presetName = 'Duplicate'; await component.confirmCreation('PUBLISHED'); assert.equal(posts, 1); assert.equal(component.event.title, 'Retain me'); assert.equal(component.choosingStatus(), true); assert.match(component.error(), /already have a preset/);
+  } finally { injector.destroy(); }
+});
+
+test('action errors follow the last button in a component, preserve descriptions and clean up', () => {
+  const dom = new JSDOM('<app-demo><p role="alert">Original alert</p><span id="help">Help</span><button aria-describedby="help">Save A</button><button>Save B</button></app-demo>');
+  const buttons = dom.window.document.querySelectorAll('button');
+  const make = (button: Element) => { const injector = Injector.create({ providers: [{ provide: ElementRef, useValue: new ElementRef(button) }] }); return { injector, directive: runInInjectionContext(injector, () => new ActionErrorDirective()) }; };
+  const a = make(buttons[0]), b = make(buttons[1]);
+  try {
+    a.directive.activate(); a.directive.error = 'First API failure'; a.directive.ngOnChanges();
+    const first = buttons[0].nextElementSibling!; assert.equal(first.textContent, 'First API failure'); assert.ok(buttons[0].getAttribute('aria-describedby')!.startsWith('help '));
+    assert.equal(dom.window.document.querySelectorAll('[role="alert"]').length, 1);
+    b.directive.activate(); b.directive.error = 'Second API failure'; b.directive.ngOnChanges();
+    assert.equal(buttons[0].getAttribute('aria-describedby'), 'help'); assert.equal(dom.window.document.querySelectorAll('.action-feedback').length, 1); assert.equal(buttons[1].nextElementSibling!.textContent, 'Second API failure');
+    b.directive.error = ''; b.directive.ngOnChanges(); assert.equal(dom.window.document.querySelectorAll('.action-feedback').length, 0);
+  } finally { a.directive.ngOnDestroy(); b.directive.ngOnDestroy(); a.injector.destroy(); b.injector.destroy(); dom.window.close(); }
+});
+test('invalid forms show feedback at Submit, expand hidden fields and block work until corrected', async () => {
+  const dom = new JSDOM('<app-demo><form><details><label>Email<input name="email" type="email" required></label></details><button type="submit">Save</button></form></app-demo>');
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'HTMLButtonElement');
+  Object.defineProperty(globalThis, 'HTMLButtonElement', { configurable: true, value: dom.window.HTMLButtonElement });
+  const form = dom.window.document.querySelector('form')!, button = form.querySelector('button')!, field = form.querySelector('input')!;
+  let touched = false, submitted = 0; const fake = { invalid: true, form: { markAllAsTouched: () => { touched = true; } } };
+  const injector = Injector.create({ providers: [{ provide: ElementRef, useValue: new ElementRef(form) }, { provide: NgForm, useValue: fake }] });
+  const directive = runInInjectionContext(injector, () => new FormFeedbackDirective());
+  form.addEventListener('submit', () => { submitted++; });
+  try {
+    const invalid = new dom.window.Event('submit', { bubbles: true, cancelable: true }); form.dispatchEvent(invalid);
+    assert.equal(invalid.defaultPrevented, true); assert.equal(submitted, 0); assert.equal(touched, true); assert.equal(form.querySelector('details')!.open, true);
+    assert.ok(button.nextElementSibling!.classList.contains('action-feedback')); assert.match(button.nextElementSibling!.textContent!, /Email/);
+    field.value = 'player@example.test'; fake.invalid = false; field.dispatchEvent(new dom.window.Event('input', { bubbles: true })); await Promise.resolve();
+    assert.equal(form.querySelector('.action-feedback'), null); form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })); assert.equal(submitted, 1);
+  } finally { directive.ngOnDestroy(); injector.destroy(); if (descriptor) Object.defineProperty(globalThis, 'HTMLButtonElement', descriptor); else Reflect.deleteProperty(globalThis, 'HTMLButtonElement'); dom.window.close(); }
+});
+test('Users pagination replaces pages, preserves applied filters and resets for filter changes', async () => {
+  const calls: any[] = [];
+  const injector = Injector.create({ providers: [{ provide: AuthService, useValue: { profile: () => ({ role: 'ADMINISTRATOR' }) } }, { provide: HttpClient, useValue: { get: (_url: string, options: any) => {
+    calls.push(options.params); const page = Number(options.params.page); return of({ items: [{ id: 'user-' + page, role: 'PLAYER', adminSkillLevel: null }], totalCount: 60, pendingCount: 0, nextCursor: 'cursor', page, pageSize: Number(options.params.pageSize), totalPages: Math.ceil(60 / Number(options.params.pageSize)) });
+  } } }] });
+  try {
+    const component = runInInjectionContext(injector, () => new AdminUsersComponent()); component.search = 'Alice'; await component.load(); assert.equal(component.page(), 1);
+    component.search = 'unapplied'; await component.load(true, 2); assert.equal(component.users().length, 1); assert.equal(component.users()[0].id, 'user-2'); assert.equal(calls[1].search, 'Alice'); assert.equal(component.rangeStart(), 26);
+    await component.load(); assert.equal(component.page(), 1); assert.equal(calls[2].search, 'unapplied');
+    component.pageSize = 10; await component.load(true, 1); assert.equal(calls[3].pageSize, '10'); assert.equal(component.totalPages(), 6);
+  } finally { injector.destroy(); }
 });

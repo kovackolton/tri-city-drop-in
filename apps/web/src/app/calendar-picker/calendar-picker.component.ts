@@ -11,12 +11,12 @@ export class CalendarPickerComponent implements OnChanges {
   hasGame(date: string) { return this.markedDates().has(date); }
   mobileOpen = false;
   month = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-  readonly weekdays = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  readonly weekdays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
   ngOnChanges(changes?: SimpleChanges) { if (changes && !changes['selection']) return; const date = new Date(this.selection.date + 'T12:00:00'); if (Number.isFinite(date.getTime())) this.month = new Date(date.getFullYear(), date.getMonth(), 1); }
   title() { return this.month.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); }
   move(amount: number) { this.month = new Date(this.month.getFullYear(), this.month.getMonth() + amount, 1); }
   days() {
-    const start = new Date(this.month); start.setDate(1 - (start.getDay() + 6) % 7);
+    const start = new Date(this.month); start.setDate(1 - start.getDay());
     return Array.from({ length: 42 }, (_, index) => { const date = new Date(start); date.setDate(date.getDate() + index); return { key: calendarDate(date), day: date.getDate(), outside: date.getMonth() !== this.month.getMonth(), label: date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) }; });
   }
   selected(key: string) { return this.selection.period !== 'all' && matchesCalendar(key + 'T12:00:00Z', 'UTC', this.selection); }
