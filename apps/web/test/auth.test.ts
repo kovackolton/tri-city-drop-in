@@ -63,6 +63,37 @@ test('unverified existing sessions do not request app profiles and can resend em
   await service.refreshProfile(); await service.checkVerification(); await service.resendVerification();
   assert.deepEqual(calls.map(c => c.name), ['reload', 'verify']); assert.equal(service.ready(), true);
 });
+
+test('checking without completing verification stays blocked, including after an expired link', async () => {
+  // An unused or expired action link leaves Firebase emailVerified false.
+  const { service, emit, user, calls } = setup(); emit(user);
+  await service.checkVerification(); await service.checkVerification();
+  assert.deepEqual(calls.map(c => c.name), ['reload', 'reload']);
+  assert.equal(service.needsVerification(), true);
+  assert.equal(service.profile(), null);
+  assert.match(service.notice(), /not verified.*expired.*Resend verification email/);
+  assert.equal(service.busy(), false);
+});
+
+test('failed Firebase verification reload does not unlock the profile', async () => {
+  const { service, sdk, emit, user, calls } = setup(); emit(user);
+  sdk.reload = async () => { throw { code: 'auth/network-request-failed' }; };
+  await service.checkVerification();
+  assert.equal(service.needsVerification(), true);
+  assert.equal(service.profile(), null);
+  assert.equal(calls.length, 0);
+  assert.match(service.error(), /Check your connection/);
+  assert.equal(service.busy(), false);
+});
+
+test('signing out during verification reload cannot restore the account or request a profile', async () => {
+  const { service, sdk, emit, user, calls } = setup(); emit(user);
+  sdk.reload = async () => { user.emailVerified = true; emit(null); };
+  await service.checkVerification();
+  assert.equal(service.firebaseUser(), null);
+  assert.equal(service.profile(), null);
+  assert.equal(calls.length, 0);
+});
 test('verification email failure leaves a recoverable signed-in account', async () => {
   const { service, sdk } = setup();
   sdk.sendEmailVerification = async () => { throw { code: 'auth/network-request-failed' }; };

@@ -143,7 +143,7 @@ export class AuthService {
       await this.sdk.reload(user);
       if (auth.currentUser?.uid !== user.uid) return;
       this.firebaseUser.set(user);
-      if (!user.emailVerified) { this.notice.set('Your email is not verified yet. Open the link in your email, then try again.'); return; }
+      if (!user.emailVerified) { this.notice.set('Your email is not verified yet. Complete verification using the link in your email, then check again. If the link expired or failed, select Resend verification email and use the new link.'); return; }
       await user.getIdToken(true);
       if (auth.currentUser?.uid === user.uid) await this.refreshProfile();
     });
