@@ -76,10 +76,10 @@
             @if (auth.needsVerification()) {
               <section class="panel" aria-labelledby="verification-heading">
                 <h1 id="verification-heading" class="text-2xl font-bold">Verify your email</h1>
-                <p class="mt-3">Open the verification link sent to {{ auth.firebaseUser()?.email }} before joining games.</p>
+                <p class="mt-3">Complete verification using the link sent to {{ auth.firebaseUser()?.email }} before joining games. Then check your verification status here. If the link expired or failed, resend the verification email and use the new link.</p>
                 <br>
                 <p><b>Check your Junk/Spam folder!!!</b></p>
-                <div class="flex flex-wrap gap-3 mt-5"><button class="primary" [disabled]="auth.busy()" (click)="auth.checkVerification()">I've verified my email</button><button class="secondary" [disabled]="auth.busy()" (click)="auth.resendVerification()">Resend verification email</button></div>
+                <div class="flex flex-wrap gap-3 mt-5"><button class="primary" [disabled]="auth.busy()" (click)="auth.checkVerification()">Check verification status</button><button class="secondary" [disabled]="auth.busy()" (click)="auth.resendVerification()">Resend verification email</button></div>
               </section>
             } @else if (!auth.firebaseUser()) { <app-sign-in /> }
             @else if (!auth.error()) { <p role="status" class="notice">Finishing sign-in...</p> }
